@@ -1,0 +1,18 @@
+{
+    "LivingRoom": {
+        "relay_pin": 23,
+        "temp_pin": 4,
+        "temp_id": "28-00000ab12345"
+    },
+    "Bedroom": {
+        "relay_pin": 24,
+        "temp_pin": 5,
+        "temp_id": "28-00000ab12346",
+        "extra_sensor": "http://192.168.1.100/temperature"
+    },
+    "Bathroom": {
+        "relay_pin": 25,
+        "temp_pin": 6,
+        "temp_id": "28-00000ab12347"
+    }
+}

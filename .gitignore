@@ -1,0 +1,34 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Configuration (contains sensitive data)
+config/config.json
+config/accessory.state
+*.state
+
+# Logs
+*.log
+
+# Environment
+.env
+.env.local
+
+# Docker volumes
+redis-data/
+prometheus-data/
+grafana-data/
+
+# Test artifacts
+tarpaulin-report.html
+cobertura.xml

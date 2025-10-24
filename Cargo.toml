@@ -1,0 +1,73 @@
+[package]
+name = "thermos-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["Thermos Contributors"]
+description = "Multi-zone HomeKit thermostat system using Matter protocol"
+license = "MIT"
+repository = "https://github.com/yourusername/thermos-rust"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+futures = "0.3"
+
+# Matter protocol (using rs-matter - open-source Matter stack)
+# Note: rs-matter is optional and can be commented out for local development
+# rs-matter = { git = "https://github.com/project-chip/rs-matter.git", optional = true }
+
+# GPIO and hardware interface
+rppal = "0.17"  # Raspberry Pi GPIO library
+
+# Async trait support
+async-trait = "0.1"
+
+# Lazy static for global metrics
+lazy_static = "1.4"
+
+# Configuration and serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Redis client
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
+# Prometheus metrics
+prometheus = { version = "0.13", features = ["process"] }
+prometheus-hyper = "0.1"
+
+# HTTP client for extra sensors
+reqwest = { version = "0.11", features = ["json"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Signal handling
+tokio-util = "0.7"
+signal-hook = "0.3"
+signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+
+# Time utilities
+chrono = "0.4"
+
+[dev-dependencies]
+mockall = "0.12"
+tokio-test = "0.4"
+tempfile = "3.8"
+pretty_assertions = "1.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true

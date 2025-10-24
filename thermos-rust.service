@@ -1,0 +1,36 @@
+[Unit]
+Description=Thermos-Rust Multi-Zone Thermostat
+Documentation=https://github.com/yourusername/thermos-rust
+After=network-online.target redis.service
+Wants=network-online.target
+Requires=redis.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/thermos-rust
+ExecStart=/opt/thermos-rust/thermos-rust
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=thermos-rust
+
+# Environment
+Environment="RUST_LOG=info"
+Environment="RUST_BACKTRACE=1"
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security settings (adjust as needed)
+# PrivateTmp=yes
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=yes
+# ReadWritePaths=/opt/thermos-rust/config
+
+[Install]
+WantedBy=multi-user.target
