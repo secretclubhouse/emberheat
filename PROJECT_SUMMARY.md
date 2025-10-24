@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Thermos-Rust** is a complete rewrite of the Thermos Python thermostat system in Rust, featuring Matter protocol support for modern smart home integration.
+**Thermos-Rust** is a complete rewrite of the [Thermos](https://github.com/truncj/thermos) Python thermostat system in Rust, featuring Matter protocol support for modern smart home integration.
 
 ### Key Improvements Over Python Version
 
@@ -336,21 +336,21 @@ sudo ./target/release/thermos-rust
 
 ## Future Roadmap
 
-### Phase 1: Stabilization (Q1 2024)
+### Phase 1: Stabilization (Q1 2026)
 
 - [ ] Complete Matter stack integration
 - [ ] Comprehensive hardware testing
 - [ ] Performance optimization
 - [ ] Security audit
 
-### Phase 2: Features (Q2 2024)
+### Phase 2: Features (Q2 2026)
 
 - [ ] Web UI for configuration
 - [ ] Mobile app integration
 - [ ] Advanced scheduling
 - [ ] Energy tracking
 
-### Phase 3: Expansion (Q3-Q4 2024)
+### Phase 3: Expansion (Q3-Q4 2026)
 
 - [ ] Machine learning predictions
 - [ ] Weather API integration
@@ -384,7 +384,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Links
 
-- **Repository**: https://github.com/yourusername/thermos-rust
+- **Repository**: https://github.com/josht/thermos-rust
 - **Documentation**: See `/docs` directory
 - **Issues**: GitHub Issues
 - **Discussions**: GitHub Discussions

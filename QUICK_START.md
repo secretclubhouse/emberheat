@@ -288,7 +288,7 @@ Then rebuild and reinstall.
 - **Logs**: `sudo journalctl -u thermos-rust -f`
 - **Metrics**: `curl http://localhost:8080/metrics`
 - **Redis**: `redis-cli` then `KEYS thermostat:*`
-- **Issues**: https://github.com/yourusername/thermos-rust/issues
+- **Issues**: https://github.com/josht/thermos-rust/issues
 
 ## Success!
 

@@ -1,6 +1,6 @@
 [Unit]
 Description=Thermos-Rust Multi-Zone Thermostat
-Documentation=https://github.com/yourusername/thermos-rust
+Documentation=https://github.com/josht/thermos-rust
 After=network-online.target redis.service
 Wants=network-online.target
 Requires=redis.service

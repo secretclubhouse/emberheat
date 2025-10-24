@@ -194,7 +194,7 @@ make test-coverage
 
 ### Bug Fixes
 
-Check the [Issues](https://github.com/yourusername/thermos-rust/issues) page for known bugs.
+Check the [Issues](https://github.com/josht/thermos-rust/issues) page for known bugs.
 
 ## Specific Guidelines
 
@@ -256,7 +256,7 @@ Releases follow semantic versioning (MAJOR.MINOR.PATCH):
 
 ## Questions?
 
-- Open an [Issue](https://github.com/yourusername/thermos-rust/issues) for questions
+- Open an [Issue](https://github.com/josht/thermos-rust/issues) for questions
 - Check existing issues and PRs first
 - Be patient - this is maintained by volunteers
 

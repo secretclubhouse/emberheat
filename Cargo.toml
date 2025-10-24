@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["Thermos Contributors"]
 description = "Multi-zone HomeKit thermostat system using Matter protocol"
 license = "MIT"
-repository = "https://github.com/yourusername/thermos-rust"
+repository = "https://github.com/josht/thermos-rust"
 
 [dependencies]
 # Async runtime

@@ -2,7 +2,7 @@
 
 A multi-zone HomeKit thermostat system for hydronic heating, written in Rust with Matter protocol support.
 
-This is a Rust reimplementation of the [Thermos](../README.md) Python project, offering improved performance, memory safety, and Matter/Thread protocol integration for modern smart home ecosystems.
+This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and Matter/Thread protocol integration for modern smart home ecosystems.
 
 ## Features
 
@@ -101,7 +101,7 @@ sudo raspi-config
 
 ```bash
 # Clone the repository
-cd thermos/thermos-rust
+cd thermos-rust
 
 # Build release version
 cargo build --release
@@ -535,7 +535,7 @@ MIT License - see LICENSE file for details
 
 ## Acknowledgments
 
-- Original Python implementation: [Thermos](../README.md)
+- Original Python implementation: [Thermos](https://github.com/truncj/thermos)
 - Matter protocol: [Project CHIP](https://github.com/project-chip/connectedhomeip)
 - Rust Matter stack: [rs-matter](https://github.com/project-chip/rs-matter)
 - GPIO library: [rppal](https://github.com/golemparts/rppal)
@@ -544,7 +544,7 @@ MIT License - see LICENSE file for details
 
 For issues and questions:
 
-- GitHub Issues: [Report a bug](https://github.com/yourusername/thermos-rust/issues)
+- GitHub Issues: [Report a bug](https://github.com/josht/thermos-rust/issues)
 - Documentation: [Full API docs](https://docs.rs/thermos-rust)
 
 ## Roadmap
