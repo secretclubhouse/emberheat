@@ -31,7 +31,7 @@
 use anyhow::Context;
 use anyhow::Result;
 #[cfg(target_os = "linux")]
-use rppal::gpio::{Gpio, InputPin, Level, Mode, OutputPin, Pin, PullUpDown};
+use rppal::gpio::{Gpio, InputPin, Level, Mode, OutputPin, Pin};
 #[cfg(target_os = "linux")]
 use std::collections::HashMap;
 #[cfg(target_os = "linux")]
