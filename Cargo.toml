@@ -16,9 +16,6 @@ futures = "0.3"
 # Note: rs-matter is optional and can be commented out for local development
 # rs-matter = { git = "https://github.com/project-chip/rs-matter.git", optional = true }
 
-# GPIO and hardware interface
-rppal = "0.17"  # Raspberry Pi GPIO library
-
 # Async trait support
 async-trait = "0.1"
 
@@ -54,7 +51,11 @@ signal-hook = "0.3"
 signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 
 # Time utilities
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Platform-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+rppal = "0.17"  # Raspberry Pi GPIO library (Linux only)
 
 [dev-dependencies]
 mockall = "0.12"

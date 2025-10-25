@@ -50,7 +50,9 @@
 //! ```
 
 use crate::devices::Thermostat;
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[cfg(target_os = "linux")]
+use anyhow::Context;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};

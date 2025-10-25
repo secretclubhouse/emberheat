@@ -39,12 +39,12 @@
 
 use anyhow::{Context, Result};
 use redis::aio::ConnectionManager;
-use redis::{AsyncCommands, RedisError};
+use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 /// Persistence errors
 #[derive(Error, Debug)]
@@ -172,7 +172,7 @@ impl StateManager {
 
         let mut conn = self.connection.lock().await;
 
-        conn.set(&key, json)
+        conn.set::<_, _, ()>(&key, json)
             .await
             .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
 
@@ -223,7 +223,7 @@ impl StateManager {
 
         let mut conn = self.connection.lock().await;
 
-        conn.del(&key)
+        conn.del::<_, ()>(&key)
             .await
             .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
 

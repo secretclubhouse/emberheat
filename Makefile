@@ -2,15 +2,28 @@
 
 .PHONY: help build build-release test clean run docker-build docker-run fmt lint check install
 
+# Detect operating system
+UNAME_S := $(shell uname -s)
+
 # Default target
 help:
 	@echo "Thermos-Rust Build System"
 	@echo ""
+	@echo "Detected OS: $(UNAME_S)"
+ifeq ($(UNAME_S),Linux)
+	@echo "Platform: Linux (full hardware support available)"
+else
+	@echo "Platform: $(UNAME_S) (mock tests only)"
+endif
+	@echo ""
 	@echo "Available targets:"
 	@echo "  build          - Build debug binary"
 	@echo "  build-release  - Build optimized release binary"
-	@echo "  test           - Run all tests"
+	@echo "  test           - Run tests (auto-detects platform)"
+	@echo "  test-mock      - Run mock tests only (works on all platforms)"
+	@echo "  test-all       - Run all tests (requires Linux/Raspberry Pi)"
 	@echo "  test-verbose   - Run tests with output"
+	@echo "  status         - Show platform and test capabilities"
 	@echo "  clean          - Remove build artifacts"
 	@echo "  run            - Run the application (debug)"
 	@echo "  run-release    - Run the application (release)"
@@ -21,6 +34,44 @@ help:
 	@echo "  check          - Check code without building"
 	@echo "  install        - Install to system"
 	@echo "  docs           - Generate documentation"
+	@echo ""
+	@echo "Workflows:"
+	@echo "  dev            - Format, lint, and test"
+	@echo "  ci             - CI checks with mock tests"
+	@echo "  ci-full        - CI checks with all tests (Linux only)"
+	@echo "  release        - Full release build"
+
+status:
+	@echo "Platform Status"
+	@echo "==============="
+	@echo ""
+	@echo "Operating System: $(UNAME_S)"
+ifeq ($(UNAME_S),Linux)
+	@echo "Hardware Support: FULL (Raspberry Pi GPIO, real sensors)"
+	@echo "Test Mode: All tests will run (including hardware)"
+	@echo ""
+	@echo "Available:"
+	@echo "  ✓ Mock tests"
+	@echo "  ✓ Hardware GPIO tests"
+	@echo "  ✓ Real sensor tests"
+	@echo "  ✓ Full integration tests"
+else
+	@echo "Hardware Support: MOCK ONLY (cross-platform development)"
+	@echo "Test Mode: Mock tests only (hardware tests skipped)"
+	@echo ""
+	@echo "Available:"
+	@echo "  ✓ Mock tests"
+	@echo "  ✗ Hardware GPIO tests (requires Linux)"
+	@echo "  ✗ Real sensor tests (requires Linux)"
+	@echo "  ⚠ Integration tests (using mocks)"
+	@echo ""
+	@echo "To run hardware tests, use Linux/Raspberry Pi or Docker"
+endif
+	@echo ""
+	@echo "Recommended commands:"
+	@echo "  make test      - Auto-detect and run appropriate tests"
+	@echo "  make test-mock - Always run mock tests (cross-platform)"
+	@echo "  make dev       - Run development checks"
 
 # Build targets
 build:
@@ -38,10 +89,31 @@ build-arm64:
 
 # Test targets
 test:
+ifeq ($(UNAME_S),Linux)
+	@echo "Linux detected - running all tests"
+	cargo test
+else
+	@echo "Non-Linux platform ($(UNAME_S)) detected - running mock tests only"
+	@echo "Note: Full hardware tests require Linux/Raspberry Pi"
+	cargo test --test mock_integration_tests
+endif
+
+test-mock:
+	@echo "Running mock tests (cross-platform)"
+	cargo test --test mock_integration_tests
+
+test-all:
+	@echo "Running all tests (requires Linux/Raspberry Pi hardware)"
 	cargo test
 
 test-verbose:
+ifeq ($(UNAME_S),Linux)
+	@echo "Running all tests with output"
 	cargo test -- --nocapture
+else
+	@echo "Running mock tests with output"
+	cargo test --test mock_integration_tests -- --nocapture
+endif
 
 test-coverage:
 	cargo tarpaulin --out Html --output-dir coverage
@@ -113,13 +185,25 @@ install-service:
 
 # Development workflow
 dev: fmt lint test
-	@echo "Development checks complete!"
+	@echo ""
+	@echo "✓ Development checks complete!"
+	@echo "  Platform: $(UNAME_S)"
 
 # Release workflow
 release: clean fmt lint test build-release
-	@echo "Release build complete!"
-	@echo "Binary at: target/release/thermos-rust"
+	@echo ""
+	@echo "✓ Release build complete!"
+	@echo "  Platform: $(UNAME_S)"
+	@echo "  Binary at: target/release/thermos-rust"
 
-# CI workflow
-ci: fmt check lint test
-	@echo "CI checks complete!"
+# CI workflow (uses mock tests for cross-platform CI)
+ci: fmt check lint test-mock
+	@echo ""
+	@echo "✓ CI checks complete!"
+	@echo "  Platform: $(UNAME_S)"
+
+# CI workflow for Linux/Raspberry Pi (runs all tests)
+ci-full: fmt check lint test-all
+	@echo ""
+	@echo "✓ Full CI checks complete (with hardware tests)!"
+	@echo "  Platform: $(UNAME_S)"

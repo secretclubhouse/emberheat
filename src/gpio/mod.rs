@@ -27,9 +27,14 @@
 //! }
 //! ```
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[cfg(target_os = "linux")]
+use anyhow::Context;
+#[cfg(target_os = "linux")]
 use rppal::gpio::{Gpio, InputPin, Level, Mode, OutputPin, Pin, PullUpDown};
+#[cfg(target_os = "linux")]
 use std::collections::HashMap;
+#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::{debug, info};
@@ -56,6 +61,8 @@ pub enum RelayState {
     Off,
 }
 
+// Linux-specific implementation using rppal
+#[cfg(target_os = "linux")]
 impl From<RelayState> for Level {
     fn from(state: RelayState) -> Self {
         match state {
@@ -65,6 +72,7 @@ impl From<RelayState> for Level {
     }
 }
 
+#[cfg(target_os = "linux")]
 impl From<Level> for RelayState {
     fn from(level: Level) -> Self {
         match level {
@@ -75,10 +83,17 @@ impl From<Level> for RelayState {
 }
 
 /// VCC pin controller for sensor power cycling
+#[cfg(target_os = "linux")]
 pub struct VccController {
     pin: OutputPin,
 }
 
+#[cfg(not(target_os = "linux"))]
+pub struct VccController {
+    _phantom: std::marker::PhantomData<()>,
+}
+
+#[cfg(target_os = "linux")]
 impl VccController {
     /// Create a new VCC controller
     ///
@@ -127,7 +142,33 @@ impl VccController {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+impl VccController {
+    /// Create a new VCC controller (stub for non-Linux)
+    pub fn new(_gpio: &(), _pin_number: u8) -> Result<Self> {
+        info!("VCC controller stub initialized (non-Linux platform)");
+        Ok(Self { _phantom: std::marker::PhantomData })
+    }
+
+    /// Power cycle stub
+    pub async fn power_cycle(&mut self, down_time: std::time::Duration) {
+        info!("VCC power cycle stub (sleeping for {:?})", down_time);
+        tokio::time::sleep(down_time).await;
+    }
+
+    /// Power on stub
+    pub fn power_on(&mut self) {
+        debug!("VCC power on (stub)");
+    }
+
+    /// Power off stub
+    pub fn power_off(&mut self) {
+        debug!("VCC power off (stub)");
+    }
+}
+
 /// Relay controller for heating control
+#[cfg(target_os = "linux")]
 pub struct RelayController {
     /// Output pin for controlling the relay
     output_pin: OutputPin,
@@ -135,6 +176,13 @@ pub struct RelayController {
     pin_number: u8,
 }
 
+/// Stub relay controller for non-Linux platforms
+#[cfg(not(target_os = "linux"))]
+pub struct RelayController {
+    pin_number: u8,
+}
+
+#[cfg(target_os = "linux")]
 impl RelayController {
     /// Create a new relay controller
     ///
@@ -191,13 +239,40 @@ impl RelayController {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+impl RelayController {
+    pub fn new(_gpio: &(), pin_number: u8) -> Result<Self> {
+        Ok(Self { pin_number })
+    }
+
+    pub fn set_state(&mut self, _state: RelayState) -> Result<()> {
+        anyhow::bail!("Relay control not available on non-Linux platforms");
+    }
+
+    pub fn get_state(&self) -> RelayState {
+        RelayState::Off
+    }
+
+    pub fn pin_number(&self) -> u8 {
+        self.pin_number
+    }
+}
+
 /// Main GPIO controller managing all GPIO operations
+#[cfg(target_os = "linux")]
 pub struct GpioController {
     gpio: Gpio,
     relays: Arc<Mutex<HashMap<u8, RelayController>>>,
     vcc_controller: Arc<Mutex<Option<VccController>>>,
 }
 
+/// Stub GPIO controller for non-Linux platforms
+#[cfg(not(target_os = "linux"))]
+pub struct GpioController {
+    _phantom: std::marker::PhantomData<()>,
+}
+
+#[cfg(target_os = "linux")]
 impl GpioController {
     /// Create a new GPIO controller
     pub fn new() -> Result<Self> {
@@ -312,6 +387,46 @@ impl GpioController {
     }
 }
 
+#[cfg(target_os = "linux")]
+impl Drop for GpioController {
+    fn drop(&mut self) {
+        self.cleanup();
+    }
+}
+
+// Stub implementation for non-Linux platforms (tests only)
+#[cfg(not(target_os = "linux"))]
+impl GpioController {
+    pub fn new() -> Result<Self> {
+        anyhow::bail!("GPIO not available on non-Linux platforms. Use MockGpioController for testing.");
+    }
+
+    pub fn init_relay(&self, _pin_number: u8) -> Result<()> {
+        anyhow::bail!("GPIO not available on non-Linux platforms");
+    }
+
+    pub fn set_relay(&self, _pin_number: u8, _state: RelayState) -> Result<()> {
+        anyhow::bail!("GPIO not available on non-Linux platforms");
+    }
+
+    pub fn get_relay_state(&self, _pin_number: u8) -> Result<RelayState> {
+        anyhow::bail!("GPIO not available on non-Linux platforms");
+    }
+
+    pub fn init_vcc_controller(&self, _pin_number: u8) -> Result<()> {
+        anyhow::bail!("GPIO not available on non-Linux platforms");
+    }
+
+    pub async fn power_cycle_vcc(&self, _down_time: std::time::Duration) -> Result<()> {
+        anyhow::bail!("GPIO not available on non-Linux platforms");
+    }
+
+    pub fn cleanup(&self) {
+        // No-op on non-Linux
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
 impl Drop for GpioController {
     fn drop(&mut self) {
         self.cleanup();

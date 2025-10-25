@@ -484,6 +484,7 @@ RUST_LOG=trace ./thermos-rust
 ```
 
 This will show:
+
 - Detailed sensor readings
 - GPIO pin state changes
 - Redis operations
@@ -517,17 +518,72 @@ const HYSTERESIS_LOWER_THRESHOLD_C: f32 = -0.5; // Decrease for wider band
 Wider band = fewer relay cycles, larger temperature swings
 Narrower band = more relay cycles, tighter temperature control
 
+## Testing
+
+Thermos-Rust includes comprehensive test coverage with mock implementations that allow testing on non-Raspberry Pi hardware.
+
+### Running Tests
+
+```bash
+# Run all tests (requires Linux/Raspberry Pi for hardware tests)
+cargo test
+
+# Run mock-only tests (works on any platform including macOS/Windows)
+cargo test --test mock_integration_tests
+
+# Run specific test suites
+cargo test mock_gpio      # GPIO mock tests
+cargo test mock_sensor    # Sensor mock tests
+cargo test mock_state     # State manager mock tests
+cargo test hysteresis     # Hysteresis logic tests
+```
+
+### Mock Infrastructure
+
+The project includes three mock implementations for testing without hardware:
+
+- **MockGpioController**: Simulates GPIO operations without rppal
+- **MockTemperatureSensor**: Simulates temperature readings with configurable behavior
+- **MockStateManager**: In-memory state persistence without Redis
+
+For detailed testing documentation, see:
+
+- [TESTING.md](TESTING.md) - Comprehensive testing guide
+- [MOCKING_SUMMARY.md](MOCKING_SUMMARY.md) - Mock implementation details
+
+### Test Coverage
+
+| Component | Unit Tests | Mock Tests | Integration Tests |
+|-----------|------------|------------|-------------------|
+| GPIO      | 2 tests    | 4 tests    | ✓                 |
+| Sensors   | 5 tests    | 6 tests    | ✓                 |
+| State     | 5 tests    | 7 tests    | ✓                 |
+| Devices   | 2 tests    | -          | 50+ scenarios     |
+
 ## Contributing
 
 Contributions are welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch
-3. Write tests for new functionality
+3. Write tests for new functionality (use mocks for cross-platform tests)
 4. Ensure all tests pass: `cargo test`
 5. Format code: `cargo fmt`
 6. Run clippy: `cargo clippy`
 7. Submit a pull request
+
+### Development on Non-Raspberry Pi Hardware
+
+You can develop and test on macOS/Windows using the mock infrastructure:
+
+```bash
+# Development workflow without hardware
+cargo test --test mock_integration_tests
+cargo check  # Fast compilation check
+cargo clippy # Linting
+
+# Hardware tests will be skipped automatically on non-Linux platforms
+```
 
 ## License
 
