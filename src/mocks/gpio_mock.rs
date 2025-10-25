@@ -2,7 +2,6 @@
 
 use crate::gpio::{GpioError, RelayState};
 use anyhow::Result;
-use mockall::mock;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -102,11 +101,13 @@ impl MockGpioController {
     }
 
     /// Get all relay states (for testing)
+    #[allow(dead_code)]
     pub fn get_all_relay_states(&self) -> HashMap<u8, RelayState> {
         self.relays.lock().unwrap().clone()
     }
 
     /// Cleanup
+    #[allow(dead_code)]
     pub fn cleanup(&self) {
         let mut relays = self.relays.lock().unwrap();
         relays.clear();
@@ -171,9 +172,10 @@ mod tests {
 
         // Start power cycle in background
         let gpio_clone = gpio.clone();
-        let handle = tokio::spawn(async move {
-            gpio_clone.power_cycle_vcc(Duration::from_millis(50)).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { gpio_clone.power_cycle_vcc(Duration::from_millis(50)).await },
+            );
 
         // Wait a bit and check it's off
         tokio::time::sleep(Duration::from_millis(10)).await;

@@ -113,13 +113,13 @@ async fn main() -> Result<()> {
 
     info!("Loading configuration from: {:?}", config_path);
     let config = Config::load(&config_path).await?;
-    info!(
-        "Loaded configuration for {} zones",
-        config.zones.len()
-    );
+    info!("Loaded configuration for {} zones", config.zones.len());
 
     // Initialize Prometheus metrics server
-    info!("Starting Prometheus metrics server on port {}", DEFAULT_METRICS_PORT);
+    info!(
+        "Starting Prometheus metrics server on port {}",
+        DEFAULT_METRICS_PORT
+    );
     let metrics_server = MetricsServer::new(DEFAULT_METRICS_PORT)?;
     let metrics_handle = tokio::spawn(async move {
         if let Err(e) = metrics_server.run().await {
@@ -147,7 +147,10 @@ async fn main() -> Result<()> {
 
     info!("Thermostat bridge started successfully");
     info!("Matter server listening on port {}", DEFAULT_MATTER_PORT);
-    info!("Prometheus metrics available at http://localhost:{}/metrics", DEFAULT_METRICS_PORT);
+    info!(
+        "Prometheus metrics available at http://localhost:{}/metrics",
+        DEFAULT_METRICS_PORT
+    );
 
     // Main event loop
     let matter_handle = tokio::spawn(async move {

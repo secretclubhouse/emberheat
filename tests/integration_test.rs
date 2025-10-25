@@ -3,8 +3,8 @@
 //! These tests verify the end-to-end functionality of the thermostat system.
 //! Note: These tests require actual hardware or mocking for GPIO and sensors.
 
-use tempfile::NamedTempFile;
 use std::io::Write;
+use tempfile::NamedTempFile;
 
 /// Test configuration loading and validation
 #[tokio::test]
@@ -50,7 +50,10 @@ fn test_hysteresis_logic_simulation() {
     // Scenario 2: Temperature above upper bound - should turn OFF
     let current_temp = 21.6; // Above target + 0.5
     let should_heat = current_temp >= (target_temp + UPPER_THRESHOLD);
-    assert!(!should_heat, "Should not heat when temp is above upper bound");
+    assert!(
+        !should_heat,
+        "Should not heat when temp is above upper bound"
+    );
 
     // Scenario 3: Temperature in dead band - maintain state
     let current_temp = 21.0; // Exactly at target
@@ -63,21 +66,31 @@ fn test_hysteresis_logic_simulation() {
 #[test]
 fn test_temperature_conversions() {
     // Celsius to Fahrenheit
-    let celsius_values = vec![0.0, 20.0, 21.1, 100.0];
-    let expected_fahrenheit = vec![32.0, 68.0, 70.0, 212.0];
+    let celsius_values = [0.0, 20.0, 21.1, 100.0];
+    let expected_fahrenheit = [32.0, 68.0, 70.0, 212.0];
 
     for (c, expected_f) in celsius_values.iter().zip(expected_fahrenheit.iter()) {
-        let f = c * 9.0 / 5.0 + 32.0;
-        assert!((f - expected_f).abs() < 0.1, "{}°C should be {}°F", c, expected_f);
+        let f: f64 = c * 9.0 / 5.0 + 32.0;
+        assert!(
+            (f - expected_f).abs() < 0.1,
+            "{}°C should be {}°F",
+            c,
+            expected_f
+        );
     }
 
     // Fahrenheit to Celsius
-    let fahrenheit_values = vec![32.0, 68.0, 70.0, 212.0];
-    let expected_celsius = vec![0.0, 20.0, 21.1, 100.0];
+    let fahrenheit_values = [32.0, 68.0, 70.0, 212.0];
+    let expected_celsius = [0.0, 20.0, 21.1, 100.0];
 
     for (f, expected_c) in fahrenheit_values.iter().zip(expected_celsius.iter()) {
-        let c = (f - 32.0) * 5.0 / 9.0;
-        assert!((c - expected_c).abs() < 0.1, "{}°F should be {}°C", f, expected_c);
+        let c: f64 = (f - 32.0) * 5.0 / 9.0;
+        assert!(
+            (c - expected_c).abs() < 0.1,
+            "{}°F should be {}°C",
+            f,
+            expected_c
+        );
     }
 }
 
@@ -124,7 +137,11 @@ fn test_sensor_id_normalization() {
         } else {
             format!("28-{}", input)
         };
-        assert_eq!(normalized, expected, "Input '{}' should normalize to '{}'", input, expected);
+        assert_eq!(
+            normalized, expected,
+            "Input '{}' should normalize to '{}'",
+            input, expected
+        );
     }
 }
 
@@ -135,20 +152,20 @@ fn test_temperature_range_validation() {
     const MAX_VALID: f32 = 37.0;
 
     // Valid temperatures
-    let valid_temps = vec![3.0, 10.0, 20.0, 25.0, 37.0];
+    let valid_temps = [3.0, 10.0, 20.0, 25.0, 37.0];
     for temp in valid_temps {
         assert!(
-            temp >= MIN_VALID && temp <= MAX_VALID,
+            (MIN_VALID..=MAX_VALID).contains(&temp),
             "{}°C should be valid",
             temp
         );
     }
 
     // Invalid temperatures
-    let invalid_temps = vec![2.9, -5.0, 37.1, 50.0, 100.0];
+    let invalid_temps = [2.9, -5.0, 37.1, 50.0, 100.0];
     for temp in invalid_temps {
         assert!(
-            temp < MIN_VALID || temp > MAX_VALID,
+            !(MIN_VALID..=MAX_VALID).contains(&temp),
             "{}°C should be invalid",
             temp
         );
@@ -198,7 +215,7 @@ fn test_metric_labels() {
     let heat_status = if heat_on { "1" } else { "0" };
     assert_eq!(heat_status, "1");
 
-    let labels = vec![zone_name, heat_status];
+    let labels = [zone_name, heat_status];
     assert_eq!(labels.len(), 2);
     assert_eq!(labels[0], "Zone1");
     assert_eq!(labels[1], "1");

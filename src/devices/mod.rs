@@ -178,18 +178,19 @@ impl Thermostat {
             .context("Failed to initialize relay")?;
 
         // Load or create initial state
-        let initial_state = state_manager
-            .load_state(name)
-            .await?
-            .unwrap_or_else(|| ThermostatState {
-                relay_pin: config.relay_pin,
-                temp_pin: config.temp_pin,
-                temp_id: config.temp_id.clone(),
-                target_temp: DEFAULT_TARGET_TEMP_C,
-                target_state: HeatingState::Off.into(),
-                current_state: HeatingState::Off.into(),
-                last_updated: chrono::Utc::now(),
-            });
+        let initial_state =
+            state_manager
+                .load_state(name)
+                .await?
+                .unwrap_or_else(|| ThermostatState {
+                    relay_pin: config.relay_pin,
+                    temp_pin: config.temp_pin,
+                    temp_id: config.temp_id.clone(),
+                    target_temp: DEFAULT_TARGET_TEMP_C,
+                    target_state: HeatingState::Off.into(),
+                    current_state: HeatingState::Off.into(),
+                    last_updated: chrono::Utc::now(),
+                });
 
         info!(
             "Zone {} initial state - target: {:.1}°C, target_state: {:?}, current_state: {:?}",
@@ -225,7 +226,10 @@ impl Thermostat {
 
     /// Set target temperature (Celsius)
     pub async fn set_target_temp(&self, temp: f32) -> Result<()> {
-        info!("Zone {}: Setting target temperature to {:.1}°C", self.name, temp);
+        info!(
+            "Zone {}: Setting target temperature to {:.1}°C",
+            self.name, temp
+        );
 
         *self.target_temp.write().await = temp;
 
@@ -295,7 +299,11 @@ impl Thermostat {
             let reset_map = self.sensor_being_reset.read().await;
             if let Some(reset_time) = reset_map.get(sensor_id) {
                 let elapsed = reset_time.elapsed();
-                if elapsed < Duration::from_secs(POWER_CYCLE_DOWN_TIME_SECS + POWER_CYCLE_RECOVERY_TIME_SECS) {
+                if elapsed
+                    < Duration::from_secs(
+                        POWER_CYCLE_DOWN_TIME_SECS + POWER_CYCLE_RECOVERY_TIME_SECS,
+                    )
+                {
                     debug!(
                         "Zone {}: Sensor {} already being reset, skipping (elapsed: {:?})",
                         self.name, sensor_id, elapsed
@@ -339,7 +347,10 @@ impl Thermostat {
     async fn apply_control_logic(&self, current_temp_c: f32) {
         let target_temp_c = *self.target_temp.read().await;
         let target_state = *self.target_state.read().await;
-        let current_relay_state = self.gpio.get_relay_state(self.config.relay_pin).unwrap_or(RelayState::Off);
+        let current_relay_state = self
+            .gpio
+            .get_relay_state(self.config.relay_pin)
+            .unwrap_or(RelayState::Off);
 
         let new_relay_state = if target_state == HeatingState::Heat {
             // Hysteresis logic
@@ -460,7 +471,10 @@ impl ThermostatBridge {
     ///
     /// * `Result<Self>` - New bridge instance or error
     pub async fn new(config: Config) -> Result<Self> {
-        info!("Creating thermostat bridge with {} zones", config.zones.len());
+        info!(
+            "Creating thermostat bridge with {} zones",
+            config.zones.len()
+        );
 
         // Initialize GPIO controller
         let gpio = Arc::new(GpioController::new()?);

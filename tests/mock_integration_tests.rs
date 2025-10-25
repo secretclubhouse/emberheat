@@ -24,16 +24,24 @@ mod hysteresis_tests {
         let current_temp = 19.0;
         let lower_bound = target_temp + LOWER_THRESHOLD;
         let upper_bound = target_temp + UPPER_THRESHOLD;
-        assert!(current_temp <= lower_bound, "Should heat when below lower bound");
+        assert!(
+            current_temp <= lower_bound,
+            "Should heat when below lower bound"
+        );
 
         // Scenario 2: Temperature well above target - should turn OFF
         let current_temp = 23.0;
-        assert!(current_temp >= upper_bound, "Should not heat when above upper bound");
+        assert!(
+            current_temp >= upper_bound,
+            "Should not heat when above upper bound"
+        );
 
         // Scenario 3: Temperature in dead band (maintain current state)
         let current_temp = 21.0;
-        assert!(current_temp > lower_bound && current_temp < upper_bound,
-                "Should maintain state in dead band");
+        assert!(
+            current_temp > lower_bound && current_temp < upper_bound,
+            "Should maintain state in dead band"
+        );
 
         // Scenario 4: Temperature exactly at lower bound - should turn ON
         let current_temp = target_temp + LOWER_THRESHOLD;
@@ -41,12 +49,17 @@ mod hysteresis_tests {
 
         // Scenario 5: Temperature exactly at upper bound - should turn OFF
         let current_temp = target_temp + UPPER_THRESHOLD;
-        assert!(current_temp >= upper_bound, "Should not heat at upper bound");
+        assert!(
+            current_temp >= upper_bound,
+            "Should not heat at upper bound"
+        );
 
         // Scenario 6: Temperature just inside dead band from below
         let current_temp = lower_bound + 0.1;
-        assert!(current_temp > lower_bound && current_temp < upper_bound,
-                "Should be in dead band");
+        assert!(
+            current_temp > lower_bound && current_temp < upper_bound,
+            "Should be in dead band"
+        );
     }
 
     #[test]
@@ -65,10 +78,16 @@ mod hysteresis_tests {
             let lower_bound = target + LOWER_THRESHOLD;
             let upper_bound = target + UPPER_THRESHOLD;
 
-            assert_eq!(lower_bound, expected_lower,
-                      "Lower bound calculation for target {}°C", target);
-            assert_eq!(upper_bound, expected_upper,
-                      "Upper bound calculation for target {}°C", target);
+            assert_eq!(
+                lower_bound, expected_lower,
+                "Lower bound calculation for target {}°C",
+                target
+            );
+            assert_eq!(
+                upper_bound, expected_upper,
+                "Upper bound calculation for target {}°C",
+                target
+            );
         }
     }
 }
@@ -138,8 +157,10 @@ mod sensor_error_tests {
         std::thread::sleep(Duration::from_millis(100));
         let elapsed = last_reset.elapsed();
 
-        assert!(elapsed < Duration::from_secs(MIN_RESET_INTERVAL_SECS),
-                "Should not reset again within 8 seconds");
+        assert!(
+            elapsed < Duration::from_secs(MIN_RESET_INTERVAL_SECS),
+            "Should not reset again within 8 seconds"
+        );
     }
 
     #[test]
@@ -158,9 +179,12 @@ mod sensor_error_tests {
         ];
 
         for (temp, should_be_valid) in test_cases {
-            let is_valid = temp >= MIN_VALID_TEMP_C && temp <= MAX_VALID_TEMP_C;
-            assert_eq!(is_valid, should_be_valid,
-                      "Temperature {:.1}°C validation", temp);
+            let is_valid = (MIN_VALID_TEMP_C..=MAX_VALID_TEMP_C).contains(&temp);
+            assert_eq!(
+                is_valid, should_be_valid,
+                "Temperature {:.1}°C validation",
+                temp
+            );
         }
     }
 }
@@ -198,7 +222,7 @@ mod persistence_tests {
     #[test]
     fn test_state_key_generation() {
         let prefix = "thermostat:";
-        let zones = vec!["Zone1", "Zone2", "Zone3"];
+        let zones = ["Zone1", "Zone2", "Zone3"];
 
         let keys: Vec<String> = zones
             .iter()
@@ -290,7 +314,7 @@ mod metrics_tests {
     #[test]
     fn test_temperature_metric_values() {
         // Test temperature conversions for metrics
-        let celsius_values = vec![15.0, 20.0, 25.0];
+        let celsius_values = [15.0, 20.0, 25.0];
         let fahrenheit_values: Vec<f32> = celsius_values
             .iter()
             .map(|c| c * 9.0 / 5.0 + 32.0)
@@ -342,22 +366,21 @@ mod config_tests {
 
     #[test]
     fn test_sensor_id_format_validation() {
-        let valid_ids = vec![
-            "28-00000ab12345",
-            "28-0000001234ab",
-            "28-000000000000",
-        ];
+        let valid_ids = vec!["28-00000ab12345", "28-0000001234ab", "28-000000000000"];
 
         let invalid_ids = vec![
-            "00000ab12345",       // Missing prefix
-            "28-",                // Too short
-            "27-00000ab12345",    // Wrong prefix
-            "",                   // Empty
+            "00000ab12345",    // Missing prefix
+            "28-",             // Too short
+            "27-00000ab12345", // Wrong prefix
+            "",                // Empty
         ];
 
         for id in valid_ids {
-            assert!(id.starts_with("28-") && id.len() == 15,
-                   "ID '{}' should be valid", id);
+            assert!(
+                id.starts_with("28-") && id.len() == 15,
+                "ID '{}' should be valid",
+                id
+            );
         }
 
         for id in invalid_ids {
@@ -406,13 +429,18 @@ mod matter_tests {
 
         for (celsius, expected_matter) in test_cases {
             let matter_temp = (celsius * 100.0) as i16;
-            assert_eq!(matter_temp, expected_matter,
-                      "{:.1}°C should convert to {}", celsius, expected_matter);
+            assert_eq!(
+                matter_temp, expected_matter,
+                "{:.1}°C should convert to {}",
+                celsius, expected_matter
+            );
 
             // Convert back
             let celsius_back = matter_temp as f32 / 100.0;
-            assert!((celsius_back - celsius).abs() < 0.01,
-                   "Round-trip conversion should preserve value");
+            assert!(
+                (celsius_back - celsius).abs() < 0.01,
+                "Round-trip conversion should preserve value"
+            );
         }
     }
 

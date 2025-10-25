@@ -50,9 +50,9 @@
 //! ```
 
 use crate::devices::Thermostat;
-use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::Context;
+use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
@@ -165,7 +165,10 @@ impl ThermostatAccessory {
             0x00 => crate::devices::HeatingState::Off,
             0x04 => crate::devices::HeatingState::Heat,
             _ => {
-                warn!("Accessory '{}': Unsupported system mode: {}", self.name, mode);
+                warn!(
+                    "Accessory '{}': Unsupported system mode: {}",
+                    self.name, mode
+                );
                 return Ok(()); // Ignore unsupported modes
             }
         };
@@ -295,7 +298,9 @@ impl MatterServer {
         self.initialize_matter_stack().await?;
 
         info!("Matter server is running");
-        info!("Commission this device using your Matter controller (Apple Home, Google Home, etc.)");
+        info!(
+            "Commission this device using your Matter controller (Apple Home, Google Home, etc.)"
+        );
         info!("Scan the QR code or enter pairing code when prompted");
 
         // TODO: Run actual Matter event loop
@@ -323,6 +328,7 @@ impl MatterServer {
         // This is a placeholder - real implementation would generate proper QR code
         // based on discriminator, passcode, and device attestation
 
+        #[allow(clippy::useless_format)]
         let qr_code = format!("MT:Y.K9042C00KA0648G00");
 
         info!("Matter commissioning QR code: {}", qr_code);

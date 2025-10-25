@@ -128,7 +128,7 @@ async fn handle_connection(mut stream: tokio::net::TcpStream) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut buffer = [0; 1024];
-    stream.read(&mut buffer).await?;
+    let _n = stream.read(&mut buffer).await?;
 
     let request = String::from_utf8_lossy(&buffer);
 
@@ -158,7 +158,7 @@ async fn handle_connection(mut stream: tokio::net::TcpStream) -> Result<()> {
 }
 
 /// Helper functions for updating metrics
-
+///
 /// Update current temperature metric
 ///
 /// # Arguments

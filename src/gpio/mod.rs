@@ -27,9 +27,9 @@
 //! }
 //! ```
 
-use anyhow::Result;
 #[cfg(target_os = "linux")]
 use anyhow::Context;
+use anyhow::Result;
 #[cfg(target_os = "linux")]
 use rppal::gpio::{Gpio, InputPin, Level, Mode, OutputPin, Pin, PullUpDown};
 #[cfg(target_os = "linux")]
@@ -66,7 +66,7 @@ pub enum RelayState {
 impl From<RelayState> for Level {
     fn from(state: RelayState) -> Self {
         match state {
-            RelayState::On => Level::Low,  // Active-LOW
+            RelayState::On => Level::Low, // Active-LOW
             RelayState::Off => Level::High,
         }
     }
@@ -76,7 +76,7 @@ impl From<RelayState> for Level {
 impl From<Level> for RelayState {
     fn from(level: Level) -> Self {
         match level {
-            Level::Low => RelayState::On,   // Active-LOW
+            Level::Low => RelayState::On, // Active-LOW
             Level::High => RelayState::Off,
         }
     }
@@ -102,9 +102,7 @@ impl VccController {
     /// * `gpio` - GPIO instance
     /// * `pin_number` - GPIO pin number (BCM mode)
     pub fn new(gpio: &Gpio, pin_number: u8) -> Result<Self> {
-        let pin = gpio
-            .get(pin_number)?
-            .into_output();
+        let pin = gpio.get(pin_number)?.into_output();
 
         // Default to HIGH (power on)
         pin.set_high();
@@ -147,7 +145,9 @@ impl VccController {
     /// Create a new VCC controller (stub for non-Linux)
     pub fn new(_gpio: &(), _pin_number: u8) -> Result<Self> {
         info!("VCC controller stub initialized (non-Linux platform)");
-        Ok(Self { _phantom: std::marker::PhantomData })
+        Ok(Self {
+            _phantom: std::marker::PhantomData,
+        })
     }
 
     /// Power cycle stub
@@ -398,7 +398,9 @@ impl Drop for GpioController {
 #[cfg(not(target_os = "linux"))]
 impl GpioController {
     pub fn new() -> Result<Self> {
-        anyhow::bail!("GPIO not available on non-Linux platforms. Use MockGpioController for testing.");
+        anyhow::bail!(
+            "GPIO not available on non-Linux platforms. Use MockGpioController for testing."
+        );
     }
 
     pub fn init_relay(&self, _pin_number: u8) -> Result<()> {
@@ -438,6 +440,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn test_relay_state_conversion() {
         assert_eq!(Level::from(RelayState::On), Level::Low);
         assert_eq!(Level::from(RelayState::Off), Level::High);

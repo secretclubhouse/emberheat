@@ -31,8 +31,11 @@ pub mod sensor_mock;
 pub mod state_mock;
 
 #[cfg(test)]
+#[allow(unused_imports)]
 pub use gpio_mock::MockGpioController;
 #[cfg(test)]
+#[allow(unused_imports)]
 pub use sensor_mock::MockTemperatureSensor;
 #[cfg(test)]
+#[allow(unused_imports)]
 pub use state_mock::MockStateManager;

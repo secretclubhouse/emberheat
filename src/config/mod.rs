@@ -187,8 +187,8 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[tokio::test]
     async fn test_load_valid_config() {
@@ -224,7 +224,10 @@ mod tests {
         assert!(zone1.extra_sensor.is_none());
 
         let zone2 = config.get_zone("Zone2").unwrap();
-        assert_eq!(zone2.extra_sensor.as_deref(), Some("http://example.com/temp"));
+        assert_eq!(
+            zone2.extra_sensor.as_deref(),
+            Some("http://example.com/temp")
+        );
     }
 
     #[tokio::test]
@@ -305,18 +308,24 @@ mod tests {
     fn test_zone_names() {
         let config = Config {
             zones: vec![
-                ("Zone1".to_string(), ZoneConfig {
-                    relay_pin: 23,
-                    temp_pin: 4,
-                    temp_id: "test1".to_string(),
-                    extra_sensor: None,
-                }),
-                ("Zone2".to_string(), ZoneConfig {
-                    relay_pin: 24,
-                    temp_pin: 5,
-                    temp_id: "test2".to_string(),
-                    extra_sensor: None,
-                }),
+                (
+                    "Zone1".to_string(),
+                    ZoneConfig {
+                        relay_pin: 23,
+                        temp_pin: 4,
+                        temp_id: "test1".to_string(),
+                        extra_sensor: None,
+                    },
+                ),
+                (
+                    "Zone2".to_string(),
+                    ZoneConfig {
+                        relay_pin: 24,
+                        temp_pin: 5,
+                        temp_id: "test2".to_string(),
+                        extra_sensor: None,
+                    },
+                ),
             ]
             .into_iter()
             .collect(),

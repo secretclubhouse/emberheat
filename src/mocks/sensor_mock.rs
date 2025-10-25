@@ -62,12 +62,14 @@ impl MockTemperatureSensor {
     }
 
     /// Set sensor availability
+    #[allow(dead_code)]
     pub fn set_available(&self, available: bool) {
         let mut avail = self.available.lock().unwrap();
         *avail = available;
     }
 
     /// Make the sensor fail (return error on read)
+    #[allow(dead_code)]
     pub fn set_failing(&self) {
         let mut temp = self.temperature.lock().unwrap();
         *temp = None;
@@ -79,6 +81,7 @@ impl MockTemperatureSensor {
     }
 
     /// Reset the read count
+    #[allow(dead_code)]
     pub fn reset_read_count(&self) {
         let mut count = self.read_count.lock().unwrap();
         *count = 0;
@@ -147,6 +150,7 @@ impl MockSensorBuilder {
     }
 
     /// Make the sensor fail on read
+    #[allow(dead_code)]
     pub fn failing(mut self) -> Self {
         self.temperature = None;
         self
@@ -217,9 +221,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_sensor_builder_unavailable() {
-        let sensor = MockSensorBuilder::new("test-sensor")
-            .unavailable()
-            .build();
+        let sensor = MockSensorBuilder::new("test-sensor").unavailable().build();
 
         assert!(!sensor.is_available().await);
     }

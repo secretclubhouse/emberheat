@@ -207,10 +207,7 @@ impl CompositeSensor {
     }
 
     /// Create from 1-Wire sensor with optional HTTP fallback
-    pub fn from_onewire(
-        sensor_id: &str,
-        http_url: Option<String>,
-    ) -> Result<Self> {
+    pub fn from_onewire(sensor_id: &str, http_url: Option<String>) -> Result<Self> {
         let primary = Box::new(OneWireSensor::new(sensor_id)?);
 
         let fallback = if let Some(url) = http_url {
@@ -262,11 +259,7 @@ impl TemperatureSensor for CompositeSensor {
 
     async fn is_available(&self) -> bool {
         self.primary.is_available().await
-            || self
-                .fallback
-                .as_ref()
-                .map(|f| f.is_available())
-                .is_some()
+            || self.fallback.as_ref().map(|f| f.is_available()).is_some()
     }
 }
 

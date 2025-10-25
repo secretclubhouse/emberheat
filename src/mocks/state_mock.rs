@@ -122,6 +122,7 @@ impl MockStateManager {
     }
 
     /// Reset operation counters
+    #[allow(dead_code)]
     pub fn reset_counters(&self) {
         let mut save = self.save_count.lock().unwrap();
         *save = 0;
@@ -137,12 +138,14 @@ impl MockStateManager {
     }
 
     /// Clear all stored states
+    #[allow(dead_code)]
     pub fn clear(&self) {
         let mut states = self.states.lock().unwrap();
         states.clear();
     }
 
     /// Get all stored states (for testing)
+    #[allow(dead_code)]
     pub fn get_all_states(&self) -> HashMap<String, ThermostatState> {
         self.states.lock().unwrap().clone()
     }

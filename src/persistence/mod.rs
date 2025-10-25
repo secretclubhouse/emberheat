@@ -126,8 +126,7 @@ impl StateManager {
     pub async fn new(redis_url: &str) -> Result<Self> {
         info!("Connecting to Redis at {}", redis_url);
 
-        let client = redis::Client::open(redis_url)
-            .context("Failed to create Redis client")?;
+        let client = redis::Client::open(redis_url).context("Failed to create Redis client")?;
 
         let connection = ConnectionManager::new(client)
             .await
@@ -306,13 +305,11 @@ mod tests {
         let manager = StateManager {
             connection: Arc::new(Mutex::new(
                 // Placeholder - won't be used in this test
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(async {
-                        ConnectionManager::new(redis::Client::open("redis://localhost").unwrap())
-                            .await
-                            .unwrap()
-                    }),
+                tokio::runtime::Runtime::new().unwrap().block_on(async {
+                    ConnectionManager::new(redis::Client::open("redis://localhost").unwrap())
+                        .await
+                        .unwrap()
+                }),
             )),
             key_prefix: "thermostat:".to_string(),
         };

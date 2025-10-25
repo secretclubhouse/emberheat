@@ -44,7 +44,10 @@ impl OneWireSensor {
             .join(&normalized_id)
             .join("w1_slave");
 
-        debug!("Initialized 1-Wire sensor: {} at {:?}", normalized_id, device_path);
+        debug!(
+            "Initialized 1-Wire sensor: {} at {:?}",
+            normalized_id, device_path
+        );
 
         Ok(Self {
             sensor_id: normalized_id,
@@ -83,7 +86,11 @@ impl OneWireSensor {
 
         let celsius = millidegrees as f32 / 1000.0;
 
-        trace!("Parsed temperature: {}°C (raw: {} millidegrees)", celsius, millidegrees);
+        trace!(
+            "Parsed temperature: {}°C (raw: {} millidegrees)",
+            celsius,
+            millidegrees
+        );
 
         Ok(celsius)
     }
@@ -206,7 +213,10 @@ mod tests {
     #[test]
     fn test_device_path() {
         let sensor = OneWireSensor::new("00000ab12345").unwrap();
-        assert!(sensor.device_path.to_string_lossy().contains("28-00000ab12345"));
+        assert!(sensor
+            .device_path
+            .to_string_lossy()
+            .contains("28-00000ab12345"));
         assert!(sensor.device_path.to_string_lossy().ends_with("w1_slave"));
     }
 }
