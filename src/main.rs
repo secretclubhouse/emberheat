@@ -86,9 +86,9 @@ const DEFAULT_METRICS_PORT: u16 = 8080;
 fn find_config_file() -> Option<PathBuf> {
     for path_str in CONFIG_SEARCH_PATHS {
         // Expand ~ to home directory
-        let expanded = if path_str.starts_with("~/") {
+        let expanded = if let Some(stripped) = path_str.strip_prefix("~/") {
             if let Some(home) = std::env::var_os("HOME") {
-                PathBuf::from(home).join(&path_str[2..])
+                PathBuf::from(home).join(stripped)
             } else {
                 continue;
             }
@@ -222,8 +222,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_config_path() {
-        assert_eq!(DEFAULT_CONFIG_PATH, "./config/config.json");
+    fn test_config_search_paths() {
+        assert_eq!(CONFIG_SEARCH_PATHS.len(), 3);
+        assert_eq!(CONFIG_SEARCH_PATHS[0], "/etc/thermos-rust/config.json");
+        assert_eq!(CONFIG_SEARCH_PATHS[1], "~/.config/thermos-rust/config.json");
+        assert_eq!(CONFIG_SEARCH_PATHS[2], "./config/config.json");
     }
 
     #[test]
