@@ -158,7 +158,7 @@ async fn main() -> Result<()> {
     }
 
     // Setup signal handlers for graceful shutdown
-    let signals = Signals::new(&[SIGTERM, SIGINT])?;
+    let signals = Signals::new([SIGTERM, SIGINT])?;
     let signal_handle = signals.handle();
 
     info!("Thermostat bridge started successfully");
