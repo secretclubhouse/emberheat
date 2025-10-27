@@ -99,14 +99,14 @@ impl Config {
     /// - At least one zone is defined
     /// - GPIO pins are valid (0-27 for Raspberry Pi)
     /// - Temperature IDs are non-empty
-    /// - No duplicate pins across zones
+    /// - No duplicate relay pins across zones
+    /// - Temperature pins can be shared (1-wire bus protocol)
     fn validate(&self) -> Result<()> {
         if self.zones.is_empty() {
             anyhow::bail!("Configuration must contain at least one zone");
         }
 
         let mut used_relay_pins = Vec::new();
-        let mut used_temp_pins = Vec::new();
 
         for (zone_name, zone) in &self.zones {
             // Validate pin numbers (Raspberry Pi has GPIO 0-27)
@@ -126,20 +126,13 @@ impl Config {
                 );
             }
 
-            // Check for duplicate pins
+            // Check for duplicate relay pins
+            // Note: temp_pins can be shared since 1-wire is a bus protocol
             if used_relay_pins.contains(&zone.relay_pin) {
                 anyhow::bail!(
                     "Zone '{}': relay_pin {} is already in use",
                     zone_name,
                     zone.relay_pin
-                );
-            }
-
-            if used_temp_pins.contains(&zone.temp_pin) {
-                anyhow::bail!(
-                    "Zone '{}': temp_pin {} is already in use",
-                    zone_name,
-                    zone.temp_pin
                 );
             }
 
@@ -159,7 +152,6 @@ impl Config {
             }
 
             used_relay_pins.push(zone.relay_pin);
-            used_temp_pins.push(zone.temp_pin);
         }
 
         Ok(())
@@ -302,6 +294,44 @@ mod tests {
 
         let result = Config::load(temp_file.path()).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_shared_temp_pin_allowed() {
+        // Multiple zones can share the same temp_pin (1-wire bus)
+        let config_json = r#"
+        {
+            "Zone1": {
+                "relay_pin": 23,
+                "temp_pin": 4,
+                "temp_id": "28-00000ab12345"
+            },
+            "Zone2": {
+                "relay_pin": 24,
+                "temp_pin": 4,
+                "temp_id": "28-00000ab12346"
+            },
+            "Zone3": {
+                "relay_pin": 25,
+                "temp_pin": 4,
+                "temp_id": "28-00000ab12347"
+            }
+        }
+        "#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_json.as_bytes()).unwrap();
+
+        let result = Config::load(temp_file.path()).await;
+        assert!(result.is_ok(), "Shared temp_pin should be allowed for 1-wire bus");
+
+        let config = result.unwrap();
+        assert_eq!(config.zones.len(), 3);
+
+        // Verify all zones share the same temp_pin
+        assert_eq!(config.zones.get("Zone1").unwrap().temp_pin, 4);
+        assert_eq!(config.zones.get("Zone2").unwrap().temp_pin, 4);
+        assert_eq!(config.zones.get("Zone3").unwrap().temp_pin, 4);
     }
 
     #[test]
