@@ -1,8 +1,8 @@
 # Multi-stage Dockerfile for Thermos-Rust
-# Builds optimized binary for Raspberry Pi (ARM)
+# Builds optimized binary for Linux (Debian Trixie)
 
 # Build stage
-FROM rust:1.75-slim as builder
+FROM rust:slim-trixie as builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
@@ -24,12 +24,12 @@ COPY src ./src
 RUN cargo build --release
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
+    libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory

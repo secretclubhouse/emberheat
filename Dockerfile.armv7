@@ -1,8 +1,8 @@
 # Dockerfile for Raspberry Pi ARMv7 (Pi 2/3/4 32-bit)
-# Cross-compilation build
+# Cross-compilation build on Debian Trixie
 
 # Build stage
-FROM --platform=linux/arm/v7 rust:1.75-slim as builder
+FROM --platform=linux/arm/v7 rust:slim-trixie as builder
 
 # Install cross-compilation dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,12 +28,12 @@ COPY src ./src
 RUN cargo build --release --target armv7-unknown-linux-gnueabihf
 
 # Runtime stage
-FROM --platform=linux/arm/v7 debian:bookworm-slim
+FROM --platform=linux/arm/v7 debian:trixie-slim
 
 # Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    libssl3 \
+    libssl3t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app directory

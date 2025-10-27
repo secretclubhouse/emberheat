@@ -78,31 +78,35 @@ jobs:
 
           See [CHANGELOG.md](CHANGELOG.md) for details.
 
-  # Build binaries for different targets
+  # Build binaries for different Linux targets on Debian Trixie
   build:
     name: Build ${{ matrix.target }}
     needs: create-release
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
     strategy:
       fail-fast: false
       matrix:
         include:
           # Raspberry Pi 2/3/4 (32-bit)
           - target: armv7-unknown-linux-gnueabihf
-            os: ubuntu-latest
             cross: true
 
           # Raspberry Pi 3/4 (64-bit)
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
             cross: true
 
           # x86_64 Linux (for testing/development)
           - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
             cross: false
 
     steps:
+    - name: Install dependencies
+      run: |
+        apt-get update
+        apt-get install -y curl build-essential pkg-config libssl-dev git
+
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -120,13 +124,13 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        key: debian-trixie-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Cache cargo index
       uses: actions/cache@v4
       with:
         path: ~/.cargo/git
-        key: ${{ runner.os }}-${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+        key: debian-trixie-${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build release binary (cross)
       if: matrix.cross
@@ -166,7 +170,7 @@ jobs:
         asset_name: thermos-rust-${{ matrix.target }}.tar.gz.sha256
         asset_content_type: text/plain
 
-  # Build Docker images
+  # Build Docker images for Linux (Debian Trixie based)
   docker:
     name: Build Docker Images
     needs: create-release
@@ -199,7 +203,7 @@ jobs:
           type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
 
-    - name: Build and push Docker image
+    - name: Build and push Docker image (Linux only - Debian Trixie)
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -209,3 +213,5 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+        build-args: |
+          BASE_IMAGE=debian:trixie
