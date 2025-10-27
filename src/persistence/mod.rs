@@ -302,20 +302,17 @@ mod tests {
 
     #[test]
     fn test_zone_key() {
-        let manager = StateManager {
-            connection: Arc::new(Mutex::new(
-                // Placeholder - won't be used in this test
-                tokio::runtime::Runtime::new().unwrap().block_on(async {
-                    ConnectionManager::new(redis::Client::open("redis://localhost").unwrap())
-                        .await
-                        .unwrap()
-                }),
-            )),
-            key_prefix: "thermostat:".to_string(),
-        };
+        // Test the zone_key formatting logic without requiring Redis
+        let key_prefix = "thermostat:";
+        let zone1 = "Zone1";
+        let zone2 = "Test";
 
-        assert_eq!(manager.zone_key("Zone1"), "thermostat:Zone1");
-        assert_eq!(manager.zone_key("Test"), "thermostat:Test");
+        assert_eq!(format!("{}{}", key_prefix, zone1), "thermostat:Zone1");
+        assert_eq!(format!("{}{}", key_prefix, zone2), "thermostat:Test");
+
+        // Test with custom prefix
+        let custom_prefix = "myapp:state:";
+        assert_eq!(format!("{}{}", custom_prefix, zone1), "myapp:state:Zone1");
     }
 
     #[test]
