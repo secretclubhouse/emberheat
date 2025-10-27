@@ -259,7 +259,7 @@ impl StateManager {
         let mut conn = self.connection.lock().await;
 
         redis::cmd("PING")
-            .query_async::<_, String>(&mut *conn)
+            .query_async::<String>(&mut *conn)
             .await
             .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
 
