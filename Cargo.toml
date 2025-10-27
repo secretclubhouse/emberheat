@@ -31,8 +31,8 @@ toml = "0.8"
 redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
 
 # Prometheus metrics
-prometheus = { version = "0.13", features = ["process"] }
-prometheus-hyper = "0.1"
+prometheus = { version = "0.14", features = ["process"] }
+prometheus-hyper = "0.2"
 
 # HTTP client for extra sensors
 reqwest = { version = "0.11", features = ["json"] }
