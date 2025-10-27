@@ -482,8 +482,10 @@ impl ThermostatBridge {
         // Initialize VCC controller
         gpio.init_vcc_controller(VCC_PIN)?;
 
-        // Initialize state manager
-        let state_manager = Arc::new(StateManager::new("redis://localhost:6379").await?);
+        // Initialize state manager with Redis URL from config (or default)
+        let redis_url = config.redis_url();
+        info!("Connecting to Redis at {}", redis_url);
+        let state_manager = Arc::new(StateManager::new(redis_url).await?);
 
         // Create thermostats for each zone
         let mut thermostats = HashMap::new();

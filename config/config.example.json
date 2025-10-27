@@ -1,4 +1,6 @@
 {
+    "_comment": "Optional: Redis server URL (defaults to redis://localhost:6379 if not specified)",
+    "redis_url": "redis://localhost:6379",
     "LivingRoom": {
         "relay_pin": 23,
         "temp_pin": 4,
@@ -6,13 +8,14 @@
     },
     "Bedroom": {
         "relay_pin": 24,
-        "temp_pin": 5,
+        "temp_pin": 4,
         "temp_id": "28-00000ab12346",
-        "extra_sensor": "http://192.168.1.100/temperature"
+        "extra_sensor": "http://192.168.1.100/temperature",
+        "_note": "Multiple zones can share temp_pin for 1-wire sensors"
     },
     "Bathroom": {
         "relay_pin": 25,
-        "temp_pin": 6,
+        "temp_pin": 4,
         "temp_id": "28-00000ab12347"
     }
 }

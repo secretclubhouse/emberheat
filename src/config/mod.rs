@@ -1,21 +1,33 @@
 //! Configuration management for the thermostat system
 //!
 //! This module handles loading, parsing, and validating configuration from JSON files.
-//! Configuration includes zone definitions with GPIO pins, sensor IDs, and optional
-//! HTTP fallback sensors.
+//! Configuration includes zone definitions with GPIO pins, sensor IDs, optional
+//! HTTP fallback sensors, and Redis server settings.
 //!
 //! # Configuration Format
 //!
 //! ```json
 //! {
+//!     "redis_url": "redis://192.168.1.100:6379",
 //!     "Zone1": {
 //!         "relay_pin": 23,
 //!         "temp_pin": 4,
 //!         "temp_id": "00000ab12345",
 //!         "extra_sensor": "http://example.com/temp"
+//!     },
+//!     "Zone2": {
+//!         "relay_pin": 24,
+//!         "temp_pin": 4,
+//!         "temp_id": "28-00000ab12346"
 //!     }
 //! }
 //! ```
+//!
+//! # Fields
+//!
+//! - `redis_url` (optional): Redis server URL. Defaults to "redis://localhost:6379" if not specified.
+//! - Zone definitions: Each zone is defined at the top level with a unique name.
+//!   Multiple zones can share the same `temp_pin` (1-wire bus protocol allows multiple sensors on one pin).
 //!
 //! # Example
 //!
@@ -40,6 +52,10 @@ use tokio::fs;
 /// Main configuration structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Redis server URL (defaults to "redis://localhost:6379" if not specified)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redis_url: Option<String>,
+
     /// Map of zone names to zone configurations
     #[serde(flatten)]
     pub zones: HashMap<String, ZoneConfig>,
@@ -173,6 +189,17 @@ impl Config {
     /// Get list of all zone names
     pub fn zone_names(&self) -> Vec<String> {
         self.zones.keys().cloned().collect()
+    }
+
+    /// Get Redis URL with fallback to default
+    ///
+    /// # Returns
+    ///
+    /// * `&str` - Redis URL from config or default "redis://localhost:6379"
+    pub fn redis_url(&self) -> &str {
+        self.redis_url
+            .as_deref()
+            .unwrap_or("redis://localhost:6379")
     }
 }
 
@@ -337,6 +364,7 @@ mod tests {
     #[test]
     fn test_zone_names() {
         let config = Config {
+            redis_url: None,
             zones: vec![
                 (
                     "Zone1".to_string(),
@@ -365,5 +393,73 @@ mod tests {
         assert_eq!(names.len(), 2);
         assert!(names.contains(&"Zone1".to_string()));
         assert!(names.contains(&"Zone2".to_string()));
+    }
+
+    #[test]
+    fn test_redis_url_default() {
+        let config = Config {
+            redis_url: None,
+            zones: HashMap::new(),
+        };
+
+        assert_eq!(config.redis_url(), "redis://localhost:6379");
+    }
+
+    #[test]
+    fn test_redis_url_custom() {
+        let config = Config {
+            redis_url: Some("redis://192.168.1.100:6379".to_string()),
+            zones: HashMap::new(),
+        };
+
+        assert_eq!(config.redis_url(), "redis://192.168.1.100:6379");
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_redis_url() {
+        let config_json = r#"
+        {
+            "redis_url": "redis://myserver:6379",
+            "Zone1": {
+                "relay_pin": 23,
+                "temp_pin": 4,
+                "temp_id": "00000ab12345"
+            }
+        }
+        "#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_json.as_bytes()).unwrap();
+
+        let result = Config::load(temp_file.path()).await;
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        assert_eq!(config.redis_url(), "redis://myserver:6379");
+        assert_eq!(config.zones.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_load_config_without_redis_url() {
+        let config_json = r#"
+        {
+            "Zone1": {
+                "relay_pin": 23,
+                "temp_pin": 4,
+                "temp_id": "00000ab12345"
+            }
+        }
+        "#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_json.as_bytes()).unwrap();
+
+        let result = Config::load(temp_file.path()).await;
+        assert!(result.is_ok());
+
+        let config = result.unwrap();
+        // Should use default when not specified
+        assert_eq!(config.redis_url(), "redis://localhost:6379");
+        assert_eq!(config.zones.len(), 1);
     }
 }
