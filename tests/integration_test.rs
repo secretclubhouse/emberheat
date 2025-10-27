@@ -49,7 +49,7 @@ fn test_hysteresis_logic_simulation() {
 
     // Scenario 2: Temperature above upper bound - should turn OFF
     let current_temp = 21.6; // Above target + 0.5
-    let should_heat = current_temp >= (target_temp + UPPER_THRESHOLD);
+    let should_heat = current_temp <= (target_temp + UPPER_THRESHOLD);
     assert!(
         !should_heat,
         "Should not heat when temp is above upper bound"

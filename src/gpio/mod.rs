@@ -3,6 +3,8 @@
 //! This module provides a clean abstraction over Raspberry Pi GPIO operations,
 //! specifically for controlling heating relays and managing sensor power.
 //!
+//! **Platform Requirements:** Linux with GPIO hardware (Raspberry Pi)
+//!
 //! # Hardware Interface
 //!
 //! - **Relay Control**: Active-LOW logic (LOW = heat ON, HIGH = heat OFF)
@@ -27,14 +29,9 @@
 //! }
 //! ```
 
-#[cfg(target_os = "linux")]
-use anyhow::Context;
-use anyhow::Result;
-#[cfg(target_os = "linux")]
-use rppal::gpio::{Gpio, InputPin, Level, Mode, OutputPin, Pin};
-#[cfg(target_os = "linux")]
+use anyhow::{Context, Result};
+use rppal::gpio::{Gpio, Level, OutputPin};
 use std::collections::HashMap;
-#[cfg(target_os = "linux")]
 use std::sync::{Arc, Mutex};
 use thiserror::Error;
 use tracing::{debug, info};
@@ -61,8 +58,6 @@ pub enum RelayState {
     Off,
 }
 
-// Linux-specific implementation using rppal
-#[cfg(target_os = "linux")]
 impl From<RelayState> for Level {
     fn from(state: RelayState) -> Self {
         match state {
@@ -72,7 +67,6 @@ impl From<RelayState> for Level {
     }
 }
 
-#[cfg(target_os = "linux")]
 impl From<Level> for RelayState {
     fn from(level: Level) -> Self {
         match level {
@@ -83,17 +77,10 @@ impl From<Level> for RelayState {
 }
 
 /// VCC pin controller for sensor power cycling
-#[cfg(target_os = "linux")]
 pub struct VccController {
     pin: OutputPin,
 }
 
-#[cfg(not(target_os = "linux"))]
-pub struct VccController {
-    _phantom: std::marker::PhantomData<()>,
-}
-
-#[cfg(target_os = "linux")]
 impl VccController {
     /// Create a new VCC controller
     ///
@@ -102,7 +89,7 @@ impl VccController {
     /// * `gpio` - GPIO instance
     /// * `pin_number` - GPIO pin number (BCM mode)
     pub fn new(gpio: &Gpio, pin_number: u8) -> Result<Self> {
-        let pin = gpio.get(pin_number)?.into_output();
+        let mut pin = gpio.get(pin_number)?.into_output();
 
         // Default to HIGH (power on)
         pin.set_high();
@@ -140,35 +127,7 @@ impl VccController {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-impl VccController {
-    /// Create a new VCC controller (stub for non-Linux)
-    pub fn new(_gpio: &(), _pin_number: u8) -> Result<Self> {
-        info!("VCC controller stub initialized (non-Linux platform)");
-        Ok(Self {
-            _phantom: std::marker::PhantomData,
-        })
-    }
-
-    /// Power cycle stub
-    pub async fn power_cycle(&mut self, down_time: std::time::Duration) {
-        info!("VCC power cycle stub (sleeping for {:?})", down_time);
-        tokio::time::sleep(down_time).await;
-    }
-
-    /// Power on stub
-    pub fn power_on(&mut self) {
-        debug!("VCC power on (stub)");
-    }
-
-    /// Power off stub
-    pub fn power_off(&mut self) {
-        debug!("VCC power off (stub)");
-    }
-}
-
 /// Relay controller for heating control
-#[cfg(target_os = "linux")]
 pub struct RelayController {
     /// Output pin for controlling the relay
     output_pin: OutputPin,
@@ -176,13 +135,6 @@ pub struct RelayController {
     pin_number: u8,
 }
 
-/// Stub relay controller for non-Linux platforms
-#[cfg(not(target_os = "linux"))]
-pub struct RelayController {
-    pin_number: u8,
-}
-
-#[cfg(target_os = "linux")]
 impl RelayController {
     /// Create a new relay controller
     ///
@@ -230,7 +182,13 @@ impl RelayController {
 
     /// Get current relay state
     pub fn get_state(&self) -> RelayState {
-        RelayState::from(self.output_pin.read())
+        // OutputPin doesn't have a read() method in rppal
+        // We need to track the state internally or use is_set_low()/is_set_high()
+        if self.output_pin.is_set_low() {
+            RelayState::On // Active-LOW
+        } else {
+            RelayState::Off
+        }
     }
 
     /// Get pin number
@@ -239,40 +197,13 @@ impl RelayController {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-impl RelayController {
-    pub fn new(_gpio: &(), pin_number: u8) -> Result<Self> {
-        Ok(Self { pin_number })
-    }
-
-    pub fn set_state(&mut self, _state: RelayState) -> Result<()> {
-        anyhow::bail!("Relay control not available on non-Linux platforms");
-    }
-
-    pub fn get_state(&self) -> RelayState {
-        RelayState::Off
-    }
-
-    pub fn pin_number(&self) -> u8 {
-        self.pin_number
-    }
-}
-
 /// Main GPIO controller managing all GPIO operations
-#[cfg(target_os = "linux")]
 pub struct GpioController {
     gpio: Gpio,
     relays: Arc<Mutex<HashMap<u8, RelayController>>>,
     vcc_controller: Arc<Mutex<Option<VccController>>>,
 }
 
-/// Stub GPIO controller for non-Linux platforms
-#[cfg(not(target_os = "linux"))]
-pub struct GpioController {
-    _phantom: std::marker::PhantomData<()>,
-}
-
-#[cfg(target_os = "linux")]
 impl GpioController {
     /// Create a new GPIO controller
     pub fn new() -> Result<Self> {
@@ -360,16 +291,36 @@ impl GpioController {
     ///
     /// * `down_time` - Duration to keep power off
     pub async fn power_cycle_vcc(&self, down_time: std::time::Duration) -> Result<()> {
-        let mut vcc = self.vcc_controller.lock().unwrap();
+        // Check if VCC controller exists and clone it temporarily
+        let has_vcc = {
+            let vcc = self.vcc_controller.lock().unwrap();
+            vcc.is_some()
+        };
 
-        if let Some(controller) = vcc.as_mut() {
-            drop(vcc); // Release lock before async operation
+        if has_vcc {
+            // Perform power cycle without holding the lock
+            info!("Starting VCC power cycle (down for {:?})", down_time);
 
-            // Re-acquire for the actual operation
-            let mut vcc = self.vcc_controller.lock().unwrap();
-            if let Some(controller) = vcc.as_mut() {
-                controller.power_cycle(down_time).await;
+            // Turn off
+            {
+                let mut vcc = self.vcc_controller.lock().unwrap();
+                if let Some(controller) = vcc.as_mut() {
+                    controller.power_off();
+                }
             }
+
+            // Wait without holding lock
+            tokio::time::sleep(down_time).await;
+
+            // Turn back on
+            {
+                let mut vcc = self.vcc_controller.lock().unwrap();
+                if let Some(controller) = vcc.as_mut() {
+                    controller.power_on();
+                }
+            }
+
+            info!("VCC power cycle complete");
         }
 
         Ok(())
@@ -387,48 +338,6 @@ impl GpioController {
     }
 }
 
-#[cfg(target_os = "linux")]
-impl Drop for GpioController {
-    fn drop(&mut self) {
-        self.cleanup();
-    }
-}
-
-// Stub implementation for non-Linux platforms (tests only)
-#[cfg(not(target_os = "linux"))]
-impl GpioController {
-    pub fn new() -> Result<Self> {
-        anyhow::bail!(
-            "GPIO not available on non-Linux platforms. Use MockGpioController for testing."
-        );
-    }
-
-    pub fn init_relay(&self, _pin_number: u8) -> Result<()> {
-        anyhow::bail!("GPIO not available on non-Linux platforms");
-    }
-
-    pub fn set_relay(&self, _pin_number: u8, _state: RelayState) -> Result<()> {
-        anyhow::bail!("GPIO not available on non-Linux platforms");
-    }
-
-    pub fn get_relay_state(&self, _pin_number: u8) -> Result<RelayState> {
-        anyhow::bail!("GPIO not available on non-Linux platforms");
-    }
-
-    pub fn init_vcc_controller(&self, _pin_number: u8) -> Result<()> {
-        anyhow::bail!("GPIO not available on non-Linux platforms");
-    }
-
-    pub async fn power_cycle_vcc(&self, _down_time: std::time::Duration) -> Result<()> {
-        anyhow::bail!("GPIO not available on non-Linux platforms");
-    }
-
-    pub fn cleanup(&self) {
-        // No-op on non-Linux
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
 impl Drop for GpioController {
     fn drop(&mut self) {
         self.cleanup();
@@ -440,7 +349,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_relay_state_conversion() {
         assert_eq!(Level::from(RelayState::On), Level::Low);
         assert_eq!(Level::from(RelayState::Off), Level::High);
@@ -455,6 +363,6 @@ mod tests {
         assert_ne!(RelayState::On, RelayState::Off);
     }
 
-    // Note: Hardware tests would require mock GPIO or actual Raspberry Pi hardware
+    // Note: Hardware tests would require actual Raspberry Pi hardware
     // Integration tests should be run on target hardware
 }
