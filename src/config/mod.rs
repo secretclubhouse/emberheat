@@ -350,7 +350,10 @@ mod tests {
         temp_file.write_all(config_json.as_bytes()).unwrap();
 
         let result = Config::load(temp_file.path()).await;
-        assert!(result.is_ok(), "Shared temp_pin should be allowed for 1-wire bus");
+        assert!(
+            result.is_ok(),
+            "Shared temp_pin should be allowed for 1-wire bus"
+        );
 
         let config = result.unwrap();
         assert_eq!(config.zones.len(), 3);
