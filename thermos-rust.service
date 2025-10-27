@@ -10,6 +10,8 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=/opt/thermos-rust
+# Config file is automatically discovered at /etc/thermos-rust/config.json
+# Or specify explicitly: /opt/thermos-rust/thermos-rust /etc/thermos-rust/config.json
 ExecStart=/opt/thermos-rust/thermos-rust
 Restart=always
 RestartSec=10

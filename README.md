@@ -130,10 +130,31 @@ cargo build --release --target armv7-unknown-linux-gnueabihf
 
 ## Configuration
 
-Create a configuration file at `./config/config.json`:
+### Configuration File Location
+
+The application searches for `config.json` in the following locations (in order):
+
+1. **Command line argument**: `thermos-rust /path/to/config.json`
+2. **System-wide** (recommended for binary installations): `/etc/thermos-rust/config.json`
+3. **User-specific**: `~/.config/thermos-rust/config.json`
+4. **Local directory** (development): `./config/config.json`
+
+**For binary installations**, create the system-wide config:
+
+```bash
+# Create config directory
+sudo mkdir -p /etc/thermos-rust
+
+# Copy and edit the example config
+sudo cp config/config.example.json /etc/thermos-rust/config.json
+sudo nano /etc/thermos-rust/config.json
+```
+
+### Configuration Format
 
 ```json
 {
+    "redis_url": "redis://localhost:6379",
     "Zone1": {
         "relay_pin": 23,
         "temp_pin": 4,
@@ -141,13 +162,13 @@ Create a configuration file at `./config/config.json`:
     },
     "Zone2": {
         "relay_pin": 24,
-        "temp_pin": 5,
+        "temp_pin": 4,
         "temp_id": "28-00000ab12346",
         "extra_sensor": "http://192.168.1.100/temp"
     },
     "Zone3": {
         "relay_pin": 25,
-        "temp_pin": 6,
+        "temp_pin": 4,
         "temp_id": "28-00000ab12347"
     }
 }
@@ -157,10 +178,13 @@ Create a configuration file at `./config/config.json`:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `relay_pin` | Yes | GPIO pin (BCM) for relay control (0-27) |
-| `temp_pin` | Yes | GPIO pin (BCM) for temperature sensor power (0-27) |
+| `redis_url` | No | Redis server URL (defaults to `redis://localhost:6379`) |
+| `relay_pin` | Yes | GPIO pin (BCM) for relay control (0-27), must be unique per zone |
+| `temp_pin` | Yes | GPIO pin (BCM) for 1-Wire bus (0-27), can be shared across zones |
 | `temp_id` | Yes | 1-Wire sensor ID (with or without "28-" prefix) |
 | `extra_sensor` | No | HTTP endpoint returning `{"temp_c": 20.5}` for fallback |
+
+**Note**: Multiple zones can share the same `temp_pin` since 1-Wire is a bus protocol that supports multiple sensors on one pin.
 
 ### Finding Your Sensor IDs
 

@@ -65,14 +65,43 @@ use devices::ThermostatBridge;
 use matter::MatterServer;
 use metrics::MetricsServer;
 
-/// Default configuration file path
-const DEFAULT_CONFIG_PATH: &str = "./config/config.json";
+/// Configuration file search paths (in order of priority)
+/// 1. Command line argument
+/// 2. /etc/thermos-rust/config.json (system-wide, for binary installations)
+/// 3. ~/.config/thermos-rust/config.json (user-specific)
+/// 4. ./config/config.json (development/local directory)
+const CONFIG_SEARCH_PATHS: &[&str] = &[
+    "/etc/thermos-rust/config.json",
+    "~/.config/thermos-rust/config.json",
+    "./config/config.json",
+];
 
 /// Default Matter port (standard Matter port)
 const DEFAULT_MATTER_PORT: u16 = 5540;
 
 /// Default Prometheus metrics port
 const DEFAULT_METRICS_PORT: u16 = 8080;
+
+/// Find configuration file by searching standard locations
+fn find_config_file() -> Option<PathBuf> {
+    for path_str in CONFIG_SEARCH_PATHS {
+        // Expand ~ to home directory
+        let expanded = if path_str.starts_with("~/") {
+            if let Some(home) = std::env::var_os("HOME") {
+                PathBuf::from(home).join(&path_str[2..])
+            } else {
+                continue;
+            }
+        } else {
+            PathBuf::from(path_str)
+        };
+
+        if expanded.exists() {
+            return Some(expanded);
+        }
+    }
+    None
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -82,10 +111,19 @@ async fn main() -> Result<()> {
     info!("Starting Thermos-Rust multi-zone thermostat system");
 
     // Load configuration
-    let config_path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH));
+    let config_path = if let Some(arg_path) = std::env::args().nth(1) {
+        // Use command line argument if provided
+        PathBuf::from(arg_path)
+    } else if let Some(found_path) = find_config_file() {
+        // Search standard locations
+        info!("Found configuration at: {:?}", found_path);
+        found_path
+    } else {
+        anyhow::bail!(
+            "Configuration file not found. Searched:\n{}\n\nPlease create a config file or specify the path as an argument.",
+            CONFIG_SEARCH_PATHS.join("\n")
+        );
+    };
 
     info!("Loading configuration from: {:?}", config_path);
     let config = Config::load(&config_path).await?;
