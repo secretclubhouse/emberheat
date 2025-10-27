@@ -116,7 +116,13 @@ else
 endif
 
 test-coverage:
-	cargo tarpaulin --out Html --output-dir coverage
+	@echo "Generating code coverage report..."
+	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
+		echo "cargo-llvm-cov not found. Installing..."; \
+		cargo install cargo-llvm-cov; \
+	}
+	cargo llvm-cov --all-features --workspace --html --output-dir coverage
+	@echo "Coverage report generated in coverage/index.html"
 
 # Run targets
 run:
@@ -167,8 +173,8 @@ clean:
 
 # Setup development environment
 setup:
-	rustup component add rustfmt clippy
-	cargo install cargo-tarpaulin
+	rustup component add rustfmt clippy llvm-tools-preview
+	cargo install cargo-llvm-cov
 	@echo "Creating config from example..."
 	@if [ ! -f config/config.json ]; then \
 		cp config/config.example.json config/config.json; \

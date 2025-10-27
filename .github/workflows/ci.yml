@@ -92,32 +92,43 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Code coverage
+  # Code coverage using llvm-cov (more reliable than tarpaulin)
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    container:
-      image: debian:trixie
     steps:
-    - name: Install dependencies
-      run: |
-        apt-get update
-        apt-get install -y curl build-essential pkg-config libssl-dev git
-
     - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
+      with:
+        components: llvm-tools-preview
 
-    - name: Install cargo-tarpaulin
-      run: cargo install cargo-tarpaulin
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: coverage-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          coverage-cargo-registry-
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: coverage-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          coverage-cargo-git-
+
+    - name: Install cargo-llvm-cov
+      uses: taiki-e/install-action@cargo-llvm-cov
 
     - name: Generate coverage
-      run: cargo tarpaulin --out Xml --all-features
+      run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3
       with:
-        files: ./cobertura.xml
+        files: lcov.info
         fail_ci_if_error: false
