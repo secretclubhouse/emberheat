@@ -28,6 +28,9 @@ Dockerfile*
 docker-compose*.yml
 .dockerignore
 
+# Devcontainer
+.devcontainer/
+
 # Config (will be mounted)
 config/
 

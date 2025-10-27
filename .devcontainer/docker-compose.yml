@@ -1,0 +1,55 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    volumes:
+      # Mount the project directory
+      - ..:/workspace:cached
+
+      # Cache cargo registry for faster builds
+      - cargo-cache:/usr/local/cargo/registry
+
+      # Cache target directory for faster builds
+      - target-cache:/workspace/target
+
+    # Overrides default command so things don't shut down after the process ends
+    command: sleep infinity
+
+    # Use host network mode for easier Matter protocol testing
+    # This allows the container to access the network as if it were on the host
+    network_mode: host
+
+    # Environment variables
+    environment:
+      - RUST_LOG=info
+      - REDIS_URL=redis://localhost:6379
+
+    # Add capabilities needed for GPIO simulation/testing
+    cap_add:
+      - SYS_PTRACE
+
+    security_opt:
+      - seccomp:unconfined
+
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+    volumes:
+      - redis-data:/data
+
+    # Use host network mode to match dev container
+    network_mode: host
+
+    # Persist Redis data
+    command: redis-server --appendonly yes
+
+volumes:
+  cargo-cache:
+  target-cache:
+  redis-data:
