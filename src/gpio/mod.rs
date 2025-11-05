@@ -29,6 +29,8 @@
 //! }
 //! ```
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use rppal::gpio::{Gpio, Level, OutputPin};
 use std::collections::HashMap;
@@ -46,6 +48,7 @@ pub enum GpioError {
     PinNotFound(u8),
 
     #[error("GPIO hardware error: {0}")]
+    #[allow(dead_code)]
     HardwareError(String),
 }
 
@@ -192,6 +195,7 @@ impl RelayController {
     }
 
     /// Get pin number
+    #[allow(dead_code)]
     pub fn pin_number(&self) -> u8 {
         self.pin_number
     }

@@ -64,6 +64,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 /// Matter server port (standard Matter port is 5540)
+#[allow(dead_code)]
 const MATTER_PORT: u16 = 5540;
 
 /// Matter vendor ID (placeholder - should be registered)
@@ -73,12 +74,15 @@ const VENDOR_ID: u16 = 0xFFF1;
 const PRODUCT_ID: u16 = 0x8001;
 
 /// Device type: Thermostat (0x0301)
+#[allow(dead_code)]
 const DEVICE_TYPE_THERMOSTAT: u16 = 0x0301;
 
 /// Thermostat cluster ID (0x0201)
+#[allow(dead_code)]
 const CLUSTER_THERMOSTAT: u16 = 0x0201;
 
 /// Basic information cluster ID (0x0028)
+#[allow(dead_code)]
 const CLUSTER_BASIC_INFO: u16 = 0x0028;
 
 /// Matter thermostat accessory
@@ -86,6 +90,7 @@ const CLUSTER_BASIC_INFO: u16 = 0x0028;
 /// Wraps a Thermostat instance and exposes it via Matter protocol
 pub struct ThermostatAccessory {
     /// Zone name / accessory name
+    #[allow(dead_code)]
     name: String,
 
     /// Underlying thermostat device
@@ -98,6 +103,7 @@ pub struct ThermostatAccessory {
     endpoint_id: u16,
 }
 
+#[allow(dead_code)]
 impl ThermostatAccessory {
     /// Create a new Matter thermostat accessory
     ///
@@ -274,6 +280,7 @@ impl MatterServer {
     }
 
     /// Get accessory by name
+    #[allow(dead_code)]
     pub fn get_accessory(&self, name: &str) -> Option<&ThermostatAccessory> {
         self.accessories.get(name)
     }
@@ -434,6 +441,7 @@ impl MatterServer {
     /// Generate commissioning QR code
     ///
     /// Returns a QR code string that can be scanned by Matter controllers
+    #[allow(dead_code)]
     pub fn generate_qr_code(&self) -> String {
         // Matter QR code format: MT:Y.K9042C00KA0648G00
         // This is a placeholder - real implementation would generate proper QR code
@@ -450,6 +458,7 @@ impl MatterServer {
     /// Generate manual pairing code
     ///
     /// Returns an 11-digit manual pairing code
+    #[allow(dead_code)]
     pub fn generate_pairing_code(&self) -> String {
         // Matter manual pairing code format: 34970112332
         // This is a placeholder - real implementation would generate proper code

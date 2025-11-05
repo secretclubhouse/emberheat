@@ -182,11 +182,13 @@ impl Config {
     /// # Returns
     ///
     /// * `Option<&ZoneConfig>` - Zone configuration if it exists
+    #[allow(dead_code)]
     pub fn get_zone(&self, zone_name: &str) -> Option<&ZoneConfig> {
         self.zones.get(zone_name)
     }
 
     /// Get list of all zone names
+    #[allow(dead_code)]
     pub fn zone_names(&self) -> Vec<String> {
         self.zones.keys().cloned().collect()
     }

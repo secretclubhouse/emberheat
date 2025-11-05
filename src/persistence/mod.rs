@@ -37,6 +37,8 @@
 //! }
 //! ```
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use redis::aio::ConnectionManager;
 use redis::AsyncCommands;

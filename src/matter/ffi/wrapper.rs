@@ -80,6 +80,7 @@ impl Device {
     }
 
     /// Check if device is commissioned
+    #[allow(dead_code)]
     pub fn is_commissioned(&self) -> bool {
         unsafe { matter_device_is_commissioned(self.ptr) }
     }
@@ -140,8 +141,10 @@ unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
 
 /// Safe wrapper for MatterThermostat
+#[allow(dead_code)]
 pub struct Thermostat {
     ptr: *mut MatterThermostat,
+    #[allow(dead_code)]
     endpoint_id: u16,
     zone_name: String,
 }
@@ -192,6 +195,7 @@ impl Thermostat {
     }
 
     /// Get heating setpoint
+    #[allow(dead_code)]
     pub fn get_heating_setpoint(&self) -> Result<f32> {
         let mut setpoint: i16 = 0;
         let error = unsafe { matter_thermostat_get_heating_setpoint(self.ptr, &mut setpoint) };
@@ -201,6 +205,7 @@ impl Thermostat {
     }
 
     /// Get cooling setpoint
+    #[allow(dead_code)]
     pub fn get_cooling_setpoint(&self) -> Result<f32> {
         let mut setpoint: i16 = 0;
         let error = unsafe { matter_thermostat_get_cooling_setpoint(self.ptr, &mut setpoint) };
@@ -210,6 +215,7 @@ impl Thermostat {
     }
 
     /// Get system mode
+    #[allow(dead_code)]
     pub fn get_system_mode(&self) -> Result<ThermostatMode> {
         let mut mode: u8 = 0;
         let error = unsafe { matter_thermostat_get_system_mode(self.ptr, &mut mode) };
@@ -231,11 +237,13 @@ impl Thermostat {
     }
 
     /// Get endpoint ID
+    #[allow(dead_code)]
     pub fn endpoint_id(&self) -> u16 {
         self.endpoint_id
     }
 
     /// Get zone name
+    #[allow(dead_code)]
     pub fn zone_name(&self) -> &str {
         &self.zone_name
     }
@@ -314,6 +322,7 @@ impl ThermostatConfig {
 // =============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ThermostatMode {
     Off,
     Auto,
@@ -338,6 +347,7 @@ impl ThermostatMode {
         }
     }
 
+    #[allow(dead_code)]
     pub fn to_u8(self) -> u8 {
         match self {
             ThermostatMode::Off => 0x00,
