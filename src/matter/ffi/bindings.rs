@@ -254,17 +254,159 @@ mod tests {
     fn test_error_codes() {
         assert_eq!(MATTER_SUCCESS, 0);
         assert_eq!(MATTER_ERROR_INIT_FAILED, 1);
+        assert_eq!(MATTER_ERROR_INVALID_PARAM, 2);
+        assert_eq!(MATTER_ERROR_NOT_INITIALIZED, 3);
+        assert_eq!(MATTER_ERROR_NETWORK_FAILED, 4);
+        assert_eq!(MATTER_ERROR_COMMISSIONING_FAILED, 5);
+        assert_eq!(MATTER_ERROR_CLUSTER_FAILED, 6);
+        assert_eq!(MATTER_ERROR_UNKNOWN, 99);
+    }
+
+    #[test]
+    fn test_error_codes_unique() {
+        // Ensure all error codes are unique
+        let codes = vec![
+            MATTER_SUCCESS,
+            MATTER_ERROR_INIT_FAILED,
+            MATTER_ERROR_INVALID_PARAM,
+            MATTER_ERROR_NOT_INITIALIZED,
+            MATTER_ERROR_NETWORK_FAILED,
+            MATTER_ERROR_COMMISSIONING_FAILED,
+            MATTER_ERROR_CLUSTER_FAILED,
+            MATTER_ERROR_UNKNOWN,
+        ];
+
+        for (i, &code1) in codes.iter().enumerate() {
+            for (j, &code2) in codes.iter().enumerate() {
+                if i != j {
+                    assert_ne!(code1, code2, "Error codes must be unique");
+                }
+            }
+        }
     }
 
     #[test]
     fn test_thermostat_mode_values() {
         assert_eq!(MatterThermostatMode::Off as u8, 0x00);
+        assert_eq!(MatterThermostatMode::Auto as u8, 0x01);
+        assert_eq!(MatterThermostatMode::Cool as u8, 0x03);
         assert_eq!(MatterThermostatMode::Heat as u8, 0x04);
+        assert_eq!(MatterThermostatMode::EmergencyHeat as u8, 0x05);
+        assert_eq!(MatterThermostatMode::Precooling as u8, 0x06);
+        assert_eq!(MatterThermostatMode::FanOnly as u8, 0x07);
+    }
+
+    #[test]
+    fn test_thermostat_mode_ordering() {
+        // Verify mode values follow Matter spec
+        assert!((MatterThermostatMode::Off as u8) < (MatterThermostatMode::Auto as u8));
+        assert!((MatterThermostatMode::Auto as u8) < (MatterThermostatMode::Cool as u8));
+        assert!((MatterThermostatMode::Cool as u8) < (MatterThermostatMode::Heat as u8));
+    }
+
+    #[test]
+    fn test_running_state_values() {
+        assert_eq!(MatterThermostatRunningState::Idle as u16, 0x0000);
+        assert_eq!(MatterThermostatRunningState::Heat as u16, 0x0001);
+        assert_eq!(MatterThermostatRunningState::Cool as u16, 0x0002);
+        assert_eq!(MatterThermostatRunningState::Fan as u16, 0x0004);
+        assert_eq!(MatterThermostatRunningState::HeatStage2 as u16, 0x0008);
+        assert_eq!(MatterThermostatRunningState::CoolStage2 as u16, 0x0010);
+        assert_eq!(MatterThermostatRunningState::FanStage2 as u16, 0x0020);
+        assert_eq!(MatterThermostatRunningState::FanStage3 as u16, 0x0040);
+    }
+
+    #[test]
+    fn test_running_state_flags() {
+        // Test that running states are bitflags (power of 2 or 0)
+        let states = vec![
+            MatterThermostatRunningState::Idle as u16,
+            MatterThermostatRunningState::Heat as u16,
+            MatterThermostatRunningState::Cool as u16,
+            MatterThermostatRunningState::Fan as u16,
+            MatterThermostatRunningState::HeatStage2 as u16,
+            MatterThermostatRunningState::CoolStage2 as u16,
+            MatterThermostatRunningState::FanStage2 as u16,
+            MatterThermostatRunningState::FanStage3 as u16,
+        ];
+
+        for &state in &states {
+            if state == 0 {
+                continue; // Idle is valid 0
+            }
+            // Check if it's a power of 2 (only one bit set)
+            assert_eq!(state & (state - 1), 0, "{} should be a power of 2", state);
+        }
+    }
+
+    #[test]
+    fn test_running_state_combinations() {
+        // Test that running states can be combined with bitwise OR
+        let heat_and_fan = MatterThermostatRunningState::Heat as u16
+            | MatterThermostatRunningState::Fan as u16;
+        assert_eq!(heat_and_fan, 0x0005);
+
+        let cool_stage_2_and_fan = MatterThermostatRunningState::CoolStage2 as u16
+            | MatterThermostatRunningState::Fan as u16;
+        assert_eq!(cool_stage_2_and_fan, 0x0014);
     }
 
     #[test]
     fn test_check_error() {
         assert!(check_error(MATTER_SUCCESS).is_ok());
         assert!(check_error(MATTER_ERROR_INIT_FAILED).is_err());
+        assert!(check_error(MATTER_ERROR_INVALID_PARAM).is_err());
+        assert!(check_error(MATTER_ERROR_NOT_INITIALIZED).is_err());
+    }
+
+    #[test]
+    fn test_check_error_messages() {
+        // Verify error messages are present
+        let err = check_error(MATTER_ERROR_INIT_FAILED);
+        assert!(err.is_err());
+        let err_msg = err.unwrap_err();
+        assert!(!err_msg.is_empty());
+        assert!(err_msg.contains("Initialization failed") || err_msg.contains("init"));
+    }
+
+    #[test]
+    fn test_device_config_struct_size() {
+        // Verify struct is C-compatible (reasonable size)
+        let size = std::mem::size_of::<MatterDeviceConfig>();
+        assert!(size > 0);
+        assert!(size < 1024); // Should be relatively small
+    }
+
+    #[test]
+    fn test_thermostat_config_struct_size() {
+        let size = std::mem::size_of::<MatterThermostatConfig>();
+        assert!(size > 0);
+        assert!(size < 256);
+    }
+
+    #[test]
+    fn test_opaque_types_are_pointers() {
+        // Verify opaque types are represented as pointers
+        assert_eq!(
+            std::mem::size_of::<*mut MatterDevice>(),
+            std::mem::size_of::<usize>()
+        );
+        assert_eq!(
+            std::mem::size_of::<*mut MatterThermostat>(),
+            std::mem::size_of::<usize>()
+        );
+    }
+
+    #[test]
+    fn test_callback_types_are_function_pointers() {
+        // Verify callback types are function pointers
+        assert_eq!(
+            std::mem::size_of::<MatterThermostatSetpointChangedCallback>(),
+            std::mem::size_of::<usize>()
+        );
+        assert_eq!(
+            std::mem::size_of::<MatterCommissioningCompleteCallback>(),
+            std::mem::size_of::<usize>()
+        );
     }
 }

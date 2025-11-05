@@ -375,30 +375,248 @@ impl From<ThermostatRunningState> for u16 {
 mod tests {
     use super::*;
 
+    // DeviceConfig tests
     #[test]
     fn test_device_config_default() {
         let config = DeviceConfig::default();
         assert_eq!(config.vendor_id, 0xFFF1);
+        assert_eq!(config.product_id, 0x8001);
         assert_eq!(config.port, 5540);
+        assert_eq!(config.discriminator, 3840);
+        assert_eq!(config.setup_passcode, 20202021);
+        assert!(!config.device_name.is_empty());
+        assert!(!config.serial_number.is_empty());
     }
 
+    #[test]
+    fn test_device_config_custom() {
+        let mut config = DeviceConfig::default();
+        config.vendor_id = 0x1234;
+        config.product_id = 0x5678;
+        config.port = 9000;
+        config.device_name = "Custom Device".to_string();
+
+        assert_eq!(config.vendor_id, 0x1234);
+        assert_eq!(config.product_id, 0x5678);
+        assert_eq!(config.port, 9000);
+        assert_eq!(config.device_name, "Custom Device");
+    }
+
+    #[test]
+    fn test_device_config_discriminator_range() {
+        let config = DeviceConfig::default();
+        // Discriminator is 12-bit (0-4095)
+        assert!(config.discriminator <= 4095);
+    }
+
+    #[test]
+    fn test_device_config_passcode_valid() {
+        let config = DeviceConfig::default();
+        // Setup passcode should be non-zero
+        assert_ne!(config.setup_passcode, 0);
+    }
+
+    // ThermostatConfig tests
     #[test]
     fn test_thermostat_config_new() {
         let config = ThermostatConfig::new(1, "Zone1".to_string());
         assert_eq!(config.endpoint_id, 1);
         assert_eq!(config.zone_name, "Zone1");
+        assert_eq!(config.min_heat_setpoint, 700);  // 7.0°C
+        assert_eq!(config.max_heat_setpoint, 3500); // 35.0°C
+        assert_eq!(config.min_cool_setpoint, 1600); // 16.0°C
+        assert_eq!(config.max_cool_setpoint, 3200); // 32.0°C
     }
 
+    #[test]
+    fn test_thermostat_config_custom_endpoint() {
+        let config = ThermostatConfig::new(42, "Test Zone".to_string());
+        assert_eq!(config.endpoint_id, 42);
+        assert_eq!(config.zone_name, "Test Zone");
+    }
+
+    #[test]
+    fn test_thermostat_config_setpoint_ranges() {
+        let config = ThermostatConfig::new(1, "Zone1".to_string());
+
+        // Heat setpoints
+        assert!(config.min_heat_setpoint < config.max_heat_setpoint);
+        assert!(config.min_heat_setpoint >= 0);
+
+        // Cool setpoints
+        assert!(config.min_cool_setpoint < config.max_cool_setpoint);
+        assert!(config.min_cool_setpoint > config.min_heat_setpoint);
+    }
+
+    #[test]
+    fn test_thermostat_config_zone_name_empty() {
+        let config = ThermostatConfig::new(1, String::new());
+        assert_eq!(config.zone_name, "");
+    }
+
+    #[test]
+    fn test_thermostat_config_zone_name_special_chars() {
+        let config = ThermostatConfig::new(1, "Zone-1_Test (Main)".to_string());
+        assert_eq!(config.zone_name, "Zone-1_Test (Main)");
+    }
+
+    // ThermostatMode tests
     #[test]
     fn test_thermostat_mode_conversion() {
         assert_eq!(ThermostatMode::from_u8(0x00).unwrap(), ThermostatMode::Off);
+        assert_eq!(ThermostatMode::from_u8(0x01).unwrap(), ThermostatMode::Auto);
+        assert_eq!(ThermostatMode::from_u8(0x03).unwrap(), ThermostatMode::Cool);
         assert_eq!(ThermostatMode::from_u8(0x04).unwrap(), ThermostatMode::Heat);
-        assert_eq!(ThermostatMode::Heat.to_u8(), 0x04);
+        assert_eq!(ThermostatMode::from_u8(0x05).unwrap(), ThermostatMode::EmergencyHeat);
+        assert_eq!(ThermostatMode::from_u8(0x06).unwrap(), ThermostatMode::Precooling);
+        assert_eq!(ThermostatMode::from_u8(0x07).unwrap(), ThermostatMode::FanOnly);
     }
 
     #[test]
+    fn test_thermostat_mode_invalid() {
+        assert!(ThermostatMode::from_u8(0xFF).is_err());
+        assert!(ThermostatMode::from_u8(0x02).is_err());
+        assert!(ThermostatMode::from_u8(0x08).is_err());
+    }
+
+    #[test]
+    fn test_thermostat_mode_to_u8() {
+        assert_eq!(ThermostatMode::Off.to_u8(), 0x00);
+        assert_eq!(ThermostatMode::Auto.to_u8(), 0x01);
+        assert_eq!(ThermostatMode::Cool.to_u8(), 0x03);
+        assert_eq!(ThermostatMode::Heat.to_u8(), 0x04);
+        assert_eq!(ThermostatMode::EmergencyHeat.to_u8(), 0x05);
+        assert_eq!(ThermostatMode::Precooling.to_u8(), 0x06);
+        assert_eq!(ThermostatMode::FanOnly.to_u8(), 0x07);
+    }
+
+    #[test]
+    fn test_thermostat_mode_round_trip() {
+        let modes = vec![
+            ThermostatMode::Off,
+            ThermostatMode::Auto,
+            ThermostatMode::Cool,
+            ThermostatMode::Heat,
+            ThermostatMode::EmergencyHeat,
+            ThermostatMode::Precooling,
+            ThermostatMode::FanOnly,
+        ];
+
+        for mode in modes {
+            let u8_val = mode.to_u8();
+            let converted = ThermostatMode::from_u8(u8_val).unwrap();
+            assert_eq!(mode, converted);
+        }
+    }
+
+    #[test]
+    fn test_thermostat_mode_debug() {
+        // Verify Debug trait works
+        let mode = ThermostatMode::Heat;
+        let debug_str = format!("{:?}", mode);
+        assert!(debug_str.contains("Heat"));
+    }
+
+    // ThermostatRunningState tests
+    #[test]
     fn test_running_state_conversion() {
+        let state: u16 = ThermostatRunningState::Idle.into();
+        assert_eq!(state, 0x0000);
+
         let state: u16 = ThermostatRunningState::Heat.into();
         assert_eq!(state, 0x0001);
+
+        let state: u16 = ThermostatRunningState::Cool.into();
+        assert_eq!(state, 0x0002);
+
+        let state: u16 = ThermostatRunningState::Fan.into();
+        assert_eq!(state, 0x0004);
+    }
+
+    #[test]
+    fn test_running_state_all_values() {
+        let states = vec![
+            (ThermostatRunningState::Idle, 0x0000),
+            (ThermostatRunningState::Heat, 0x0001),
+            (ThermostatRunningState::Cool, 0x0002),
+            (ThermostatRunningState::Fan, 0x0004),
+        ];
+
+        for (state, expected) in states {
+            let value: u16 = state.into();
+            assert_eq!(value, expected);
+        }
+    }
+
+    #[test]
+    fn test_running_state_values_are_bitflags() {
+        // Verify that running state values are powers of 2 (except Idle)
+        let heat: u16 = ThermostatRunningState::Heat.into();
+        let cool: u16 = ThermostatRunningState::Cool.into();
+        let fan: u16 = ThermostatRunningState::Fan.into();
+
+        assert_eq!(heat & (heat - 1), 0); // Power of 2
+        assert_eq!(cool & (cool - 1), 0); // Power of 2
+        assert_eq!(fan & (fan - 1), 0);   // Power of 2
+    }
+
+    #[test]
+    fn test_running_state_debug() {
+        let state = ThermostatRunningState::Heat;
+        let debug_str = format!("{:?}", state);
+        assert!(debug_str.contains("Heat"));
+    }
+
+    #[test]
+    fn test_running_state_clone() {
+        let state1 = ThermostatRunningState::Heat;
+        let state2 = state1.clone();
+
+        let val1: u16 = state1.into();
+        let val2: u16 = state2.into();
+        assert_eq!(val1, val2);
+    }
+
+    // Temperature conversion tests
+    #[test]
+    fn test_temperature_centi_degrees() {
+        // 20.0°C should be 2000 centi-degrees
+        let temp_c = 20.0;
+        let centi = (temp_c * 100.0) as i16;
+        assert_eq!(centi, 2000);
+
+        // 21.5°C should be 2150 centi-degrees
+        let temp_c = 21.5;
+        let centi = (temp_c * 100.0) as i16;
+        assert_eq!(centi, 2150);
+    }
+
+    #[test]
+    fn test_temperature_negative() {
+        // -5.0°C should be -500 centi-degrees
+        let temp_c = -5.0;
+        let centi = (temp_c * 100.0) as i16;
+        assert_eq!(centi, -500);
+    }
+
+    // Helper function tests
+    #[test]
+    fn test_check_error_success() {
+        let result = check_error(MATTER_SUCCESS);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_check_error_failure() {
+        let result = check_error(MATTER_ERROR_INIT_FAILED);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_error_returns_message() {
+        let result = check_error(MATTER_ERROR_INVALID_PARAM);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(!err.is_empty());
     }
 }
