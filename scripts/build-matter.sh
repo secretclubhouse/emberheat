@@ -51,31 +51,40 @@ echo ""
 cd "$MATTER_DIR"
 
 # Check if we need to bootstrap
-if [ ! -f ".environment/cipd/cipd" ] && [ ! -f "scripts/activate.sh" ]; then
+if [ ! -f "scripts/activate.sh" ]; then
     echo "ERROR: Matter build scripts not found. The source may be incomplete."
     echo "Please ensure you downloaded a complete release."
     exit 1
 fi
 
-# Activate the Matter build environment
-echo "Activating Matter build environment..."
-if [ -f "scripts/activate.sh" ]; then
-    # Use our workaround environment.json if it exists
+# Bootstrap/Activate the Matter build environment
+echo "Setting up Matter build environment..."
+if [ -f "scripts/bootstrap.sh" ]; then
     if [ ! -f "scripts/setup/environment.json" ]; then
         echo "ERROR: Matter environment configuration not found"
         exit 1
     fi
 
+    # Use bootstrap on first run, activate on subsequent runs
+    if [ ! -d ".environment" ]; then
+        echo "First-time setup: bootstrapping environment (this may take a few minutes)..."
+        SCRIPT_TO_RUN="scripts/bootstrap.sh"
+    else
+        echo "Environment exists: activating..."
+        SCRIPT_TO_RUN="scripts/activate.sh"
+    fi
+
     set +e  # Don't exit on error for activation (it may have warnings)
-    source scripts/activate.sh -p none
+    source "$SCRIPT_TO_RUN" -p none 2>&1 | grep -v "externally-managed-environment" || true
     ACTIVATE_RESULT=$?
     set -e
 
-    if [ $ACTIVATE_RESULT -ne 0 ]; then
-        echo "WARNING: Activation had issues, but continuing..."
+    if [ $ACTIVATE_RESULT -ne 0 ] && [ $ACTIVATE_RESULT -ne 141 ]; then
+        echo "WARNING: Environment setup had issues (exit code: $ACTIVATE_RESULT)"
+        echo "Checking if we can continue anyway..."
     fi
 else
-    echo "ERROR: activate.sh not found in Matter source"
+    echo "ERROR: bootstrap.sh not found in Matter source"
     exit 1
 fi
 
