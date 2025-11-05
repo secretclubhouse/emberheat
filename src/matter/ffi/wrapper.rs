@@ -4,7 +4,6 @@
  * This module provides safe, idiomatic Rust interfaces around the unsafe
  * C FFI bindings to the Connected Home IP library.
  */
-
 use super::bindings::*;
 use anyhow::{anyhow, Result};
 use std::ffi::{CStr, CString};
@@ -74,8 +73,7 @@ impl Device {
     /// Run the Matter event loop (non-blocking)
     pub fn run_event_loop(&mut self) -> Result<()> {
         let error = unsafe { matter_device_run_event_loop(self.ptr) };
-        check_error(error)
-            .map_err(|e| anyhow!("Event loop error: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Event loop error: {}", e))?;
         Ok(())
     }
 
@@ -89,14 +87,9 @@ impl Device {
     pub fn get_qr_code(&self) -> Result<String> {
         let mut buffer = vec![0u8; 256];
         let error = unsafe {
-            matter_device_get_qr_code(
-                self.ptr,
-                buffer.as_mut_ptr() as *mut c_char,
-                buffer.len(),
-            )
+            matter_device_get_qr_code(self.ptr, buffer.as_mut_ptr() as *mut c_char, buffer.len())
         };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to get QR code: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to get QR code: {}", e))?;
 
         let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
         Ok(cstr.to_string_lossy().into_owned())
@@ -112,8 +105,7 @@ impl Device {
                 buffer.len(),
             )
         };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to get pairing code: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to get pairing code: {}", e))?;
 
         let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
         Ok(cstr.to_string_lossy().into_owned())
@@ -185,8 +177,7 @@ impl Thermostat {
     pub fn set_local_temperature(&mut self, temp_celsius: f32) -> Result<()> {
         let centi_degrees = (temp_celsius * 100.0) as i16;
         let error = unsafe { matter_thermostat_set_local_temperature(self.ptr, centi_degrees) };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to set temperature: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to set temperature: {}", e))?;
         debug!(
             "Thermostat '{}': Updated temperature to {:.1}°C",
             self.zone_name, temp_celsius
@@ -199,8 +190,7 @@ impl Thermostat {
     pub fn get_heating_setpoint(&self) -> Result<f32> {
         let mut setpoint: i16 = 0;
         let error = unsafe { matter_thermostat_get_heating_setpoint(self.ptr, &mut setpoint) };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to get heating setpoint: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to get heating setpoint: {}", e))?;
         Ok(setpoint as f32 / 100.0)
     }
 
@@ -209,8 +199,7 @@ impl Thermostat {
     pub fn get_cooling_setpoint(&self) -> Result<f32> {
         let mut setpoint: i16 = 0;
         let error = unsafe { matter_thermostat_get_cooling_setpoint(self.ptr, &mut setpoint) };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to get cooling setpoint: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to get cooling setpoint: {}", e))?;
         Ok(setpoint as f32 / 100.0)
     }
 
@@ -219,16 +208,14 @@ impl Thermostat {
     pub fn get_system_mode(&self) -> Result<ThermostatMode> {
         let mut mode: u8 = 0;
         let error = unsafe { matter_thermostat_get_system_mode(self.ptr, &mut mode) };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to get system mode: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to get system mode: {}", e))?;
         ThermostatMode::from_u8(mode)
     }
 
     /// Set running state
     pub fn set_running_state(&mut self, state: ThermostatRunningState) -> Result<()> {
         let error = unsafe { matter_thermostat_set_running_state(self.ptr, state as u16) };
-        check_error(error)
-            .map_err(|e| anyhow!("Failed to set running state: {}", e))?;
+        check_error(error).map_err(|e| anyhow!("Failed to set running state: {}", e))?;
         debug!(
             "Thermostat '{}': Updated running state to {:?}",
             self.zone_name, state
@@ -282,8 +269,8 @@ pub struct DeviceConfig {
 impl Default for DeviceConfig {
     fn default() -> Self {
         Self {
-            vendor_id: 0xFFF1,        // Test vendor ID
-            product_id: 0x8001,       // Thermostat product ID
+            vendor_id: 0xFFF1,  // Test vendor ID
+            product_id: 0x8001, // Thermostat product ID
             device_name: "Thermostat".to_string(),
             serial_number: "TEST123".to_string(),
             discriminator: 3840,      // Default discriminator
