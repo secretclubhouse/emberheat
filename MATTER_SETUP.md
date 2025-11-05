@@ -77,6 +77,70 @@ rustc --version
 
 If not installed, get it from https://rustup.rs/
 
+## Pre-built Libraries
+
+**NEW:** To avoid rebuilding the entire Connected Home IP library (~15-30 minutes) on every clone, this project supports **pre-built libraries**.
+
+The build system checks for libraries in this order:
+1. **Pre-built libraries** in `lib/connectedhomeip/{platform}/` (committed to git)
+2. **Submodule build** at `third_party/connectedhomeip/out/host/lib/`
+3. **Stub implementation** (no actual Matter support)
+
+### Supported Platforms
+
+- `darwin-arm64` - macOS Apple Silicon
+- `darwin-x64` - macOS Intel
+- `linux-arm64` - Linux ARM64 (Raspberry Pi, etc.)
+- `linux-x64` - Linux x86_64
+
+### Using Pre-built Libraries (Recommended)
+
+If pre-built libraries exist for your platform, the build will automatically use them:
+
+```bash
+# Just build normally
+cargo build --release
+
+# The build script will automatically detect and use pre-built libraries
+```
+
+**Note:** If you're on a platform where pre-built libraries are already committed, you can skip building the Connected Home IP library entirely!
+
+### Building and Committing Libraries
+
+If you need to build libraries for a new platform or upgrade the Matter version:
+
+```bash
+# Step 1: Build the Connected Home IP library (see Option 3 below)
+cd third_party/connectedhomeip
+source scripts/activate.sh
+gn gen out/host --args='target_os="linux" target_cpu="arm64"'
+ninja -C out/host
+cd ../..
+
+# Step 2: Copy libraries to lib/ directory
+./scripts/copy-matter-libs.sh
+
+# Step 3: Test the build
+cargo build --release
+
+# Step 4: Commit the libraries
+git add lib/connectedhomeip/
+git commit -m "Add pre-built Matter libraries for $(uname -s)-$(uname -m)"
+git push
+```
+
+**Benefits:**
+- New clones build immediately (no 30-minute wait)
+- Consistent libraries across development and CI
+- Easier onboarding for new developers
+- No need to install GN/Ninja for basic development
+
+**Trade-offs:**
+- Larger repository size (~50-150 MB per platform)
+- Need to rebuild when upgrading Matter version
+- Platform-specific (may need multiple platforms)
+
 ## Building the Matter Integration
 
 ### Option 1: Stub Implementation (Quick Start)
@@ -96,9 +160,20 @@ The stub implementation provides:
 - Test QR codes and pairing codes
 - No actual Matter protocol communication
 
-### Option 2: Full Implementation (Production)
+### Option 2: Using Pre-built Libraries (Recommended - Fast)
 
-For actual Matter protocol support, you need to build the Connected Home IP library.
+If pre-built libraries are available for your platform (check `lib/connectedhomeip/`):
+
+```bash
+# Just build - that's it!
+cargo build --release
+```
+
+The build script will automatically detect and use pre-built libraries. **No need to build the Connected Home IP library!**
+
+### Option 3: Building from Source (Required for New Platforms)
+
+For actual Matter protocol support on a platform without pre-built libraries, you need to build the Connected Home IP library.
 
 #### Step 1: Initialize the Submodule
 
@@ -125,7 +200,13 @@ source scripts/activate.sh
 # For Raspberry Pi (ARM):
 gn gen out/host --args='target_os="linux" target_cpu="arm64"'
 
-# For x86_64:
+# For macOS ARM64 (Apple Silicon):
+# gn gen out/host --args='target_os="darwin" target_cpu="arm64"'
+
+# For macOS x64 (Intel):
+# gn gen out/host --args='target_os="darwin" target_cpu="x64"'
+
+# For Linux x86_64:
 # gn gen out/host --args='target_os="linux" target_cpu="x64"'
 
 # Build the library (this takes 15-30 minutes on first build)
@@ -135,7 +216,20 @@ ninja -C out/host
 cd ../..
 ```
 
-#### Step 3: Build Thermos-Rust
+#### Step 3: Copy Libraries (Optional but Recommended)
+
+Save time for future builds by copying the libraries:
+
+```bash
+# Copy built libraries to lib/ directory
+./scripts/copy-matter-libs.sh
+
+# Commit them so others don't need to rebuild
+git add lib/connectedhomeip/
+git commit -m "Add pre-built Matter libraries for $(uname -s)-$(uname -m)"
+```
+
+#### Step 4: Build Thermos-Rust
 
 ```bash
 # Build with the full Matter library
@@ -143,10 +237,11 @@ cargo build --release
 ```
 
 The build script (`build.rs`) will:
-1. Detect the Connected Home IP library
-2. Compile the C++ wrapper (`matter_wrapper.cpp`)
-3. Link against the Matter libraries
-4. Generate Rust FFI bindings
+1. Check for pre-built libraries first
+2. Fall back to submodule build if needed
+3. Compile the C++ wrapper (`matter_wrapper.cpp`)
+4. Link against the Matter libraries
+5. Generate Rust FFI bindings
 
 ## Running with Matter Support
 
@@ -380,19 +475,33 @@ The current implementation uses **test credentials**. For production:
 To update the Connected Home IP library:
 
 ```bash
+# Step 1: Update the submodule
 cd third_party/connectedhomeip
 git fetch origin
 git checkout <new-version-tag>
 cd ../..
 git add third_party/connectedhomeip
-git commit -m "Update Connected Home IP to <version>"
+git commit -m "Update Connected Home IP submodule to <version>"
 
-# Rebuild
+# Step 2: Rebuild the libraries
 cd third_party/connectedhomeip
+source scripts/activate.sh
 ninja -C out/host
 cd ../..
+
+# Step 3: Copy updated libraries
+./scripts/copy-matter-libs.sh
+
+# Step 4: Test the build
 cargo build --release
+
+# Step 5: Commit the updated libraries
+git add lib/connectedhomeip/
+git commit -m "Update pre-built Matter libraries to <version>"
+git push
 ```
+
+**Note:** If using pre-built libraries, you should update them for all platforms you support (darwin-arm64, linux-arm64, etc.) to maintain consistency.
 
 ## Additional Resources
 
