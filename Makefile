@@ -1,6 +1,6 @@
 # Makefile for Thermos-Rust
 
-.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install
+.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install matter-download matter-build matter-libs matter-clean
 
 # Detect operating system
 UNAME_S := $(shell uname -s)
@@ -34,6 +34,13 @@ endif
 	@echo "  check          - Check code without building"
 	@echo "  install        - Install to system"
 	@echo "  docs           - Generate documentation"
+	@echo ""
+	@echo "Matter library targets:"
+	@echo "  matter-download - Download Matter source from GitHub"
+	@echo "  matter-build    - Build Matter libraries from source"
+	@echo "  matter-libs     - Copy built libraries to lib/ directory"
+	@echo "  matter-clean    - Remove downloaded Matter source"
+	@echo "  matter-setup    - Complete Matter setup (download + build + copy)"
 	@echo ""
 	@echo "Workflows:"
 	@echo "  dev            - Format, lint, and test"
@@ -213,3 +220,50 @@ ci-full: fmt check lint test-all
 	@echo ""
 	@echo "✓ Full CI checks complete (with hardware tests)!"
 	@echo "  Platform: $(UNAME_S)"
+
+# ============================================================================
+# Matter/Connected Home IP Library Targets
+# ============================================================================
+
+# Download Matter source code from GitHub
+matter-download:
+	@echo "Downloading Matter/Connected Home IP source..."
+	./scripts/download-matter.sh
+
+# Build Matter libraries from source
+matter-build:
+	@echo "Building Matter libraries..."
+	@if [ ! -d "third_party/connectedhomeip" ]; then \
+		echo "Matter source not found. Running matter-download first..."; \
+		$(MAKE) matter-download; \
+	fi
+	./scripts/build-matter.sh
+
+# Copy built Matter libraries to lib/ directory for version control
+matter-libs:
+	@echo "Copying Matter libraries..."
+	@if [ ! -d "third_party/connectedhomeip/out/host/lib" ]; then \
+		echo "Matter libraries not built yet. Run 'make matter-build' first."; \
+		exit 1; \
+	fi
+	./scripts/copy-matter-libs.sh
+
+# Complete Matter setup: download, build, and copy libraries
+matter-setup: matter-download matter-build matter-libs
+	@echo ""
+	@echo "✓ Matter setup complete!"
+	@echo "  Source: third_party/connectedhomeip/"
+	@echo "  Libraries: lib/connectedhomeip/<platform>/"
+	@echo ""
+	@echo "You can now build thermos-rust:"
+	@echo "  make build"
+
+# Remove downloaded Matter source (keeps pre-built libraries in lib/)
+matter-clean:
+	@echo "Removing Matter source directory..."
+	@if [ -d "third_party/connectedhomeip" ]; then \
+		rm -rf third_party/connectedhomeip; \
+		echo "✓ Removed third_party/connectedhomeip"; \
+	else \
+		echo "No Matter source directory to remove"; \
+	fi
