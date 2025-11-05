@@ -12,6 +12,4 @@ pub mod bindings;
 pub mod wrapper;
 
 // Re-export the safe wrapper types
-pub use wrapper::{
-    Device, DeviceConfig, Thermostat, ThermostatConfig, ThermostatMode, ThermostatRunningState,
-};
+pub use wrapper::{Device, DeviceConfig, Thermostat, ThermostatConfig, ThermostatRunningState};
