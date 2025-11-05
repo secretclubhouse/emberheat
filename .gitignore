@@ -4,6 +4,13 @@
 *.pdb
 Cargo.lock
 
+# Matter/Connected Home IP source (downloaded, not checked in)
+# We download this from GitHub releases instead of using submodules
+/third_party/connectedhomeip/
+# But keep the directory structure
+!/third_party/
+!/third_party/.gitkeep
+
 # Pre-built Matter libraries (we DO want to track these)
 # The lib/ directory contains pre-built libraries that should be committed
 # to avoid rebuilding the entire Matter stack on every clone
