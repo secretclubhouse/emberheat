@@ -127,7 +127,10 @@ impl ThermostatAccessory {
     }
 
     /// Set the Matter FFI thermostat handle
-    pub(crate) fn set_matter_thermostat(&mut self, matter_thermostat: Arc<RwLock<ffi::Thermostat>>) {
+    pub(crate) fn set_matter_thermostat(
+        &mut self,
+        matter_thermostat: Arc<RwLock<ffi::Thermostat>>,
+    ) {
         self.matter_thermostat = Some(matter_thermostat);
     }
 
@@ -301,7 +304,7 @@ impl MatterServer {
             product_id: PRODUCT_ID,
             device_name: "Thermos Multi-Zone".to_string(),
             serial_number: format!("THERMO-{}", chrono::Utc::now().timestamp()),
-            discriminator: 3840, // Default discriminator
+            discriminator: 3840,      // Default discriminator
             setup_passcode: 20202021, // Default setup passcode
             port: self.port,
         };
@@ -327,10 +330,8 @@ impl MatterServer {
 
         // Create Matter thermostats for each accessory
         for (name, accessory) in self.accessories.iter_mut() {
-            let thermostat_config = ffi::ThermostatConfig::new(
-                accessory.endpoint_id(),
-                name.clone(),
-            );
+            let thermostat_config =
+                ffi::ThermostatConfig::new(accessory.endpoint_id(), name.clone());
 
             let device_guard = device.read().await;
             let matter_thermostat = ffi::Thermostat::new(&device_guard, thermostat_config)?;
