@@ -422,7 +422,7 @@ mod tests {
         let config = ThermostatConfig::new(1, "Zone1".to_string());
         assert_eq!(config.endpoint_id, 1);
         assert_eq!(config.zone_name, "Zone1");
-        assert_eq!(config.min_heat_setpoint, 700);  // 7.0°C
+        assert_eq!(config.min_heat_setpoint, 700); // 7.0°C
         assert_eq!(config.max_heat_setpoint, 3500); // 35.0°C
         assert_eq!(config.min_cool_setpoint, 1600); // 16.0°C
         assert_eq!(config.max_cool_setpoint, 3200); // 32.0°C
@@ -467,9 +467,18 @@ mod tests {
         assert_eq!(ThermostatMode::from_u8(0x01).unwrap(), ThermostatMode::Auto);
         assert_eq!(ThermostatMode::from_u8(0x03).unwrap(), ThermostatMode::Cool);
         assert_eq!(ThermostatMode::from_u8(0x04).unwrap(), ThermostatMode::Heat);
-        assert_eq!(ThermostatMode::from_u8(0x05).unwrap(), ThermostatMode::EmergencyHeat);
-        assert_eq!(ThermostatMode::from_u8(0x06).unwrap(), ThermostatMode::Precooling);
-        assert_eq!(ThermostatMode::from_u8(0x07).unwrap(), ThermostatMode::FanOnly);
+        assert_eq!(
+            ThermostatMode::from_u8(0x05).unwrap(),
+            ThermostatMode::EmergencyHeat
+        );
+        assert_eq!(
+            ThermostatMode::from_u8(0x06).unwrap(),
+            ThermostatMode::Precooling
+        );
+        assert_eq!(
+            ThermostatMode::from_u8(0x07).unwrap(),
+            ThermostatMode::FanOnly
+        );
     }
 
     #[test]
@@ -557,7 +566,7 @@ mod tests {
 
         assert_eq!(heat & (heat - 1), 0); // Power of 2
         assert_eq!(cool & (cool - 1), 0); // Power of 2
-        assert_eq!(fan & (fan - 1), 0);   // Power of 2
+        assert_eq!(fan & (fan - 1), 0); // Power of 2
     }
 
     #[test]

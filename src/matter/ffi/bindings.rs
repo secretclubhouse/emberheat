@@ -342,8 +342,8 @@ mod tests {
     #[test]
     fn test_running_state_combinations() {
         // Test that running states can be combined with bitwise OR
-        let heat_and_fan = MatterThermostatRunningState::Heat as u16
-            | MatterThermostatRunningState::Fan as u16;
+        let heat_and_fan =
+            MatterThermostatRunningState::Heat as u16 | MatterThermostatRunningState::Fan as u16;
         assert_eq!(heat_and_fan, 0x0005);
 
         let cool_stage_2_and_fan = MatterThermostatRunningState::CoolStage2 as u16
