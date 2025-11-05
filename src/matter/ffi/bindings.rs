@@ -1,9 +1,7 @@
-/**
- * Rust FFI bindings for Matter C wrapper
- *
- * These bindings provide a Rust interface to the C wrapper around the
- * Connected Home IP C++ library.
- */
+//! Rust FFI bindings for Matter C wrapper
+//!
+//! These bindings provide a Rust interface to the C wrapper around the
+//! Connected Home IP C++ library.
 
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]

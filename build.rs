@@ -1,17 +1,17 @@
-/**
- * Build script for compiling Matter C wrapper and linking Connected Home IP library
- *
- * This script:
- * 1. Compiles the Matter C wrapper (matter_wrapper.cpp)
- * 2. Links against the Connected Home IP library (when available)
- * 3. Generates Rust bindings using bindgen
- */
+//! Build script for compiling Matter C wrapper and linking Connected Home IP library
+//!
+//! This script:
+//! 1. Compiles the Matter C wrapper (matter_wrapper.cpp)
+//! 2. Links against the Connected Home IP library (when available)
+//! 3. Generates Rust bindings using bindgen
+
+#![allow(unexpected_cfgs)]
 
 use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
+    let _out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
     println!("cargo:rerun-if-changed=src/matter/ffi/matter_wrapper.h");
     println!("cargo:rerun-if-changed=src/matter/ffi/matter_wrapper.cpp");
