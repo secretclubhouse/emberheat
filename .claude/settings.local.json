@@ -17,7 +17,17 @@
       "Bash(chmod:*)",
       "Bash(cat:*)",
       "Bash(git config:*)",
-      "Bash(make help:*)"
+      "Bash(make help:*)",
+      "Bash(bash:*)",
+      "Bash(./scripts/download-matter.sh:*)",
+      "Bash(if [ -d \"third_party/connectedhomeip/.git\" ])",
+      "Bash(then echo \"It''s a git repo\")",
+      "Bash(else echo \"Not a git repo\")",
+      "Bash(fi)",
+      "Bash(./scripts/test-matter-download.sh:*)",
+      "Bash(if [ -f matter-setup.log ])",
+      "Bash(then tail -100 matter-setup.log)",
+      "Bash(timeout 300 make:*)"
     ],
     "deny": [],
     "ask": []
