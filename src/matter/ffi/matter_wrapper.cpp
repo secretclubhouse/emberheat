@@ -8,8 +8,9 @@
 
 #include "matter_wrapper.h"
 
-#include <string.h>
-#include <stdio.h>
+#include <cstring>
+#include <cstdio>
+#include <cstdlib>  /* for free() */
 #include <memory>
 #include <map>
 
@@ -84,8 +85,8 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
 
     // Copy configuration
     device->config = *config;
-    device->config.device_name = strdup(config->device_name);
-    device->config.serial_number = strdup(config->serial_number);
+    device->config.device_name = config->device_name ? ::strdup(config->device_name) : nullptr;
+    device->config.serial_number = config->serial_number ? ::strdup(config->serial_number) : nullptr;
     device->initialized = false;
     device->commissioned = false;
     device->commissioning_callback = nullptr;
@@ -126,8 +127,8 @@ void matter_device_shutdown(MatterDevice* device) {
     // - chip::DeviceLayer::PlatformMgr().Shutdown()
 
     // Free config strings
-    free((void*)device->config.device_name);
-    free((void*)device->config.serial_number);
+    ::free((void*)device->config.device_name);
+    ::free((void*)device->config.serial_number);
 
     delete device;
 
@@ -242,7 +243,7 @@ MatterThermostat* matter_thermostat_create(
     // Initialize thermostat
     thermostat->device = device;
     thermostat->config = *config;
-    thermostat->config.zone_name = strdup(config->zone_name);
+    thermostat->config.zone_name = config->zone_name ? ::strdup(config->zone_name) : nullptr;
     thermostat->local_temperature = 2000; // 20.0°C default
     thermostat->heating_setpoint = 2000;
     thermostat->cooling_setpoint = 2400;
@@ -283,7 +284,7 @@ void matter_thermostat_destroy(MatterThermostat* thermostat) {
     }
 
     // Free config strings
-    free((void*)thermostat->config.zone_name);
+    ::free((void*)thermostat->config.zone_name);
 
     delete thermostat;
 }

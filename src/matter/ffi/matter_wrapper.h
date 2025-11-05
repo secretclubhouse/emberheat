@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>  /* for size_t */
 
 #ifdef __cplusplus
 extern "C" {
