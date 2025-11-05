@@ -131,6 +131,8 @@ fn main() {
     // Step 5: Output build information
     // =========================================================================
 
-    println!("cargo:rustc-env=MATTER_BUILD_TYPE={}",
-             if chip_available { "full" } else { "stub" });
+    println!(
+        "cargo:rustc-env=MATTER_BUILD_TYPE={}",
+        if chip_available { "full" } else { "stub" }
+    );
 }
