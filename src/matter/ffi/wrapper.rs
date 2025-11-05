@@ -8,9 +8,29 @@
 use super::bindings::*;
 use anyhow::{anyhow, Result};
 use std::ffi::{CStr, CString};
-use std::ptr;
-use std::sync::{Arc, Mutex};
+use std::os::raw::c_char;
 use tracing::{debug, error, info};
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Convert Matter error code to Result
+fn check_error(error_code: MatterErrorCode) -> Result<(), String> {
+    if error_code == MATTER_SUCCESS as i32 {
+        Ok(())
+    } else {
+        let msg = unsafe {
+            let ptr = matter_get_error_message(error_code);
+            if ptr.is_null() {
+                "Unknown error".to_string()
+            } else {
+                CStr::from_ptr(ptr).to_string_lossy().into_owned()
+            }
+        };
+        Err(msg)
+    }
+}
 
 // =============================================================================
 // Safe Wrapper Types
@@ -54,7 +74,8 @@ impl Device {
     /// Run the Matter event loop (non-blocking)
     pub fn run_event_loop(&mut self) -> Result<()> {
         let error = unsafe { matter_device_run_event_loop(self.ptr) };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Event loop error: {}", e))?;
         Ok(())
     }
 
@@ -69,13 +90,14 @@ impl Device {
         let error = unsafe {
             matter_device_get_qr_code(
                 self.ptr,
-                buffer.as_mut_ptr() as *mut i8,
+                buffer.as_mut_ptr() as *mut c_char,
                 buffer.len(),
             )
         };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to get QR code: {}", e))?;
 
-        let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const i8) };
+        let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
         Ok(cstr.to_string_lossy().into_owned())
     }
 
@@ -85,13 +107,14 @@ impl Device {
         let error = unsafe {
             matter_device_get_pairing_code(
                 self.ptr,
-                buffer.as_mut_ptr() as *mut i8,
+                buffer.as_mut_ptr() as *mut c_char,
                 buffer.len(),
             )
         };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to get pairing code: {}", e))?;
 
-        let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const i8) };
+        let cstr = unsafe { CStr::from_ptr(buffer.as_ptr() as *const c_char) };
         Ok(cstr.to_string_lossy().into_owned())
     }
 
@@ -159,7 +182,8 @@ impl Thermostat {
     pub fn set_local_temperature(&mut self, temp_celsius: f32) -> Result<()> {
         let centi_degrees = (temp_celsius * 100.0) as i16;
         let error = unsafe { matter_thermostat_set_local_temperature(self.ptr, centi_degrees) };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to set temperature: {}", e))?;
         debug!(
             "Thermostat '{}': Updated temperature to {:.1}°C",
             self.zone_name, temp_celsius
@@ -171,7 +195,8 @@ impl Thermostat {
     pub fn get_heating_setpoint(&self) -> Result<f32> {
         let mut setpoint: i16 = 0;
         let error = unsafe { matter_thermostat_get_heating_setpoint(self.ptr, &mut setpoint) };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to get heating setpoint: {}", e))?;
         Ok(setpoint as f32 / 100.0)
     }
 
@@ -179,7 +204,8 @@ impl Thermostat {
     pub fn get_cooling_setpoint(&self) -> Result<f32> {
         let mut setpoint: i16 = 0;
         let error = unsafe { matter_thermostat_get_cooling_setpoint(self.ptr, &mut setpoint) };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to get cooling setpoint: {}", e))?;
         Ok(setpoint as f32 / 100.0)
     }
 
@@ -187,14 +213,16 @@ impl Thermostat {
     pub fn get_system_mode(&self) -> Result<ThermostatMode> {
         let mut mode: u8 = 0;
         let error = unsafe { matter_thermostat_get_system_mode(self.ptr, &mut mode) };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to get system mode: {}", e))?;
         ThermostatMode::from_u8(mode)
     }
 
     /// Set running state
     pub fn set_running_state(&mut self, state: ThermostatRunningState) -> Result<()> {
         let error = unsafe { matter_thermostat_set_running_state(self.ptr, state as u16) };
-        check_error(error)?;
+        check_error(error)
+            .map_err(|e| anyhow!("Failed to set running state: {}", e))?;
         debug!(
             "Thermostat '{}': Updated running state to {:?}",
             self.zone_name, state
