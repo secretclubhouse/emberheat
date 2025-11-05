@@ -4,7 +4,6 @@
  * This module provides Rust bindings to the Connected Home IP C library,
  * enabling Matter protocol support for the thermostat system.
  */
-
 // Raw FFI bindings to C wrapper
 pub mod bindings;
 
