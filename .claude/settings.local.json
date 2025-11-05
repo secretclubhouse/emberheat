@@ -10,7 +10,14 @@
       "Bash(cargo clean:*)",
       "Bash(cargo audit:*)",
       "Bash(git submodule:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "Bash(source:*)",
+      "Bash(scripts/bootstrap.sh:*)",
+      "Bash(bash scripts/bootstrap.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(cat:*)",
+      "Bash(git config:*)",
+      "Bash(make help:*)"
     ],
     "deny": [],
     "ask": []
