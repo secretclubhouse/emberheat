@@ -92,7 +92,22 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Install system dependencies (Debian/Ubuntu)
 sudo apt-get update
-sudo apt-get install -y build-essential pkg-config libssl-dev redis-server
+sudo apt-get install -y \
+    build-essential \
+    pkg-config \
+    libssl-dev \
+    redis-server \
+    g++ \
+    clang \
+    cmake \
+    ninja-build \
+    python3 \
+    python3-pip \
+    git \
+    git-lfs
+
+# Optional: Matter protocol dependencies (for full Matter support)
+# sudo apt-get install -y libglib2.0-dev libavahi-client-dev libreadline-dev
 
 # Enable 1-Wire interface
 sudo raspi-config
