@@ -12,7 +12,7 @@ MATTER_DIR="$PROJECT_ROOT/third_party/connectedhomeip"
 
 # Default to latest stable release
 # You can override with: MATTER_VERSION=v1.2.0 ./scripts/download-matter.sh
-MATTER_VERSION="${MATTER_VERSION:-v1.4.0.0}"
+MATTER_VERSION="${MATTER_VERSION:-v1.4.2.0}"
 MATTER_REPO="https://github.com/project-chip/connectedhomeip"
 
 echo "============================================"
@@ -39,32 +39,51 @@ fi
 # Create third_party directory if it doesn't exist
 mkdir -p "$(dirname "$MATTER_DIR")"
 
-# Download the release tarball
-echo "Downloading Matter $MATTER_VERSION..."
-TARBALL_URL="$MATTER_REPO/archive/refs/tags/$MATTER_VERSION.tar.gz"
-TEMP_TAR="$PROJECT_ROOT/matter-$MATTER_VERSION.tar.gz"
-
-if command -v wget > /dev/null; then
-    wget -O "$TEMP_TAR" "$TARBALL_URL"
-elif command -v curl > /dev/null; then
-    curl -L -o "$TEMP_TAR" "$TARBALL_URL"
-else
-    echo "ERROR: Neither wget nor curl found. Please install one of them."
-    exit 1
-fi
-
-# Extract the tarball
-echo "Extracting archive..."
-mkdir -p "$MATTER_DIR"
-# GitHub archives have a top-level directory named <repo>-<version>
-# Strip that component and extract directly into MATTER_DIR
-tar -xzf "$TEMP_TAR" -C "$MATTER_DIR" --strip-components=1
-
-# Clean up tarball
-rm "$TEMP_TAR"
+# Use a specific-commit clone for Matter source
+# We clone the full repository but checkout a specific version
+# This ensures all build files are present
+echo "Cloning Matter $MATTER_VERSION..."
+echo "This will download ~500MB of data (one-time download)..."
+echo ""
+git clone --depth=1 --branch "$MATTER_VERSION" --single-branch \
+    "$MATTER_REPO" "$MATTER_DIR"
 
 echo ""
-echo "✓ Matter source code downloaded successfully!"
+echo "Initializing required submodules..."
+echo "This will download additional dependencies..."
+echo ""
+
+cd "$MATTER_DIR"
+
+# Download required platforms
+echo "Initializing platform submodules..."
+python3 scripts/checkout_submodules.py --shallow --platform linux
+
+
+# Initialize the minimal set of submodules needed for host builds
+# We avoid --recursive to prevent downloading platform-specific dependencies
+#echo "Initializing Pigweed (build system)..."
+#git submodule update --init third_party/pigweed/repo
+
+# Initialize Pigweed's essential dependencies
+#echo "Initializing Pigweed dependencies..."
+#cd third_party/pigweed/repo
+# Pigweed needs these for its build system
+#git submodule update --init \
+#    third_party/fuzztest \
+#    third_party/googletest \
+#    pw_third_party/nanopb 2>/dev/null || true
+#cd "$MATTER_DIR"
+
+# Other Matter dependencies
+#echo "Initializing Matter dependencies..."
+#git submodule update --init \
+#    third_party/nlassert/repo \
+#    third_party/nlio/repo \
+#    2>/dev/null || true
+
+echo ""
+echo "✓ Matter source code downloaded and initialized successfully!"
 echo ""
 echo "Next steps:"
 echo "  1. Build Matter libraries: make matter-build"
