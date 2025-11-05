@@ -4,12 +4,13 @@ This directory contains third-party dependencies for the Thermos-Rust project.
 
 ## Matter/Connected Home IP
 
-The Matter (Connected Home IP) library is downloaded from GitHub releases rather than using git submodules. This approach:
+The Matter (Connected Home IP) library is downloaded as a shallow git clone rather than using tracked git submodules. This approach:
 
-- Avoids submodule complexity and nested submodule issues
+- Avoids submodule complexity in the main repository
 - Makes builds more reliable and reproducible
 - Allows you to use specific stable releases
-- Reduces repository size by not tracking the full Matter git history
+- Uses shallow clones to minimize download size (~300MB vs several GB)
+- Properly handles Matter's required submodules (Pigweed, etc.)
 
 ### Setup
 
