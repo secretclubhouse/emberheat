@@ -10,20 +10,28 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     # C++ compiler and tools for Matter wrapper
+    gcc \
     g++ \
     clang \
     cmake \
     ninja-build \
+    unzip \
     # SSL/TLS support
     libssl-dev \
     # Matter protocol dependencies
+    libdbus-1-dev \
     libglib2.0-dev \
     libavahi-client-dev \
     libreadline-dev \
+    libgirepository1.0-dev \
+    libcairo2-dev \
     # Python (required for Matter SDK build scripts)
     python3 \
     python3-pip \
     python3-venv \
+    python3-dev \
+    # Java runtime (required for Matter ZAP tool)
+    default-jre \
     # Debugging tools
     gdb \
     lldb \

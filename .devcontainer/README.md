@@ -8,10 +8,18 @@ This directory contains the VSCode DevContainer configuration for developing The
 
 - **Base Image**: Debian Trixie with Rust 1.90
 - **Rust Toolchain**: rustc, cargo, rustfmt, clippy, rust-analyzer
-- **C++ Toolchain**: g++, clang, cmake, ninja-build (for Matter wrapper)
-- **Build Tools**: gcc, make, pkg-config
-- **Matter Dependencies**: libglib2.0-dev, libavahi-client-dev, libreadline-dev
-- **Python**: Python 3 with pip (for Matter SDK build scripts)
+- **C++ Toolchain**: gcc, g++, clang, cmake, ninja-build (for Matter wrapper)
+- **Build Tools**: build-essential, pkg-config, unzip
+- **Matter Build Dependencies**:
+  - `libdbus-1-dev` - D-Bus library (required for Matter networking)
+  - `libglib2.0-dev` - GLib library
+  - `libavahi-client-dev` - Avahi mDNS/DNS-SD
+  - `libreadline-dev` - Readline library
+  - `libgirepository1.0-dev` - GObject introspection
+  - `libcairo2-dev` - Cairo 2D graphics
+  - `libssl-dev` - OpenSSL/TLS support
+  - `default-jre` - Java Runtime (for Matter ZAP code generator)
+- **Python**: Python 3 with pip, venv, and dev headers (for Matter SDK build scripts)
 - **Debugging**: gdb, lldb
 - **Additional Tools**:
   - cargo-watch (automatic recompilation on file changes)
@@ -147,11 +155,33 @@ The project includes a C++ wrapper for the Matter protocol:
 # Files: src/matter/ffi/matter_wrapper.{h,cpp}
 
 # Currently using stub implementation (no actual Matter SDK)
-# To build with full Matter support, see README.md for setup instructions
+# To build with full Matter support, see below
 
 # Verify stub compilation works
 cargo build 2>&1 | grep -i matter
 ```
+
+### Building Matter/Connected Home IP
+
+All required dependencies for building Matter are pre-installed in the container. To download and build Matter:
+
+```bash
+# Download Matter source from GitHub (v1.4.2.0)
+make matter-download
+
+# Build Matter libraries (takes 20-30 minutes first time)
+make matter-build
+
+# Copy libraries to lib/ directory for linking
+make matter-libs
+
+# Or do all three steps at once
+make matter-setup
+```
+
+Once built, the Rust application will automatically link against the Matter libraries instead of using stubs.
+
+See [docs/BUILDING_MATTER.md](../docs/BUILDING_MATTER.md) for detailed instructions and troubleshooting.
 
 ### Testing
 
