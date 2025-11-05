@@ -121,8 +121,7 @@ pub type MatterThermostatModeChangedCallback = extern "C" fn(
 );
 
 /// Callback for commissioning complete
-pub type MatterCommissioningCompleteCallback =
-    extern "C" fn(context: *mut c_void, success: bool);
+pub type MatterCommissioningCompleteCallback = extern "C" fn(context: *mut c_void, success: bool);
 
 // =============================================================================
 // External C Functions
