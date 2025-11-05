@@ -4,6 +4,14 @@
 *.pdb
 Cargo.lock
 
+# Pre-built Matter libraries (we DO want to track these)
+# The lib/ directory contains pre-built libraries that should be committed
+# to avoid rebuilding the entire Matter stack on every clone
+!/lib/
+!/lib/connectedhomeip/
+!/lib/connectedhomeip/**/*.a
+!/lib/connectedhomeip/**/*.md
+
 # IDE
 .vscode/
 .idea/
