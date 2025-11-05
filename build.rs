@@ -10,6 +10,33 @@
 use std::env;
 use std::path::PathBuf;
 
+/// Detect the current platform and return a string like "darwin-arm64" or "linux-x64"
+fn get_platform_string() -> String {
+    let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".to_string());
+    let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".to_string());
+
+    // Normalize architecture names
+    let arch_normalized = match arch.as_str() {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        other => other,
+    };
+
+    format!("{}-{}", os, arch_normalized)
+}
+
+/// Check if a directory contains the required Matter libraries
+fn has_required_libraries(lib_dir: &PathBuf) -> bool {
+    let required_libs = vec![
+        "libCHIPAppServerLib.a",
+        "libchip.a",
+        "libCHIPController.a",
+        "libCHIPSetupPayload.a",
+    ];
+
+    required_libs.iter().all(|lib| lib_dir.join(lib).exists())
+}
+
 fn main() {
     let _out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
@@ -72,12 +99,35 @@ fn main() {
     // =========================================================================
 
     if chip_available {
-        // The Connected Home IP library is typically built separately using GN/Ninja
-        // We expect it to be pre-built in third_party/connectedhomeip/out/host
+        // Try to find pre-built libraries in the following order:
+        // 1. Pre-built libs in lib/connectedhomeip/{platform}/
+        // 2. Submodule build at third_party/connectedhomeip/out/host/lib/
+
+        let platform = get_platform_string();
+        let prebuilt_lib_dir = PathBuf::from("lib/connectedhomeip").join(&platform);
         let chip_lib_dir = chip_root.join("out/host/lib");
 
-        if chip_lib_dir.exists() {
-            println!("cargo:rustc-link-search=native={}", chip_lib_dir.display());
+        let lib_dir = if prebuilt_lib_dir.exists() && has_required_libraries(&prebuilt_lib_dir) {
+            eprintln!("INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}", platform);
+            prebuilt_lib_dir
+        } else if chip_lib_dir.exists() {
+            eprintln!("INFO: Using Matter libraries from submodule build");
+            chip_lib_dir
+        } else {
+            eprintln!("WARNING: Connected Home IP library not found.");
+            eprintln!("         Option 1: Use pre-built libraries");
+            eprintln!("           Run: ./scripts/copy-matter-libs.sh");
+            eprintln!("         Option 2: Build from source");
+            eprintln!("           cd third_party/connectedhomeip");
+            eprintln!("           source scripts/activate.sh");
+            eprintln!("           gn gen out/host");
+            eprintln!("           ninja -C out/host");
+            eprintln!("");
+            PathBuf::new() // Empty path
+        };
+
+        if lib_dir.as_os_str().len() > 0 {
+            println!("cargo:rustc-link-search=native={}", lib_dir.display());
 
             // Link required Matter libraries
             // Note: The exact libraries depend on the build configuration
@@ -89,14 +139,6 @@ fn main() {
             // System libraries required by Matter
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=stdc++");
-        } else {
-            eprintln!("WARNING: Connected Home IP library not built.");
-            eprintln!("         Please build it first:");
-            eprintln!("         cd third_party/connectedhomeip");
-            eprintln!("         source scripts/activate.sh");
-            eprintln!("         gn gen out/host");
-            eprintln!("         ninja -C out/host");
-            eprintln!("");
         }
     }
 
