@@ -12,9 +12,9 @@ repository = "https://github.com/josht/thermos-rust"
 tokio = { version = "1.35", features = ["full"] }
 futures = "0.3"
 
-# Matter protocol (using rs-matter - open-source Matter stack)
-# Note: rs-matter is optional and can be commented out for local development
-# rs-matter = { git = "https://github.com/project-chip/rs-matter.git", optional = true }
+# Matter protocol integration via Connected Home IP C library
+# The actual library is in third_party/connectedhomeip (git submodule)
+# FFI bindings are compiled via build.rs
 
 # Async trait support
 async-trait = "0.1"
@@ -57,11 +57,23 @@ chrono = { version = "0.4", features = ["serde"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 rppal = "0.17"  # Raspberry Pi GPIO library (Linux only)
 
+[build-dependencies]
+# Build script dependencies for compiling Matter C wrapper
+cc = "1.0"
+# Optional: bindgen for auto-generating FFI bindings
+# Enable with: cargo build --features bindgen
+# bindgen = { version = "0.69", optional = true }
+
 [dev-dependencies]
 mockall = "0.12"
 tokio-test = "0.4"
 tempfile = "3.8"
 pretty_assertions = "1.4"
+
+[features]
+# Optional feature to regenerate FFI bindings
+# bindgen = ["dep:bindgen"]
+default = []
 
 [profile.release]
 opt-level = 3

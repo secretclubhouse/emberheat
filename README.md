@@ -4,12 +4,12 @@ A multi-zone HomeKit thermostat system for hydronic heating, written in Rust wit
 
 **Platform Requirements:** Linux (Raspberry Pi recommended)
 
-This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and Matter/Thread protocol integration for modern smart home ecosystems.
+This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and Matter/Thread protocol integration for modern smart home ecosystems using the official Connected Home IP library.
 
 ## Features
 
 - **Multi-Zone Control**: Independent temperature control for multiple heating zones
-- **Matter Protocol**: Native Matter/Thread support for seamless HomeKit integration
+- **Matter Protocol**: Native Matter/Thread support using Connected Home IP library for seamless integration with HomeKit, Google Home, and Alexa
 - **Hysteresis Control**: Intelligent heating control with configurable dead band to prevent rapid cycling
 - **Multiple Sensor Types**:
   - 1-Wire DS18B20 temperature sensors (primary)
@@ -28,7 +28,7 @@ This is a Rust reimplementation of the [Thermos](https://github.com/truncj/therm
                  │ Matter Protocol (UDP 5540)
          ┌───────▼──────────────┐
          │  Matter Server       │
-         │  (rs-matter)         │
+         │  (Connected Home IP) │
          └───────┬──────────────┘
                  │
          ┌───────▼──────────────┐
@@ -109,6 +109,48 @@ cd thermos-rust
 cargo build --release
 
 # The binary will be at: target/release/thermos-rust
+
+# For Matter protocol support, see MATTER_SETUP.md for additional steps
+```
+
+## Matter Protocol Integration
+
+Thermos-Rust integrates with the **Matter protocol** (formerly Project CHIP) using the official **Connected Home IP** C++ library. This enables native integration with Apple HomeKit, Google Home, Amazon Alexa, and other Matter-compatible ecosystems.
+
+### Quick Start (Stub Implementation)
+
+The project includes a stub implementation for development:
+
+```bash
+# Standard build (uses stub, no actual Matter functionality)
+cargo build --release
+```
+
+### Full Matter Support
+
+For actual Matter protocol functionality, you need to build the Connected Home IP library. See **[MATTER_SETUP.md](MATTER_SETUP.md)** for complete instructions.
+
+**Quick summary:**
+
+```bash
+# 1. Initialize the Connected Home IP submodule
+git submodule update --init --recursive
+
+# 2. Build the Matter library
+cd third_party/connectedhomeip
+source scripts/activate.sh
+gn gen out/host
+ninja -C out/host
+cd ../..
+
+# 3. Build Thermos-Rust
+cargo build --release
+```
+
+**Commissioning:** When you run the application, it will display a QR code and pairing code that you can use to add the device to your smart home ecosystem.
+
+For detailed setup instructions, troubleshooting, and configuration options, see **[MATTER_SETUP.md](MATTER_SETUP.md)**.
+
 ```
 
 ### Cross-Compilation for Raspberry Pi
