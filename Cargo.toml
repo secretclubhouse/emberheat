@@ -7,6 +7,9 @@ description = "Multi-zone HomeKit thermostat system using Matter protocol"
 license = "MIT"
 repository = "https://github.com/josht/thermos-rust"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("bindgen"))'] }
+
 [dependencies]
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
