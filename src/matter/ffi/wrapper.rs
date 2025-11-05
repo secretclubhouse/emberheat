@@ -9,7 +9,7 @@ use super::bindings::*;
 use anyhow::{anyhow, Result};
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
-use tracing::{debug, error, info};
+use tracing::{debug, info};
 
 // =============================================================================
 // Helper Functions
