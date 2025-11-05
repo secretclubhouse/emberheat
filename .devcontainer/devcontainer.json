@@ -3,7 +3,6 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "dev",
   "workspaceFolder": "/workspace",
-
   // Configure tool-specific properties
   "customizations": {
     "vscode": {
@@ -20,26 +19,24 @@
           "editor.formatOnSave": true
         }
       },
-
       // Extensions to install in the container
       "extensions": [
         "rust-lang.rust-analyzer",
         "vadimcn.vscode-lldb",
         "tamasfe.even-better-toml",
-        "serayuzgur.crates",
+        "fill-labs.dependi",
         "mutantdino.resourcemonitor",
         "ms-vscode.cpptools",
-        "ms-vscode.cmake-tools"
+        "ms-vscode.cmake-tools",
+        "eamodio.gitlens"
       ]
     }
   },
-
   // Use 'forwardPorts' to make a list of ports inside the container available locally
   "forwardPorts": [
-    5540,  // Matter server port
-    8080   // Prometheus metrics port
+    5540, // Matter server port
+    8080 // Prometheus metrics port
   ],
-
   "portsAttributes": {
     "5540": {
       "label": "Matter Server",
@@ -50,13 +47,10 @@
       "onAutoForward": "notify"
     }
   },
-
   // Run commands after the container is created
   "postCreateCommand": "bash -c 'echo \"=== Toolchain Versions ===\" && rustc --version && cargo --version && g++ --version | head -1 && echo \"=== Building Project ===\" && cargo build'",
-
   // Comment out to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root
   "remoteUser": "vscode",
-
   // Features to add to the dev container
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
