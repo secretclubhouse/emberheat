@@ -56,7 +56,9 @@ fi
 # Extract the tarball
 echo "Extracting archive..."
 mkdir -p "$MATTER_DIR"
-tar -xzf "$TEMP_TAR" -C "$(dirname "$MATTER_DIR")" --strip-components=1
+# GitHub archives have a top-level directory named <repo>-<version>
+# Strip that component and extract directly into MATTER_DIR
+tar -xzf "$TEMP_TAR" -C "$MATTER_DIR" --strip-components=1
 
 # Clean up tarball
 rm "$TEMP_TAR"
