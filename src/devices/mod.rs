@@ -61,9 +61,11 @@ const HYSTERESIS_UPPER_THRESHOLD_C: f32 = 0.5;
 const HYSTERESIS_LOWER_THRESHOLD_C: f32 = -0.5;
 
 /// Minimum valid temperature in Celsius
+#[allow(dead_code)]
 const SENSOR_ERROR_MIN_TEMP_C: f32 = 3.0;
 
 /// Maximum valid temperature in Celsius
+#[allow(dead_code)]
 const SENSOR_ERROR_MAX_TEMP_C: f32 = 37.0;
 
 /// Default temperature on error (°C)
@@ -220,11 +222,13 @@ impl Thermostat {
     }
 
     /// Get target temperature (Celsius)
+    #[allow(dead_code)]
     pub async fn get_target_temp(&self) -> f32 {
         *self.target_temp.read().await
     }
 
     /// Set target temperature (Celsius)
+    #[allow(dead_code)]
     pub async fn set_target_temp(&self, temp: f32) -> Result<()> {
         info!(
             "Zone {}: Setting target temperature to {:.1}°C",
@@ -240,11 +244,13 @@ impl Thermostat {
     }
 
     /// Get target heating state
+    #[allow(dead_code)]
     pub async fn get_target_state(&self) -> HeatingState {
         *self.target_state.read().await
     }
 
     /// Set target heating state
+    #[allow(dead_code)]
     pub async fn set_target_state(&self, state: HeatingState) -> Result<()> {
         info!("Zone {}: Setting target state to {:?}", self.name, state);
 
@@ -449,6 +455,7 @@ impl Thermostat {
     }
 
     /// Get zone name
+    #[allow(dead_code)]
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -510,6 +517,7 @@ impl ThermostatBridge {
     }
 
     /// Get a specific thermostat
+    #[allow(dead_code)]
     pub fn get_thermostat(&self, name: &str) -> Option<Arc<Thermostat>> {
         self.thermostats.get(name).cloned()
     }

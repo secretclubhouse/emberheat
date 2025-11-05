@@ -9,8 +9,21 @@ RUN apt-get update && apt-get install -y \
     # Build essentials
     build-essential \
     pkg-config \
+    # C++ compiler and tools for Matter wrapper
+    g++ \
+    clang \
+    cmake \
+    ninja-build \
     # SSL/TLS support
     libssl-dev \
+    # Matter protocol dependencies
+    libglib2.0-dev \
+    libavahi-client-dev \
+    libreadline-dev \
+    # Python (required for Matter SDK build scripts)
+    python3 \
+    python3-pip \
+    python3-venv \
     # Debugging tools
     gdb \
     lldb \
@@ -20,6 +33,7 @@ RUN apt-get update && apt-get install -y \
     netcat-openbsd \
     # Version control
     git \
+    git-lfs \
     # Process monitoring
     htop \
     procps \

@@ -7,14 +7,17 @@ description = "Multi-zone HomeKit thermostat system using Matter protocol"
 license = "MIT"
 repository = "https://github.com/josht/thermos-rust"
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("bindgen"))'] }
+
 [dependencies]
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
 futures = "0.3"
 
-# Matter protocol (using rs-matter - open-source Matter stack)
-# Note: rs-matter is optional and can be commented out for local development
-# rs-matter = { git = "https://github.com/project-chip/rs-matter.git", optional = true }
+# Matter protocol integration via Connected Home IP C library
+# The actual library is in third_party/connectedhomeip (git submodule)
+# FFI bindings are compiled via build.rs
 
 # Async trait support
 async-trait = "0.1"
@@ -28,11 +31,10 @@ serde_json = "1.0"
 toml = "0.8"
 
 # Redis client
-redis = { version = "1.0.0-rc.2", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # Prometheus metrics
 prometheus = { version = "0.14", features = ["process"] }
-prometheus-hyper = "0.2"
 
 # HTTP client for extra sensors
 reqwest = { version = "0.12", features = ["json"] }
@@ -53,14 +55,27 @@ signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
 # Time utilities
 chrono = { version = "0.4", features = ["serde"] }
 
-# Raspberry Pi GPIO library
-rppal = "0.22"
+# Platform-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+rppal = "0.22"  # Raspberry Pi GPIO library (Linux only)
+
+[build-dependencies]
+# Build script dependencies for compiling Matter C wrapper
+cc = "1.0"
+# Optional: bindgen for auto-generating FFI bindings
+# Enable with: cargo build --features bindgen
+# bindgen = { version = "0.69", optional = true }
 
 [dev-dependencies]
 mockall = "0.13"
 tokio-test = "0.4"
-tempfile = "3.8"
+tempfile = "3.14"
 pretty_assertions = "1.4"
+
+[features]
+# Optional feature to regenerate FFI bindings
+# bindgen = ["dep:bindgen"]
+default = []
 
 [profile.release]
 opt-level = 3
