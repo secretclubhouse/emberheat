@@ -8,12 +8,16 @@ This directory contains the VSCode DevContainer configuration for developing The
 
 - **Base Image**: Debian Trixie with Rust 1.90
 - **Rust Toolchain**: rustc, cargo, rustfmt, clippy, rust-analyzer
-- **Build Tools**: gcc, g++, make, pkg-config
+- **C++ Toolchain**: g++, clang, cmake, ninja-build (for Matter wrapper)
+- **Build Tools**: gcc, make, pkg-config
+- **Matter Dependencies**: libglib2.0-dev, libavahi-client-dev, libreadline-dev
+- **Python**: Python 3 with pip (for Matter SDK build scripts)
 - **Debugging**: gdb, lldb
 - **Additional Tools**:
   - cargo-watch (automatic recompilation on file changes)
   - cargo-expand (macro expansion viewer)
   - cargo-tree (dependency tree visualization)
+  - git-lfs (for large file support)
 
 ### Services
 
@@ -26,8 +30,10 @@ This directory contains the VSCode DevContainer configuration for developing The
 - **rust-analyzer**: Rust language server
 - **CodeLLDB**: Native debugger support
 - **Even Better TOML**: TOML file support
-- **Dependi**: Dependency management helper
+- **Crates**: Cargo dependency management
 - **Resource Monitor**: System resource monitoring
+- **C/C++ Tools**: C++ language support (for Matter wrapper)
+- **CMake Tools**: CMake project support (for Matter SDK)
 
 ### Port Forwarding
 
@@ -92,12 +98,17 @@ Once inside the container, verify everything works:
 rustc --version
 cargo --version
 
+# Check C++ toolchain (for Matter wrapper)
+g++ --version
+clang --version
+cmake --version
+
 # Check Redis connectivity
 redis-cli ping
 # Should respond: PONG
 
-# Check project builds
-cargo check
+# Check project builds (includes C++ wrapper compilation)
+cargo build
 
 # Run tests
 cargo test
@@ -114,7 +125,7 @@ RUST_LOG=debug cargo run
 # Check compilation (fast, no binary)
 cargo check
 
-# Build debug version
+# Build debug version (includes C++ wrapper compilation)
 cargo build
 
 # Build release version
@@ -122,6 +133,24 @@ cargo build --release
 
 # Watch mode (auto-rebuild on changes)
 cargo watch -x check
+
+# View C++ compilation output (verbose)
+cargo build -vv 2>&1 | grep -A10 "matter_wrapper"
+```
+
+### Matter Protocol Wrapper
+
+The project includes a C++ wrapper for the Matter protocol:
+
+```bash
+# The wrapper is automatically compiled during cargo build
+# Files: src/matter/ffi/matter_wrapper.{h,cpp}
+
+# Currently using stub implementation (no actual Matter SDK)
+# To build with full Matter support, see README.md for setup instructions
+
+# Verify stub compilation works
+cargo build 2>&1 | grep -i matter
 ```
 
 ### Testing
