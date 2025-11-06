@@ -63,7 +63,18 @@ struct MatterThermostat {
 };
 
 // Global device pointer for callback access
-// This is set when the first device is initialized
+//
+// IMPORTANT: This implementation supports only ONE Matter device per process.
+// This is because emberAfPostAttributeChangeCallback is a global callback hook
+// with a fixed signature that doesn't pass device context. The Matter framework
+// calls it by name at link time.
+//
+// Attempting to create multiple devices will fail with an error.
+//
+// This matches the typical usage pattern where:
+// - One MatterDevice per process
+// - Multiple thermostats registered on the same device
+// - Each thermostat has a unique endpoint ID
 static MatterDevice* g_matter_device = nullptr;
 
 /* ============================================================================
@@ -87,6 +98,15 @@ static const char* error_messages[] = {
 
 MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
     if (!config) {
+        return nullptr;
+    }
+
+    // Check for multiple device creation
+    // Only one Matter device can exist per process due to global callback limitations
+    if (g_matter_device != nullptr) {
+        fprintf(stderr, "ERROR: Only one Matter device can be created per process.\n");
+        fprintf(stderr, "       A Matter device already exists at %p\n", (void*)g_matter_device);
+        fprintf(stderr, "       This is a limitation of the Matter callback architecture.\n");
         return nullptr;
     }
 
@@ -149,9 +169,8 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
     device->initialized = true;
 
     // Set global device pointer for callback access
-    if (!g_matter_device) {
-        g_matter_device = device;
-    }
+    // Note: We already checked g_matter_device is null at the start of this function
+    g_matter_device = device;
 
     fprintf(stderr, "Matter device initialized: %s (Vendor: 0x%04X, Product: 0x%04X)\n",
             device->config.device_name,
@@ -162,9 +181,8 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
     device->initialized = true;
 
     // Set global device pointer for callback access
-    if (!g_matter_device) {
-        g_matter_device = device;
-    }
+    // Note: We already checked g_matter_device is null at the start of this function
+    g_matter_device = device;
 
     fprintf(stderr, "Matter device initialized (STUB): %s (Vendor: 0x%04X, Product: 0x%04X)\n",
             device->config.device_name,
