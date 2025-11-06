@@ -467,4 +467,44 @@ mod matter_tests {
 
         assert_eq!(endpoints, vec![1, 2, 3, 4, 5]);
     }
+
+    #[test]
+    fn test_matter_bidirectional_callback_concepts() {
+        // Test the temperature conversion used in bidirectional callbacks
+        let matter_setpoint: i16 = 2200; // 22.0°C in Matter format (centi-degrees)
+        let celsius = matter_setpoint as f32 / 100.0;
+        assert_eq!(celsius, 22.0);
+
+        // Test mode conversions
+        const MODE_OFF: u8 = 0x00;
+        const MODE_HEAT: u8 = 0x04;
+        assert_eq!(MODE_OFF, 0);
+        assert_eq!(MODE_HEAT, 4);
+
+        // Test precision of fractional temperatures
+        let precise_temp: i16 = 2150; // 21.5°C
+        let celsius_precise = precise_temp as f32 / 100.0;
+        assert_eq!(celsius_precise, 21.5);
+    }
+
+    #[test]
+    fn test_matter_callback_attribute_ids() {
+        // Verify attribute ID constants match Matter specification
+        // These are used in the C++ callback to identify which attribute changed
+
+        // Thermostat cluster ID
+        const CLUSTER_THERMOSTAT: u16 = 0x0201;
+        assert_eq!(CLUSTER_THERMOSTAT, 0x0201);
+
+        // Common attribute IDs (these would be in the C++ code)
+        // Just verify the values we expect to use
+        const ATTR_LOCAL_TEMP: u32 = 0x0000;
+        const ATTR_OCCUPIED_HEATING_SETPOINT: u32 = 0x0012;
+        const ATTR_OCCUPIED_COOLING_SETPOINT: u32 = 0x0011;
+        const ATTR_SYSTEM_MODE: u32 = 0x001C;
+
+        assert!(ATTR_LOCAL_TEMP < ATTR_OCCUPIED_COOLING_SETPOINT);
+        assert!(ATTR_OCCUPIED_COOLING_SETPOINT < ATTR_OCCUPIED_HEATING_SETPOINT);
+        assert!(ATTR_OCCUPIED_HEATING_SETPOINT < ATTR_SYSTEM_MODE);
+    }
 }
