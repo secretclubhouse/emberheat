@@ -26,12 +26,16 @@ fn get_platform_string() -> String {
 }
 
 /// Check if a directory contains the required Matter libraries
+/// These library names match the actual output from Matter's build system:
+/// - libCHIP.a: Main Matter library (from src/lib:lib target)
+/// - libCHIPAppServer.a: App server (from src/app/server:server target)
+/// - libChipController.a: Controller (from src/controller:controller target)
+/// - libSetupPayload.a: Setup payload (from src/setup_payload:setup_payload target)
 fn has_required_libraries(lib_dir: &PathBuf) -> bool {
+    // At minimum, we need the main CHIP library
+    // The other libraries are linked as dependencies within libCHIP.a when built with complete_static_lib
     let required_libs = vec![
-        "libCHIPAppServerLib.a",
-        "libchip.a",
-        "libCHIPController.a",
-        "libCHIPSetupPayload.a",
+        "libCHIP.a",
     ];
 
     required_libs.iter().all(|lib| lib_dir.join(lib).exists())
@@ -132,12 +136,10 @@ fn main() {
         if lib_dir.as_os_str().len() > 0 {
             println!("cargo:rustc-link-search=native={}", lib_dir.display());
 
-            // Link required Matter libraries
-            // Note: The exact libraries depend on the build configuration
-            println!("cargo:rustc-link-lib=static=CHIPAppServerLib");
-            println!("cargo:rustc-link-lib=static=chip");
-            println!("cargo:rustc-link-lib=static=CHIPController");
-            println!("cargo:rustc-link-lib=static=CHIPSetupPayload");
+            // Link the main Matter library
+            // libCHIP.a is built with complete_static_lib = true, which includes all dependencies
+            // (controller, app server, setup payload, etc.) in a single archive
+            println!("cargo:rustc-link-lib=static=CHIP");
 
             // System libraries required by Matter
             println!("cargo:rustc-link-lib=dylib=pthread");
