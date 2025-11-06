@@ -27,7 +27,10 @@
       "Bash(./scripts/test-matter-download.sh:*)",
       "Bash(if [ -f matter-setup.log ])",
       "Bash(then tail -100 matter-setup.log)",
-      "Bash(timeout 300 make:*)"
+      "Bash(timeout 300 make:*)",
+      "Bash(docker --version:*)",
+      "Bash(docker info:*)",
+      "Bash(/dev/null)"
     ],
     "deny": [],
     "ask": []
