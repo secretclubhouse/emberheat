@@ -265,7 +265,7 @@ mod tests {
     #[test]
     fn test_error_codes_unique() {
         // Ensure all error codes are unique
-        let codes = vec![
+        let codes = [
             MATTER_SUCCESS,
             MATTER_ERROR_INIT_FAILED,
             MATTER_ERROR_INVALID_PARAM,

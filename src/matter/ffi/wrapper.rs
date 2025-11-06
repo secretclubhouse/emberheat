@@ -16,7 +16,7 @@ use tracing::{debug, info};
 
 /// Convert Matter error code to Result
 fn check_error(error_code: MatterErrorCode) -> Result<(), String> {
-    if error_code == MATTER_SUCCESS as i32 {
+    if error_code == MATTER_SUCCESS {
         Ok(())
     } else {
         let msg = unsafe {
@@ -390,11 +390,13 @@ mod tests {
 
     #[test]
     fn test_device_config_custom() {
-        let mut config = DeviceConfig::default();
-        config.vendor_id = 0x1234;
-        config.product_id = 0x5678;
-        config.port = 9000;
-        config.device_name = "Custom Device".to_string();
+        let config = DeviceConfig {
+            vendor_id: 0x1234,
+            product_id: 0x5678,
+            port: 9000,
+            device_name: "Custom Device".to_string(),
+            ..Default::default()
+        };
 
         assert_eq!(config.vendor_id, 0x1234);
         assert_eq!(config.product_id, 0x5678);
@@ -579,7 +581,7 @@ mod tests {
     #[test]
     fn test_running_state_clone() {
         let state1 = ThermostatRunningState::Heat;
-        let state2 = state1.clone();
+        let state2 = state1;
 
         let val1: u16 = state1.into();
         let val2: u16 = state2.into();
