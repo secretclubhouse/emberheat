@@ -108,7 +108,10 @@ fn main() {
         let chip_lib_dir = chip_root.join("out/host/lib");
 
         let lib_dir = if prebuilt_lib_dir.exists() && has_required_libraries(&prebuilt_lib_dir) {
-            eprintln!("INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}", platform);
+            eprintln!(
+                "INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}",
+                platform
+            );
             prebuilt_lib_dir
         } else if chip_lib_dir.exists() {
             eprintln!("INFO: Using Matter libraries from submodule build");
