@@ -569,12 +569,21 @@ void matter_thermostat_set_mode_callback(
  * ========================================================================== */
 
 #ifdef MATTER_SDK_AVAILABLE
+// Forward declaration for internal callback handler
+static void MatterThermostatAttributeWriteCallback(
+    chip::EndpointId endpoint,
+    chip::AttributeId attributeId,
+    uint8_t* value,
+    uint16_t size);
+
 /**
- * Matter attribute write callback
+ * Matter attribute write callback (internal)
  *
- * Called by the Matter stack when a controller writes to a thermostat attribute
+ * Called by emberAfPostAttributeChangeCallback when a controller writes
+ * to a thermostat attribute. This function is internal and not exposed
+ * to Rust via FFI.
  */
-void MatterThermostatAttributeWriteCallback(
+static void MatterThermostatAttributeWriteCallback(
     chip::EndpointId endpoint,
     chip::AttributeId attributeId,
     uint8_t* value,
@@ -659,8 +668,11 @@ void MatterThermostatAttributeWriteCallback(
  * Matter framework callback - called automatically after attribute changes
  *
  * This is a well-known callback hook that the Matter/Ember framework calls
- * after any attribute is written. We use it to dispatch to our thermostat
- * callback handler.
+ * after any attribute is written. We use it to dispatch to our internal
+ * thermostat callback handler.
+ *
+ * IMPORTANT: This function must NOT be marked 'static' because the Matter
+ * framework looks for it by name at link time. It requires external linkage.
  *
  * This function is automatically invoked by the Matter stack - no explicit
  * registration is needed.
