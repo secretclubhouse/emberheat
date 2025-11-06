@@ -34,9 +34,7 @@ fn get_platform_string() -> String {
 fn has_required_libraries(lib_dir: &PathBuf) -> bool {
     // At minimum, we need the main CHIP library
     // The other libraries are linked as dependencies within libCHIP.a when built with complete_static_lib
-    let required_libs = vec![
-        "libCHIP.a",
-    ];
+    let required_libs = vec!["libCHIP.a"];
 
     required_libs.iter().all(|lib| lib_dir.join(lib).exists())
 }
