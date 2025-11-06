@@ -63,7 +63,7 @@ echo ""
 echo "Step 4: Configuring build..."
 echo ""
 
-BUILD_OUT="out/host"
+BUILD_OUT="out/unified"
 
 # Determine architecture for GN
 case "$TARGET_PLATFORM" in
@@ -116,9 +116,8 @@ for target in "${TARGETS[@]}"; do
     ninja -C "$BUILD_OUT" "$target" 2>&1 | grep -v "warning:" || true
 done
 
-# Build the main chip library
-echo "Building main chip library..."
-ninja -C "$BUILD_OUT" "chip" 2>&1 | grep -v "warning:" || true
+# Note: There is no single "chip" target in Matter's build system.
+# The targets above (server, controller, setup_payload, lib) provide all necessary libraries.
 
 # Step 6: Copy libraries to output
 echo ""
