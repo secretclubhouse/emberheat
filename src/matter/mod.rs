@@ -59,10 +59,10 @@ pub mod ffi;
 use crate::devices::Thermostat;
 use anyhow::Result;
 use std::collections::HashMap;
+use std::os::raw::c_void;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn, error};
-use std::os::raw::c_void;
+use tracing::{debug, error, info, warn};
 
 /// Matter server port (standard Matter port is 5540)
 #[allow(dead_code)]
@@ -151,11 +151,7 @@ extern "C" fn setpoint_changed_callback(
 ///
 /// This function is called by the C++ Matter stack when a controller changes
 /// the system mode (off/heat/cool/etc).
-extern "C" fn mode_changed_callback(
-    context: *mut c_void,
-    endpoint_id: u16,
-    mode: u8,
-) {
+extern "C" fn mode_changed_callback(context: *mut c_void, endpoint_id: u16, mode: u8) {
     if context.is_null() {
         error!("Mode callback received null context");
         return;
@@ -265,8 +261,7 @@ impl ThermostatAccessory {
         // Register callbacks with the Matter FFI layer
         {
             let mut mt_guard = tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current()
-                    .block_on(matter_thermostat.write())
+                tokio::runtime::Handle::current().block_on(matter_thermostat.write())
             });
 
             mt_guard.set_setpoint_callback(setpoint_changed_callback, context_ptr);
