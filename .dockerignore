@@ -24,7 +24,6 @@ docs/
 *.md
 
 # Docker
-Dockerfile*
 docker-compose*.yml
 .dockerignore
 
@@ -40,3 +39,19 @@ tests/
 # CI/CD
 .github/
 .gitlab-ci.yml
+
+# Third party source (will be downloaded in container)
+third_party/
+
+# Pre-built libraries (will be generated in container)
+lib/connectedhomeip/
+
+# Logs
+*.log
+matter-setup.log
+
+# Redis data
+*.rdb
+
+# Coverage reports
+coverage/
