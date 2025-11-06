@@ -355,8 +355,10 @@ void matter_device_set_commissioning_callback(
  * Thermostat Functions
  * ========================================================================== */
 
-// Forward declaration for stub implementation
-#ifndef MATTER_SDK_AVAILABLE
+// Forward declaration for internal callback registration function
+#ifdef MATTER_SDK_AVAILABLE
+static CHIP_ERROR RegisterThermostatCallbacks(chip::EndpointId endpoint);
+#else
 static void RegisterThermostatCallbacks(uint16_t endpoint);
 #endif
 
@@ -683,14 +685,20 @@ void emberAfPostAttributeChangeCallback(chip::EndpointId endpoint,
  * Note: The actual callback registration happens via emberAfPostAttributeChangeCallback
  * which is automatically called by the Matter framework. This function just performs
  * endpoint validation and logging.
+ *
+ * This function is internal-only and not exposed to Rust via FFI.
  */
-CHIP_ERROR RegisterThermostatCallbacks(chip::EndpointId endpoint) {
+static CHIP_ERROR RegisterThermostatCallbacks(chip::EndpointId endpoint) {
     fprintf(stderr, "Matter callbacks registered for thermostat endpoint %u\n", endpoint);
     fprintf(stderr, "  - Callbacks will be invoked via emberAfPostAttributeChangeCallback\n");
     return CHIP_NO_ERROR;
 }
 #else
-// Stub implementation when Matter SDK is not available
+/**
+ * Stub implementation when Matter SDK is not available
+ *
+ * This function is internal-only and not exposed to Rust via FFI.
+ */
 static void RegisterThermostatCallbacks(uint16_t endpoint) {
     fprintf(stderr, "Matter callbacks registered (STUB) for thermostat endpoint %u\n", endpoint);
 }
