@@ -587,11 +587,13 @@ void MatterThermostatAttributeWriteCallback(
     if (attributeId == Thermostat::Attributes::OccupiedHeatingSetpoint::Id) {
         // Heating setpoint changed
         if (size >= sizeof(int16_t)) {
-            int16_t* setpoint = reinterpret_cast<int16_t*>(value);
-            thermostat->heating_setpoint = *setpoint;
+            // Use memcpy to avoid unaligned memory access
+            int16_t setpoint;
+            std::memcpy(&setpoint, value, sizeof(int16_t));
+            thermostat->heating_setpoint = setpoint;
 
             fprintf(stderr, "Endpoint %u: Heating setpoint changed to %d centi-°C\n",
-                    endpoint, *setpoint);
+                    endpoint, setpoint);
 
             if (thermostat->setpoint_callback) {
                 thermostat->setpoint_callback(
@@ -605,11 +607,13 @@ void MatterThermostatAttributeWriteCallback(
     } else if (attributeId == Thermostat::Attributes::OccupiedCoolingSetpoint::Id) {
         // Cooling setpoint changed
         if (size >= sizeof(int16_t)) {
-            int16_t* setpoint = reinterpret_cast<int16_t*>(value);
-            thermostat->cooling_setpoint = *setpoint;
+            // Use memcpy to avoid unaligned memory access
+            int16_t setpoint;
+            std::memcpy(&setpoint, value, sizeof(int16_t));
+            thermostat->cooling_setpoint = setpoint;
 
             fprintf(stderr, "Endpoint %u: Cooling setpoint changed to %d centi-°C\n",
-                    endpoint, *setpoint);
+                    endpoint, setpoint);
 
             if (thermostat->setpoint_callback) {
                 thermostat->setpoint_callback(
@@ -623,11 +627,12 @@ void MatterThermostatAttributeWriteCallback(
     } else if (attributeId == Thermostat::Attributes::SystemMode::Id) {
         // System mode changed
         if (size >= sizeof(uint8_t)) {
-            uint8_t* mode = value;
-            thermostat->system_mode = static_cast<MatterThermostatMode>(*mode);
+            // Single byte, no alignment issue, but consistent with above
+            uint8_t mode = *value;
+            thermostat->system_mode = static_cast<MatterThermostatMode>(mode);
 
             fprintf(stderr, "Endpoint %u: System mode changed to 0x%02X\n",
-                    endpoint, *mode);
+                    endpoint, mode);
 
             if (thermostat->mode_callback) {
                 thermostat->mode_callback(

@@ -128,22 +128,32 @@ extern "C" fn setpoint_changed_callback(
         let heating_temp_c = heating_setpoint as f32 / 100.0;
 
         // Update the thermostat in a blocking manner
-        // Note: This is called from C context, so we use block_in_place
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                if let Err(e) = ctx.thermostat.set_target_temp(heating_temp_c).await {
-                    error!(
-                        "Failed to update target temperature for '{}': {}",
-                        ctx.zone_name, e
-                    );
-                } else {
-                    info!(
-                        "Successfully updated target temperature for '{}' to {:.1}°C",
-                        ctx.zone_name, heating_temp_c
-                    );
-                }
-            })
-        });
+        // Note: This is called from C context, so we need to check for a runtime
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                tokio::task::block_in_place(|| {
+                    handle.block_on(async {
+                        if let Err(e) = ctx.thermostat.set_target_temp(heating_temp_c).await {
+                            error!(
+                                "Failed to update target temperature for '{}': {}",
+                                ctx.zone_name, e
+                            );
+                        } else {
+                            info!(
+                                "Successfully updated target temperature for '{}' to {:.1}°C",
+                                ctx.zone_name, heating_temp_c
+                            );
+                        }
+                    })
+                });
+            }
+            Err(_) => {
+                error!(
+                    "Setpoint callback called outside Tokio runtime context for '{}'. Cannot update temperature.",
+                    ctx.zone_name
+                );
+            }
+        }
     }
 }
 
@@ -179,21 +189,32 @@ extern "C" fn mode_changed_callback(context: *mut c_void, endpoint_id: u16, mode
         };
 
         // Update the thermostat in a blocking manner
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                if let Err(e) = ctx.thermostat.set_target_state(state).await {
-                    error!(
-                        "Failed to update system mode for '{}': {}",
-                        ctx.zone_name, e
-                    );
-                } else {
-                    info!(
-                        "Successfully updated system mode for '{}' to {:?}",
-                        ctx.zone_name, state
-                    );
-                }
-            })
-        });
+        // Note: This is called from C context, so we need to check for a runtime
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                tokio::task::block_in_place(|| {
+                    handle.block_on(async {
+                        if let Err(e) = ctx.thermostat.set_target_state(state).await {
+                            error!(
+                                "Failed to update system mode for '{}': {}",
+                                ctx.zone_name, e
+                            );
+                        } else {
+                            info!(
+                                "Successfully updated system mode for '{}' to {:?}",
+                                ctx.zone_name, state
+                            );
+                        }
+                    })
+                });
+            }
+            Err(_) => {
+                error!(
+                    "Mode callback called outside Tokio runtime context for '{}'. Cannot update mode.",
+                    ctx.zone_name
+                );
+            }
+        }
     }
 }
 
