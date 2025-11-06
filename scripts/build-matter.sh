@@ -150,11 +150,8 @@ for target in "${TARGETS[@]}"; do
     }
 done
 
-# Also build the full chip library
-echo "Building complete chip library..."
-ninja -C "$BUILD_DIR" "chip" || {
-    echo "WARNING: Failed to build chip target"
-}
+# Note: There is no single "chip" target in Matter's build system.
+# The targets above (server, controller, setup_payload, lib) provide all necessary libraries.
 
 echo ""
 echo "✓ Matter libraries built successfully!"
