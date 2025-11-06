@@ -8,7 +8,7 @@
 #![allow(unexpected_cfgs)]
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Detect the current platform and return a string like "darwin-arm64" or "linux-x64"
 fn get_platform_string() -> String {
@@ -31,10 +31,10 @@ fn get_platform_string() -> String {
 /// - libCHIPAppServer.a: App server (from src/app/server:server target)
 /// - libChipController.a: Controller (from src/controller:controller target)
 /// - libSetupPayload.a: Setup payload (from src/setup_payload:setup_payload target)
-fn has_required_libraries(lib_dir: &PathBuf) -> bool {
+fn has_required_libraries(lib_dir: &Path) -> bool {
     // At minimum, we need the main CHIP library
     // The other libraries are linked as dependencies within libCHIP.a when built with complete_static_lib
-    let required_libs = vec!["libCHIP.a"];
+    let required_libs = ["libCHIP.a"];
 
     required_libs.iter().all(|lib| lib_dir.join(lib).exists())
 }
@@ -57,7 +57,7 @@ fn main() {
         eprintln!("         The Matter integration will use stub implementation.");
         eprintln!("         To enable full Matter support, run:");
         eprintln!("         git submodule update --init --recursive");
-        eprintln!("");
+        eprintln!();
     }
 
     // =========================================================================
@@ -127,11 +127,11 @@ fn main() {
             eprintln!("           source scripts/activate.sh");
             eprintln!("           gn gen out/host");
             eprintln!("           ninja -C out/host");
-            eprintln!("");
+            eprintln!();
             PathBuf::new() // Empty path
         };
 
-        if lib_dir.as_os_str().len() > 0 {
+        if !lib_dir.as_os_str().is_empty() {
             println!("cargo:rustc-link-search=native={}", lib_dir.display());
 
             // Link the main Matter library
