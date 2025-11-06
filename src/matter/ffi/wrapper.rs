@@ -234,6 +234,40 @@ impl Thermostat {
     pub fn zone_name(&self) -> &str {
         &self.zone_name
     }
+
+    /// Register setpoint change callback
+    ///
+    /// The callback will be invoked when a Matter controller changes the heating or cooling setpoint
+    pub fn set_setpoint_callback(
+        &mut self,
+        callback: MatterThermostatSetpointChangedCallback,
+        context: *mut std::os::raw::c_void,
+    ) {
+        unsafe {
+            matter_thermostat_set_setpoint_callback(self.ptr, callback, context);
+        }
+        debug!(
+            "Thermostat '{}': Registered setpoint change callback",
+            self.zone_name
+        );
+    }
+
+    /// Register mode change callback
+    ///
+    /// The callback will be invoked when a Matter controller changes the system mode
+    pub fn set_mode_callback(
+        &mut self,
+        callback: MatterThermostatModeChangedCallback,
+        context: *mut std::os::raw::c_void,
+    ) {
+        unsafe {
+            matter_thermostat_set_mode_callback(self.ptr, callback, context);
+        }
+        debug!(
+            "Thermostat '{}': Registered mode change callback",
+            self.zone_name
+        );
+    }
 }
 
 impl Drop for Thermostat {

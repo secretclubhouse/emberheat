@@ -61,7 +61,8 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, warn, error};
+use std::os::raw::c_void;
 
 /// Matter server port (standard Matter port is 5540)
 #[allow(dead_code)]
@@ -85,6 +86,121 @@ const CLUSTER_THERMOSTAT: u16 = 0x0201;
 #[allow(dead_code)]
 const CLUSTER_BASIC_INFO: u16 = 0x0028;
 
+/* ============================================================================
+ * Callback Context and Handlers
+ * ========================================================================== */
+
+/// Context passed to C callbacks
+///
+/// This structure is passed as a void pointer to C callbacks and contains
+/// references to the Rust thermostat that needs to be updated.
+struct CallbackContext {
+    thermostat: Arc<Thermostat>,
+    #[allow(dead_code)] // Stored for reference but endpoint is passed as callback parameter
+    endpoint_id: u16,
+    zone_name: String,
+}
+
+/// Extern C callback for setpoint changes
+///
+/// This function is called by the C++ Matter stack when a controller changes
+/// the heating or cooling setpoint.
+extern "C" fn setpoint_changed_callback(
+    context: *mut c_void,
+    endpoint_id: u16,
+    heating_setpoint: i16,
+    cooling_setpoint: i16,
+) {
+    if context.is_null() {
+        error!("Setpoint callback received null context");
+        return;
+    }
+
+    unsafe {
+        let ctx = &*(context as *const CallbackContext);
+
+        info!(
+            "Matter callback: Setpoint changed for '{}' (endpoint {}): heating={} centi-°C, cooling={} centi-°C",
+            ctx.zone_name, endpoint_id, heating_setpoint, cooling_setpoint
+        );
+
+        // Convert from centi-degrees Celsius to Celsius
+        let heating_temp_c = heating_setpoint as f32 / 100.0;
+
+        // Update the thermostat in a blocking manner
+        // Note: This is called from C context, so we use block_in_place
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Err(e) = ctx.thermostat.set_target_temp(heating_temp_c).await {
+                    error!(
+                        "Failed to update target temperature for '{}': {}",
+                        ctx.zone_name, e
+                    );
+                } else {
+                    info!(
+                        "Successfully updated target temperature for '{}' to {:.1}°C",
+                        ctx.zone_name, heating_temp_c
+                    );
+                }
+            })
+        });
+    }
+}
+
+/// Extern C callback for mode changes
+///
+/// This function is called by the C++ Matter stack when a controller changes
+/// the system mode (off/heat/cool/etc).
+extern "C" fn mode_changed_callback(
+    context: *mut c_void,
+    endpoint_id: u16,
+    mode: u8,
+) {
+    if context.is_null() {
+        error!("Mode callback received null context");
+        return;
+    }
+
+    unsafe {
+        let ctx = &*(context as *const CallbackContext);
+
+        info!(
+            "Matter callback: Mode changed for '{}' (endpoint {}): mode=0x{:02X}",
+            ctx.zone_name, endpoint_id, mode
+        );
+
+        // Map Matter mode to HeatingState
+        let state = match mode {
+            0x00 => crate::devices::HeatingState::Off,
+            0x04 => crate::devices::HeatingState::Heat,
+            _ => {
+                warn!(
+                    "Unsupported Matter mode 0x{:02X} for '{}', ignoring",
+                    mode, ctx.zone_name
+                );
+                return;
+            }
+        };
+
+        // Update the thermostat in a blocking manner
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if let Err(e) = ctx.thermostat.set_target_state(state).await {
+                    error!(
+                        "Failed to update system mode for '{}': {}",
+                        ctx.zone_name, e
+                    );
+                } else {
+                    info!(
+                        "Successfully updated system mode for '{}' to {:?}",
+                        ctx.zone_name, state
+                    );
+                }
+            })
+        });
+    }
+}
+
 /// Matter thermostat accessory
 ///
 /// Wraps a Thermostat instance and exposes it via Matter protocol
@@ -101,6 +217,10 @@ pub struct ThermostatAccessory {
 
     /// Endpoint ID in Matter fabric
     endpoint_id: u16,
+
+    /// Callback context (boxed to keep it alive and get a stable pointer)
+    #[allow(dead_code)]
+    callback_context: Option<Box<CallbackContext>>,
 }
 
 #[allow(dead_code)]
@@ -123,14 +243,43 @@ impl ThermostatAccessory {
             thermostat,
             matter_thermostat: None,
             endpoint_id,
+            callback_context: None,
         }
     }
 
-    /// Set the Matter FFI thermostat handle
+    /// Set the Matter FFI thermostat handle and register callbacks
     pub(crate) fn set_matter_thermostat(
         &mut self,
         matter_thermostat: Arc<RwLock<ffi::Thermostat>>,
     ) {
+        // Create callback context
+        let context = Box::new(CallbackContext {
+            thermostat: self.thermostat.clone(),
+            endpoint_id: self.endpoint_id,
+            zone_name: self.name.clone(),
+        });
+
+        // Get raw pointer to context (it will remain valid as long as the box is alive)
+        let context_ptr = &*context as *const CallbackContext as *mut c_void;
+
+        // Register callbacks with the Matter FFI layer
+        {
+            let mut mt_guard = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current()
+                    .block_on(matter_thermostat.write())
+            });
+
+            mt_guard.set_setpoint_callback(setpoint_changed_callback, context_ptr);
+            mt_guard.set_mode_callback(mode_changed_callback, context_ptr);
+        }
+
+        info!(
+            "Registered Matter callbacks for '{}' (endpoint {})",
+            self.name, self.endpoint_id
+        );
+
+        // Store the context to keep it alive
+        self.callback_context = Some(context);
         self.matter_thermostat = Some(matter_thermostat);
     }
 
