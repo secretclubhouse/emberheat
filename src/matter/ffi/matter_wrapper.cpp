@@ -13,6 +13,7 @@
 #include <cstdlib>  /* for free() */
 #include <memory>
 #include <map>
+#include <mutex>
 
 // Matter SDK includes
 // Conditionally include Matter SDK headers when available
@@ -77,6 +78,13 @@ struct MatterThermostat {
 // - Each thermostat has a unique endpoint ID
 static MatterDevice* g_matter_device = nullptr;
 
+// Mutex to protect global device access and callback execution
+// Prevents race conditions between:
+// - Device initialization/shutdown
+// - Callback registration/execution
+// - Thermostat creation/destruction
+static std::mutex g_matter_mutex;
+
 /* ============================================================================
  * Internal Helper Functions
  * ========================================================================== */
@@ -100,6 +108,10 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
     if (!config) {
         return nullptr;
     }
+
+    // Lock mutex to protect check-and-set operation
+    // This prevents race conditions where two threads could both pass the null check
+    std::lock_guard<std::mutex> lock(g_matter_mutex);
 
     // Check for multiple device creation
     // Only one Matter device can exist per process due to global callback limitations
@@ -197,6 +209,10 @@ void matter_device_shutdown(MatterDevice* device) {
     if (!device) {
         return;
     }
+
+    // Lock mutex to protect shutdown from concurrent callback execution
+    // This prevents callbacks from accessing device while it's being deleted
+    std::lock_guard<std::mutex> lock(g_matter_mutex);
 
     // Clear global device pointer if this is the global device
     if (g_matter_device == device) {
@@ -607,6 +623,12 @@ static void MatterThermostatAttributeWriteCallback(
     uint8_t* value,
     uint16_t size) {
 
+    // Lock mutex to protect against concurrent access and shutdown
+    // This prevents race conditions where:
+    // - Device could be shutting down while callback is executing
+    // - Multiple callbacks could access thermostat map concurrently
+    std::lock_guard<std::mutex> lock(g_matter_mutex);
+
     if (!g_matter_device || !value) {
         return;
     }
@@ -649,6 +671,9 @@ static void MatterThermostatAttributeWriteCallback(
                 thermostat->heating_setpoint,
                 thermostat->cooling_setpoint
             );
+        } else {
+            fprintf(stderr, "WARNING: Endpoint %u: Setpoint changed but callback not registered yet. "
+                    "Attribute change will not propagate to Rust layer.\n", endpoint);
         }
     } else if (attributeId == Thermostat::Attributes::OccupiedCoolingSetpoint::Id) {
         // Cooling setpoint changed
@@ -678,6 +703,9 @@ static void MatterThermostatAttributeWriteCallback(
                 thermostat->heating_setpoint,
                 thermostat->cooling_setpoint
             );
+        } else {
+            fprintf(stderr, "WARNING: Endpoint %u: Setpoint changed but callback not registered yet. "
+                    "Attribute change will not propagate to Rust layer.\n", endpoint);
         }
     } else if (attributeId == Thermostat::Attributes::SystemMode::Id) {
         // System mode changed
@@ -705,6 +733,9 @@ static void MatterThermostatAttributeWriteCallback(
                     endpoint,
                     thermostat->system_mode
                 );
+            } else {
+                fprintf(stderr, "WARNING: Endpoint %u: Mode changed but callback not registered yet. "
+                        "Attribute change will not propagate to Rust layer.\n", endpoint);
             }
         }
     }
