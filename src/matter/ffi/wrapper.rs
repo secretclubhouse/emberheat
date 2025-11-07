@@ -706,7 +706,10 @@ mod tests {
     }
 
     // Device creation tests
+    // Note: Tests that create Matter devices must run serially because only one
+    // device can exist per process (global callback architecture limitation)
     #[test]
+    #[serial_test::serial]
     fn test_device_creation_basic() {
         let config = DeviceConfig::default();
         let device = Device::new(config);
@@ -719,6 +722,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_multiple_device_prevention() {
         // This test verifies that only one Matter device can exist at a time
         // due to the global callback architecture limitation
@@ -760,6 +764,7 @@ mod tests {
     }
 
     #[test]
+    #[serial_test::serial]
     fn test_thermostat_callback_registration() {
         // Test that callback registration methods exist and are callable
         use std::os::raw::c_void;
