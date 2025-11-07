@@ -238,6 +238,26 @@ impl Thermostat {
     /// Register setpoint change callback
     ///
     /// The callback will be invoked when a Matter controller changes the heating or cooling setpoint
+    ///
+    /// # Safety
+    ///
+    /// **CRITICAL CONSTRAINTS:**
+    ///
+    /// 1. **Context Lifetime**: The `context` pointer must remain valid for the entire lifetime
+    ///    of this thermostat instance. If the context is freed while callbacks may still be
+    ///    invoked, this will result in undefined behavior (use-after-free).
+    ///
+    /// 2. **Thread Safety**: The callback may be invoked from a different thread (the C++ Matter
+    ///    stack's event loop thread). Ensure the callback function is thread-safe and the context
+    ///    data can be safely accessed from multiple threads.
+    ///
+    /// 3. **Single Registration**: This function should only be called once per thermostat instance.
+    ///    Calling it multiple times will replace the previous callback, but if the old context is
+    ///    freed, the C++ layer may still invoke callbacks with a dangling pointer during a race
+    ///    condition.
+    ///
+    /// 4. **No Panics**: The callback function must not panic, as unwinding across FFI boundaries
+    ///    is undefined behavior. Use `catch_unwind` if the callback may panic.
     pub fn set_setpoint_callback(
         &mut self,
         callback: MatterThermostatSetpointChangedCallback,
@@ -255,6 +275,26 @@ impl Thermostat {
     /// Register mode change callback
     ///
     /// The callback will be invoked when a Matter controller changes the system mode
+    ///
+    /// # Safety
+    ///
+    /// **CRITICAL CONSTRAINTS:**
+    ///
+    /// 1. **Context Lifetime**: The `context` pointer must remain valid for the entire lifetime
+    ///    of this thermostat instance. If the context is freed while callbacks may still be
+    ///    invoked, this will result in undefined behavior (use-after-free).
+    ///
+    /// 2. **Thread Safety**: The callback may be invoked from a different thread (the C++ Matter
+    ///    stack's event loop thread). Ensure the callback function is thread-safe and the context
+    ///    data can be safely accessed from multiple threads.
+    ///
+    /// 3. **Single Registration**: This function should only be called once per thermostat instance.
+    ///    Calling it multiple times will replace the previous callback, but if the old context is
+    ///    freed, the C++ layer may still invoke callbacks with a dangling pointer during a race
+    ///    condition.
+    ///
+    /// 4. **No Panics**: The callback function must not panic, as unwinding across FFI boundaries
+    ///    is undefined behavior. Use `catch_unwind` if the callback may panic.
     pub fn set_mode_callback(
         &mut self,
         callback: MatterThermostatModeChangedCallback,
