@@ -234,6 +234,80 @@ impl Thermostat {
     pub fn zone_name(&self) -> &str {
         &self.zone_name
     }
+
+    /// Register setpoint change callback
+    ///
+    /// The callback will be invoked when a Matter controller changes the heating or cooling setpoint
+    ///
+    /// # Safety
+    ///
+    /// **CRITICAL CONSTRAINTS:**
+    ///
+    /// 1. **Context Lifetime**: The `context` pointer must remain valid for the entire lifetime
+    ///    of this thermostat instance. If the context is freed while callbacks may still be
+    ///    invoked, this will result in undefined behavior (use-after-free).
+    ///
+    /// 2. **Thread Safety**: The callback may be invoked from a different thread (the C++ Matter
+    ///    stack's event loop thread). Ensure the callback function is thread-safe and the context
+    ///    data can be safely accessed from multiple threads.
+    ///
+    /// 3. **Single Registration**: This function should only be called once per thermostat instance.
+    ///    Calling it multiple times will replace the previous callback, but if the old context is
+    ///    freed, the C++ layer may still invoke callbacks with a dangling pointer during a race
+    ///    condition.
+    ///
+    /// 4. **No Panics**: The callback function must not panic, as unwinding across FFI boundaries
+    ///    is undefined behavior. Use `catch_unwind` if the callback may panic.
+    pub fn set_setpoint_callback(
+        &mut self,
+        callback: MatterThermostatSetpointChangedCallback,
+        context: *mut std::os::raw::c_void,
+    ) {
+        unsafe {
+            matter_thermostat_set_setpoint_callback(self.ptr, callback, context);
+        }
+        debug!(
+            "Thermostat '{}': Registered setpoint change callback",
+            self.zone_name
+        );
+    }
+
+    /// Register mode change callback
+    ///
+    /// The callback will be invoked when a Matter controller changes the system mode
+    ///
+    /// # Safety
+    ///
+    /// **CRITICAL CONSTRAINTS:**
+    ///
+    /// 1. **Context Lifetime**: The `context` pointer must remain valid for the entire lifetime
+    ///    of this thermostat instance. If the context is freed while callbacks may still be
+    ///    invoked, this will result in undefined behavior (use-after-free).
+    ///
+    /// 2. **Thread Safety**: The callback may be invoked from a different thread (the C++ Matter
+    ///    stack's event loop thread). Ensure the callback function is thread-safe and the context
+    ///    data can be safely accessed from multiple threads.
+    ///
+    /// 3. **Single Registration**: This function should only be called once per thermostat instance.
+    ///    Calling it multiple times will replace the previous callback, but if the old context is
+    ///    freed, the C++ layer may still invoke callbacks with a dangling pointer during a race
+    ///    condition.
+    ///
+    /// 4. **No Panics**: The callback function must not panic, as unwinding across FFI boundaries
+    ///    is undefined behavior. Use `catch_unwind` if the callback may panic.
+    pub fn set_mode_callback(
+        &mut self,
+        callback: MatterThermostatModeChangedCallback,
+        context: *mut std::os::raw::c_void,
+    ) {
+        unsafe {
+            matter_thermostat_set_mode_callback(self.ptr, callback, context);
+        }
+        debug!(
+            "Thermostat '{}': Registered mode change callback",
+            self.zone_name
+        );
+    }
 }
 
 impl Drop for Thermostat {
@@ -629,5 +703,132 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(!err.is_empty());
+    }
+
+    // Device creation tests
+    // Note: Tests that create Matter devices must run serially because only one
+    // device can exist per process (global callback architecture limitation)
+    #[test]
+    #[serial_test::serial]
+    fn test_device_creation_basic() {
+        let config = DeviceConfig::default();
+        let device = Device::new(config);
+
+        // Device should be created successfully
+        assert!(device.is_ok());
+
+        // Clean up by dropping the device
+        drop(device);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_multiple_device_prevention() {
+        // This test verifies that only one Matter device can exist at a time
+        // due to the global callback architecture limitation
+
+        let config1 = DeviceConfig::default();
+        let device1 = Device::new(config1);
+        assert!(
+            device1.is_ok(),
+            "First device should be created successfully"
+        );
+
+        // Try to create a second device - should fail
+        let config2 = DeviceConfig {
+            device_name: "Device2".to_string(),
+            ..DeviceConfig::default()
+        };
+        let device2 = Device::new(config2);
+        assert!(
+            device2.is_err(),
+            "Second device creation should fail due to global device limitation"
+        );
+
+        // Clean up first device
+        drop(device1);
+
+        // Now we should be able to create a new device
+        let config3 = DeviceConfig {
+            device_name: "Device3".to_string(),
+            ..DeviceConfig::default()
+        };
+        let device3 = Device::new(config3);
+        assert!(
+            device3.is_ok(),
+            "After first device is dropped, new device should be creatable"
+        );
+
+        // Clean up third device to avoid affecting other tests
+        drop(device3);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_thermostat_callback_registration() {
+        // Test that callback registration methods exist and are callable
+        use std::os::raw::c_void;
+        use std::ptr;
+
+        let device_config = DeviceConfig::default();
+        let device = Device::new(device_config).unwrap();
+
+        let thermostat_config = ThermostatConfig::new(1, "TestZone".to_string());
+        let mut thermostat = Thermostat::new(&device, thermostat_config).unwrap();
+
+        // Define dummy callbacks
+        extern "C" fn dummy_setpoint_callback(
+            _context: *mut c_void,
+            _endpoint: u16,
+            _heating: i16,
+            _cooling: i16,
+        ) {
+        }
+
+        extern "C" fn dummy_mode_callback(_context: *mut c_void, _endpoint: u16, _mode: u8) {}
+
+        // Register callbacks - should not panic
+        thermostat.set_setpoint_callback(dummy_setpoint_callback, ptr::null_mut());
+        thermostat.set_mode_callback(dummy_mode_callback, ptr::null_mut());
+
+        // No assertion needed - if we get here, callbacks were registered successfully
+
+        // Clean up to avoid affecting other tests
+        drop(thermostat);
+        drop(device);
+    }
+
+    #[test]
+    fn test_temperature_conversion_roundtrip() {
+        // Test that temperature conversion is lossless for typical values
+        let temperatures = vec![15.0, 18.5, 20.0, 22.5, 25.0, 28.0];
+
+        for temp_c in temperatures {
+            let centi = (temp_c * 100.0) as i16;
+            let back_to_c = centi as f32 / 100.0;
+            assert_eq!(
+                temp_c, back_to_c,
+                "Temperature conversion should be lossless"
+            );
+        }
+    }
+
+    #[test]
+    fn test_callback_pointer_safety() {
+        // Verify callback function pointers have correct type
+        use std::os::raw::c_void;
+
+        type SetpointCallback = extern "C" fn(*mut c_void, u16, i16, i16);
+        type ModeCallback = extern "C" fn(*mut c_void, u16, u8);
+
+        // These should have the same size as function pointers
+        assert_eq!(
+            std::mem::size_of::<SetpointCallback>(),
+            std::mem::size_of::<usize>()
+        );
+        assert_eq!(
+            std::mem::size_of::<ModeCallback>(),
+            std::mem::size_of::<usize>()
+        );
     }
 }

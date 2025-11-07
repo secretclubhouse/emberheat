@@ -13,6 +13,7 @@
 #include <cstdlib>  /* for free() */
 #include <memory>
 #include <map>
+#include <mutex>
 
 // Matter SDK includes
 // Conditionally include Matter SDK headers when available
@@ -62,6 +63,28 @@ struct MatterThermostat {
     void* mode_context;
 };
 
+// Global device pointer for callback access
+//
+// IMPORTANT: This implementation supports only ONE Matter device per process.
+// This is because emberAfPostAttributeChangeCallback is a global callback hook
+// with a fixed signature that doesn't pass device context. The Matter framework
+// calls it by name at link time.
+//
+// Attempting to create multiple devices will fail with an error.
+//
+// This matches the typical usage pattern where:
+// - One MatterDevice per process
+// - Multiple thermostats registered on the same device
+// - Each thermostat has a unique endpoint ID
+static MatterDevice* g_matter_device = nullptr;
+
+// Mutex to protect global device access and callback execution
+// Prevents race conditions between:
+// - Device initialization/shutdown
+// - Callback registration/execution
+// - Thermostat creation/destruction
+static std::mutex g_matter_mutex;
+
 /* ============================================================================
  * Internal Helper Functions
  * ========================================================================== */
@@ -83,6 +106,19 @@ static const char* error_messages[] = {
 
 MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
     if (!config) {
+        return nullptr;
+    }
+
+    // Lock mutex to protect check-and-set operation
+    // This prevents race conditions where two threads could both pass the null check
+    std::lock_guard<std::mutex> lock(g_matter_mutex);
+
+    // Check for multiple device creation
+    // Only one Matter device can exist per process due to global callback limitations
+    if (g_matter_device != nullptr) {
+        fprintf(stderr, "ERROR: Only one Matter device can be created per process.\n");
+        fprintf(stderr, "       A Matter device already exists at %p\n", (void*)g_matter_device);
+        fprintf(stderr, "       This is a limitation of the Matter callback architecture.\n");
         return nullptr;
     }
 
@@ -144,6 +180,10 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
 
     device->initialized = true;
 
+    // Set global device pointer for callback access
+    // Note: We already checked g_matter_device is null at the start of this function
+    g_matter_device = device;
+
     fprintf(stderr, "Matter device initialized: %s (Vendor: 0x%04X, Product: 0x%04X)\n",
             device->config.device_name,
             device->config.vendor_id,
@@ -151,6 +191,10 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
 #else
     // Stub implementation when SDK not available
     device->initialized = true;
+
+    // Set global device pointer for callback access
+    // Note: We already checked g_matter_device is null at the start of this function
+    g_matter_device = device;
 
     fprintf(stderr, "Matter device initialized (STUB): %s (Vendor: 0x%04X, Product: 0x%04X)\n",
             device->config.device_name,
@@ -164,6 +208,15 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
 void matter_device_shutdown(MatterDevice* device) {
     if (!device) {
         return;
+    }
+
+    // Lock mutex to protect shutdown from concurrent callback execution
+    // This prevents callbacks from accessing device while it's being deleted
+    std::lock_guard<std::mutex> lock(g_matter_mutex);
+
+    // Clear global device pointer if this is the global device
+    if (g_matter_device == device) {
+        g_matter_device = nullptr;
     }
 
     // Cleanup all thermostats
@@ -336,6 +389,13 @@ void matter_device_set_commissioning_callback(
  * Thermostat Functions
  * ========================================================================== */
 
+// Forward declaration for internal callback registration function
+#ifdef MATTER_SDK_AVAILABLE
+static CHIP_ERROR RegisterThermostatCallbacks(chip::EndpointId endpoint);
+#else
+static void RegisterThermostatCallbacks(uint16_t endpoint);
+#endif
+
 MatterThermostat* matter_thermostat_create(
     MatterDevice* device,
     const MatterThermostatConfig* config) {
@@ -380,6 +440,17 @@ MatterThermostat* matter_thermostat_create(
 
     // The thermostat cluster and attributes are defined in the ZAP configuration
     // and generated code. This wrapper just manages the state and callbacks.
+
+    // Register attribute change callbacks
+    CHIP_ERROR err = RegisterThermostatCallbacks(config->endpoint_id);
+    if (err != CHIP_NO_ERROR) {
+        fprintf(stderr, "Warning: Failed to register callbacks for endpoint %u: %s\n",
+                config->endpoint_id, ErrorStr(err));
+        // Continue anyway - callbacks may still work
+    }
+#else
+    // Stub: Register callbacks (no actual Matter stack to register with)
+    RegisterThermostatCallbacks(config->endpoint_id);
 #endif
 
     device->thermostats[config->endpoint_id] = thermostat;
@@ -531,37 +602,196 @@ void matter_thermostat_set_mode_callback(
  * Callback handlers (called by Matter stack)
  * ========================================================================== */
 
-// These would be registered with the Matter stack to handle attribute writes
-// Example for setpoint changes:
-/*
-void MatterThermostatAttributeChangeCallback(
-    uint8_t endpoint,
+#ifdef MATTER_SDK_AVAILABLE
+// Forward declaration for internal callback handler
+static void MatterThermostatAttributeWriteCallback(
+    chip::EndpointId endpoint,
     chip::AttributeId attributeId,
-    uint8_t* value) {
+    uint8_t* value,
+    uint16_t size);
+
+/**
+ * Matter attribute write callback (internal)
+ *
+ * Called by emberAfPostAttributeChangeCallback when a controller writes
+ * to a thermostat attribute. This function is internal and not exposed
+ * to Rust via FFI.
+ */
+static void MatterThermostatAttributeWriteCallback(
+    chip::EndpointId endpoint,
+    chip::AttributeId attributeId,
+    uint8_t* value,
+    uint16_t size) {
+
+    // Lock mutex to protect against concurrent access and shutdown
+    // This prevents race conditions where:
+    // - Device could be shutting down while callback is executing
+    // - Multiple callbacks could access thermostat map concurrently
+    std::lock_guard<std::mutex> lock(g_matter_mutex);
+
+    if (!g_matter_device || !value) {
+        return;
+    }
 
     // Find thermostat by endpoint
-    for (auto& pair : global_device->thermostats) {
-        if (pair.first == endpoint) {
-            MatterThermostat* thermostat = pair.second;
+    auto it = g_matter_device->thermostats.find(endpoint);
+    if (it == g_matter_device->thermostats.end()) {
+        fprintf(stderr, "Thermostat not found for endpoint %u\n", endpoint);
+        return;
+    }
 
-            if (attributeId == OCCUPIED_HEATING_SETPOINT_ATTRIBUTE_ID) {
-                int16_t* setpoint = (int16_t*)value;
-                thermostat->heating_setpoint = *setpoint;
+    MatterThermostat* thermostat = it->second;
 
-                if (thermostat->setpoint_callback) {
-                    thermostat->setpoint_callback(
-                        thermostat->setpoint_context,
-                        endpoint,
-                        thermostat->heating_setpoint,
-                        thermostat->cooling_setpoint
-                    );
-                }
+    // Handle different attribute types
+    if (attributeId == Thermostat::Attributes::OccupiedHeatingSetpoint::Id) {
+        // Heating setpoint changed
+        if (size < sizeof(int16_t)) {
+            fprintf(stderr, "ERROR: Endpoint %u: Invalid size %u for heating setpoint (expected %zu)\n",
+                    endpoint, size, sizeof(int16_t));
+            return;
+        }
+        if (size > sizeof(int16_t)) {
+            fprintf(stderr, "WARNING: Endpoint %u: Unexpected size %u for heating setpoint (expected %zu). "
+                    "Possible protocol mismatch or data corruption.\n",
+                    endpoint, size, sizeof(int16_t));
+        }
+
+        // Use memcpy to avoid unaligned memory access
+        int16_t setpoint;
+        std::memcpy(&setpoint, value, sizeof(int16_t));
+        thermostat->heating_setpoint = setpoint;
+
+        fprintf(stderr, "Endpoint %u: Heating setpoint changed to %d centi-°C\n",
+                endpoint, setpoint);
+
+        if (thermostat->setpoint_callback) {
+            thermostat->setpoint_callback(
+                thermostat->setpoint_context,
+                endpoint,
+                thermostat->heating_setpoint,
+                thermostat->cooling_setpoint
+            );
+        } else {
+            fprintf(stderr, "WARNING: Endpoint %u: Setpoint changed but callback not registered yet. "
+                    "Attribute change will not propagate to Rust layer.\n", endpoint);
+        }
+    } else if (attributeId == Thermostat::Attributes::OccupiedCoolingSetpoint::Id) {
+        // Cooling setpoint changed
+        if (size < sizeof(int16_t)) {
+            fprintf(stderr, "ERROR: Endpoint %u: Invalid size %u for cooling setpoint (expected %zu)\n",
+                    endpoint, size, sizeof(int16_t));
+            return;
+        }
+        if (size > sizeof(int16_t)) {
+            fprintf(stderr, "WARNING: Endpoint %u: Unexpected size %u for cooling setpoint (expected %zu). "
+                    "Possible protocol mismatch or data corruption.\n",
+                    endpoint, size, sizeof(int16_t));
+        }
+
+        // Use memcpy to avoid unaligned memory access
+        int16_t setpoint;
+        std::memcpy(&setpoint, value, sizeof(int16_t));
+        thermostat->cooling_setpoint = setpoint;
+
+        fprintf(stderr, "Endpoint %u: Cooling setpoint changed to %d centi-°C\n",
+                endpoint, setpoint);
+
+        if (thermostat->setpoint_callback) {
+            thermostat->setpoint_callback(
+                thermostat->setpoint_context,
+                endpoint,
+                thermostat->heating_setpoint,
+                thermostat->cooling_setpoint
+            );
+        } else {
+            fprintf(stderr, "WARNING: Endpoint %u: Setpoint changed but callback not registered yet. "
+                    "Attribute change will not propagate to Rust layer.\n", endpoint);
+        }
+    } else if (attributeId == Thermostat::Attributes::SystemMode::Id) {
+        // System mode changed
+        if (size < sizeof(uint8_t)) {
+            fprintf(stderr, "ERROR: Endpoint %u: Invalid size %u for system mode (expected %zu)\n",
+                    endpoint, size, sizeof(uint8_t));
+            return;
+        }
+        if (size > sizeof(uint8_t)) {
+            fprintf(stderr, "WARNING: Endpoint %u: Unexpected size %u for system mode (expected %zu). "
+                    "Possible protocol mismatch or data corruption.\n",
+                    endpoint, size, sizeof(uint8_t));
+        }
+
+        // Single byte, no alignment issue, but consistent with above
+        uint8_t mode = *value;
+        thermostat->system_mode = static_cast<MatterThermostatMode>(mode);
+
+            fprintf(stderr, "Endpoint %u: System mode changed to 0x%02X\n",
+                    endpoint, mode);
+
+            if (thermostat->mode_callback) {
+                thermostat->mode_callback(
+                    thermostat->mode_context,
+                    endpoint,
+                    thermostat->system_mode
+                );
+            } else {
+                fprintf(stderr, "WARNING: Endpoint %u: Mode changed but callback not registered yet. "
+                        "Attribute change will not propagate to Rust layer.\n", endpoint);
             }
-            break;
         }
     }
 }
-*/
+
+/**
+ * Matter framework callback - called automatically after attribute changes
+ *
+ * This is a well-known callback hook that the Matter/Ember framework calls
+ * after any attribute is written. We use it to dispatch to our internal
+ * thermostat callback handler.
+ *
+ * IMPORTANT: This function must NOT be marked 'static' because the Matter
+ * framework looks for it by name at link time. It requires external linkage.
+ *
+ * This function is automatically invoked by the Matter stack - no explicit
+ * registration is needed.
+ */
+void emberAfPostAttributeChangeCallback(chip::EndpointId endpoint,
+                                        chip::ClusterId clusterId,
+                                        chip::AttributeId attributeId,
+                                        uint8_t mask,
+                                        uint16_t manufacturerCode,
+                                        uint8_t type,
+                                        uint16_t size,
+                                        uint8_t* value) {
+    // Only handle thermostat cluster attributes
+    if (clusterId == Thermostat::Id) {
+        MatterThermostatAttributeWriteCallback(endpoint, attributeId, value, size);
+    }
+}
+
+/**
+ * Register attribute change callbacks for a thermostat endpoint
+ *
+ * Note: The actual callback registration happens via emberAfPostAttributeChangeCallback
+ * which is automatically called by the Matter framework. This function just performs
+ * endpoint validation and logging.
+ *
+ * This function is internal-only and not exposed to Rust via FFI.
+ */
+static CHIP_ERROR RegisterThermostatCallbacks(chip::EndpointId endpoint) {
+    fprintf(stderr, "Matter callbacks registered for thermostat endpoint %u\n", endpoint);
+    fprintf(stderr, "  - Callbacks will be invoked via emberAfPostAttributeChangeCallback\n");
+    return CHIP_NO_ERROR;
+}
+#else
+/**
+ * Stub implementation when Matter SDK is not available
+ *
+ * This function is internal-only and not exposed to Rust via FFI.
+ */
+static void RegisterThermostatCallbacks(uint16_t endpoint) {
+    fprintf(stderr, "Matter callbacks registered (STUB) for thermostat endpoint %u\n", endpoint);
+}
+#endif
 
 /* ============================================================================
  * Utility Functions
