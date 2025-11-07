@@ -337,6 +337,29 @@ response_time{room="Zone1"} 0.125
 reset_error_count{room="Zone1"} 3
 ```
 
+### Grafana Dashboards
+
+Pre-built Grafana dashboards are included for visualization:
+
+```bash
+# Start Grafana using Docker Compose
+docker-compose up -d grafana
+
+# Access Grafana at http://<raspberry-pi-ip>:3000
+# Default credentials: admin/admin
+```
+
+The included dashboard provides:
+- Multi-zone temperature graphs
+- Heat status indicators
+- Response time tracking
+- Error counter displays
+- Time-series visualization
+
+Dashboard configuration files:
+- `grafana/dashboards/thermostat.json` - Pre-built dashboard
+- `grafana/datasources/prometheus.yml` - Prometheus datasource config
+
 ### Logs
 
 View real-time logs:
@@ -447,10 +470,16 @@ thermos-rust/
 │   │   └── mod.rs
 │   ├── metrics/            # Prometheus metrics
 │   │   └── mod.rs
-│   └── matter/             # Matter protocol
-│       └── mod.rs
+│   ├── matter/             # Matter protocol
+│   │   └── mod.rs
+│   └── mocks/              # Mock implementations for testing
+│       ├── mod.rs
+│       ├── gpio_mock.rs
+│       ├── sensor_mock.rs
+│       └── state_mock.rs
 └── tests/                  # Integration tests
-    └── integration_test.rs
+    ├── integration_test.rs
+    └── mock_integration_tests.rs
 ```
 
 ### Running Tests
@@ -603,13 +632,18 @@ Narrower band = more relay cycles, tighter temperature control
 
 ## Testing
 
-Thermos-Rust includes comprehensive test coverage for Linux platforms.
+Thermos-Rust includes comprehensive test coverage with both hardware and cross-platform mock tests.
 
 ### Running Tests
 
 ```bash
 # Run all tests (requires Linux/Raspberry Pi)
 cargo test
+
+# Run cross-platform mock tests (works on macOS/Windows)
+cargo test --test mock_integration_tests
+# Or use the Makefile:
+make test-mock
 
 # Run specific test suites
 cargo test hysteresis     # Hysteresis logic tests
@@ -619,12 +653,15 @@ cargo test gpio           # GPIO tests
 
 ### Test Coverage
 
-| Component | Unit Tests | Integration Tests |
-|-----------|------------|-------------------|
-| GPIO      | 2 tests    | ✓                 |
-| Sensors   | 5 tests    | ✓                 |
-| State     | 5 tests    | ✓                 |
-| Devices   | 2 tests    | 50+ scenarios     |
+| Component | Unit Tests | Mock Tests | Integration Tests |
+|-----------|------------|------------|-------------------|
+| GPIO      | 2 tests    | ✓          | ✓                 |
+| Sensors   | 5 tests    | ✓          | ✓                 |
+| State     | 5 tests    | ✓          | ✓                 |
+| Devices   | 2 tests    | ✓          | 50+ scenarios     |
+| Matter    | 50+ tests  | ✓          | ✓                 |
+
+See [TESTING.md](TESTING.md) for detailed information about mock implementations and cross-platform testing.
 
 ## Contributing
 
@@ -664,7 +701,7 @@ For issues and questions:
 - [ ] Thread network support
 - [ ] Web UI for configuration and monitoring
 - [ ] Mobile app for direct control
-- [ ] Grafana dashboard templates
+- [x] Grafana dashboard templates
 - [ ] Docker multi-arch images
 - [ ] Home Assistant integration
 - [ ] Energy usage tracking

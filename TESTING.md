@@ -6,6 +6,8 @@ This document explains how to run tests on non-Raspberry Pi hardware using mocks
 
 The Thermos-Rust project includes comprehensive mocking infrastructure that allows tests to run on any platform without requiring actual Raspberry Pi GPIO hardware, temperature sensors, or Redis.
 
+The project uses `serial_test` for Matter device tests to prevent global state leakage, ensuring proper test isolation while maintaining parallelism for other tests.
+
 ## Mock Components
 
 ### 1. MockGpioController (`src/mocks/gpio_mock.rs`)
@@ -315,11 +317,35 @@ cargo test --test mock_integration_tests
 5. **Test error cases**: Use mocks to simulate failures
 6. **Keep mocks simple**: Don't over-engineer mock behavior
 
+## Code Coverage
+
+Generate test coverage reports using `cargo-llvm-cov`:
+
+```bash
+# Install cargo-llvm-cov
+cargo install cargo-llvm-cov
+
+# Generate HTML coverage report
+cargo llvm-cov --html
+
+# Generate LCOV format (for CI/CD)
+cargo llvm-cov --lcov --output-path lcov.info
+
+# Or use the Makefile
+make test-coverage
+```
+
+The project targets 75-85% code coverage, with comprehensive coverage for:
+- Control logic and hysteresis algorithms
+- Matter protocol conversion functions
+- Error handling and recovery mechanisms
+- State management and persistence
+
 ## Future Improvements
 
 - [ ] Add property-based testing with `proptest`
 - [ ] Add benchmark tests with `criterion`
 - [ ] Add mutation testing
-- [ ] Add coverage reporting
+- [x] Add coverage reporting with `cargo-llvm-cov`
 - [ ] Create test fixtures for common scenarios
 - [ ] Add integration test Docker containers

@@ -40,8 +40,13 @@ src/
 │   └── mod.rs             # Redis integration
 ├── metrics/                # Observability
 │   └── mod.rs             # Prometheus metrics export
-└── matter/                 # Smart home integration
-    └── mod.rs             # Matter protocol support
+├── matter/                 # Smart home integration
+│   └── mod.rs             # Matter protocol support via Connected Home IP
+└── mocks/                  # Test mocking infrastructure
+    ├── mod.rs             # Mock module exports
+    ├── gpio_mock.rs       # Mock GPIO controller
+    ├── sensor_mock.rs     # Mock temperature sensors
+    └── state_mock.rs      # Mock state manager
 ```
 
 ### Module Responsibilities
@@ -54,7 +59,8 @@ src/
 | `sensors` | Temperature reading | `reqwest`, `tokio` |
 | `persistence` | State storage | `redis` |
 | `metrics` | Metrics export | `prometheus` |
-| `matter` | Matter protocol | `rs-matter` (optional) |
+| `matter` | Matter protocol | Connected Home IP (C++ FFI) |
+| `mocks` | Test infrastructure | `mockall`, `tokio-test` |
 
 ## Data Flow
 
