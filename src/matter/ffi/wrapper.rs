@@ -754,6 +754,9 @@ mod tests {
             device3.is_ok(),
             "After first device is dropped, new device should be creatable"
         );
+
+        // Clean up third device to avoid affecting other tests
+        drop(device3);
     }
 
     #[test]
@@ -784,6 +787,10 @@ mod tests {
         thermostat.set_mode_callback(dummy_mode_callback, ptr::null_mut());
 
         // No assertion needed - if we get here, callbacks were registered successfully
+
+        // Clean up to avoid affecting other tests
+        drop(thermostat);
+        drop(device);
     }
 
     #[test]
