@@ -127,24 +127,26 @@ extern "C" fn setpoint_changed_callback(
         // Convert from centi-degrees Celsius to Celsius
         let heating_temp_c = heating_setpoint as f32 / 100.0;
 
-        // Update the thermostat in a blocking manner
-        // Note: This is called from C context, so we need to check for a runtime
+        // Update the thermostat asynchronously
+        // Note: This is called from C context (potentially from a non-Tokio thread),
+        // so we use spawn instead of block_in_place to avoid panics
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
-                tokio::task::block_in_place(|| {
-                    handle.block_on(async {
-                        if let Err(e) = ctx.thermostat.set_target_temp(heating_temp_c).await {
-                            error!(
-                                "Failed to update target temperature for '{}': {}",
-                                ctx.zone_name, e
-                            );
-                        } else {
-                            info!(
-                                "Successfully updated target temperature for '{}' to {:.1}°C",
-                                ctx.zone_name, heating_temp_c
-                            );
-                        }
-                    })
+                let thermostat = ctx.thermostat.clone();
+                let zone_name = ctx.zone_name.clone();
+
+                handle.spawn(async move {
+                    if let Err(e) = thermostat.set_target_temp(heating_temp_c).await {
+                        error!(
+                            "Failed to update target temperature for '{}': {}",
+                            zone_name, e
+                        );
+                    } else {
+                        info!(
+                            "Successfully updated target temperature for '{}' to {:.1}°C",
+                            zone_name, heating_temp_c
+                        );
+                    }
                 });
             }
             Err(_) => {
@@ -188,24 +190,23 @@ extern "C" fn mode_changed_callback(context: *mut c_void, endpoint_id: u16, mode
             }
         };
 
-        // Update the thermostat in a blocking manner
-        // Note: This is called from C context, so we need to check for a runtime
+        // Update the thermostat asynchronously
+        // Note: This is called from C context (potentially from a non-Tokio thread),
+        // so we use spawn instead of block_in_place to avoid panics
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
-                tokio::task::block_in_place(|| {
-                    handle.block_on(async {
-                        if let Err(e) = ctx.thermostat.set_target_state(state).await {
-                            error!(
-                                "Failed to update system mode for '{}': {}",
-                                ctx.zone_name, e
-                            );
-                        } else {
-                            info!(
-                                "Successfully updated system mode for '{}' to {:?}",
-                                ctx.zone_name, state
-                            );
-                        }
-                    })
+                let thermostat = ctx.thermostat.clone();
+                let zone_name = ctx.zone_name.clone();
+
+                handle.spawn(async move {
+                    if let Err(e) = thermostat.set_target_state(state).await {
+                        error!("Failed to update system mode for '{}': {}", zone_name, e);
+                    } else {
+                        info!(
+                            "Successfully updated system mode for '{}' to {:?}",
+                            zone_name, state
+                        );
+                    }
                 });
             }
             Err(_) => {
@@ -265,10 +266,22 @@ impl ThermostatAccessory {
     }
 
     /// Set the Matter FFI thermostat handle and register callbacks
+    ///
+    /// # Safety
+    ///
+    /// This function can only be called once per accessory instance. Calling it
+    /// multiple times would create a use-after-free vulnerability, as the old
+    /// callback context would be dropped while C++ still holds a pointer to it.
     pub(crate) fn set_matter_thermostat(
         &mut self,
         matter_thermostat: Arc<RwLock<ffi::Thermostat>>,
     ) {
+        // Prevent multiple calls to avoid use-after-free
+        assert!(
+            self.callback_context.is_none(),
+            "set_matter_thermostat can only be called once per accessory instance"
+        );
+
         // Create callback context
         let context = Box::new(CallbackContext {
             thermostat: self.thermostat.clone(),
