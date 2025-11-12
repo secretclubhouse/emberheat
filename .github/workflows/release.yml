@@ -82,13 +82,11 @@ jobs:
 
           See [CHANGELOG.md](CHANGELOG.md) for details.
 
-  # Build binaries for different Linux targets on Debian Trixie
+  # Build binaries for different Linux targets using cross-compilation
   build:
     name: Build ${{ matrix.target }}
     needs: create-release
     runs-on: ubuntu-latest
-    container:
-      image: debian:trixie
     strategy:
       fail-fast: false
       matrix:
@@ -106,11 +104,6 @@ jobs:
             cross: false
 
     steps:
-    - name: Install dependencies
-      run: |
-        apt-get update
-        apt-get install -y curl build-essential pkg-config libssl-dev git
-
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -128,13 +121,13 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
-        key: debian-trixie-${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Cache cargo index
       uses: actions/cache@v4
       with:
         path: ~/.cargo/git
-        key: debian-trixie-${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+        key: ${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
 
     - name: Build release binary (cross)
       if: matrix.cross

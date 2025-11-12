@@ -2,7 +2,7 @@
 /target/
 **/*.rs.bk
 *.pdb
-Cargo.lock
+# Note: Cargo.lock is committed for binary projects to ensure reproducible builds
 
 # Matter/Connected Home IP source (downloaded, not checked in)
 # We download this from GitHub releases instead of using submodules
