@@ -44,25 +44,62 @@
 //! ```
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use tokio::fs;
 
 /// Main configuration structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Config {
     /// Redis server URL (defaults to "redis://localhost:6379" if not specified)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redis_url: Option<String>,
 
     /// Map of zone names to zone configurations
-    #[serde(flatten)]
     pub zones: HashMap<String, ZoneConfig>,
 }
 
+// Custom deserializer for Config to handle underscore-prefixed fields (comments)
+impl<'de> Deserialize<'de> for Config {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawConfig {
+            #[serde(skip_serializing_if = "Option::is_none")]
+            redis_url: Option<String>,
+            #[serde(flatten)]
+            other: HashMap<String, serde_json::Value>,
+        }
+
+        let raw = RawConfig::deserialize(deserializer)?;
+        let mut zones = HashMap::new();
+
+        // Process non-underscore fields as zones
+        for (key, value) in raw.other {
+            // Skip fields starting with underscore (these are comments)
+            if key.starts_with('_') {
+                continue;
+            }
+
+            // Parse the value as a ZoneConfig
+            let zone_config: ZoneConfig = serde_json::from_value(value).map_err(|e| {
+                serde::de::Error::custom(format!("Failed to parse zone '{}': {}", key, e))
+            })?;
+            zones.insert(key, zone_config);
+        }
+
+        Ok(Config {
+            redis_url: raw.redis_url,
+            zones,
+        })
+    }
+}
+
 /// Configuration for a single heating zone
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ZoneConfig {
     /// GPIO pin number (BCM mode) for relay control
     pub relay_pin: u8,
@@ -77,6 +114,44 @@ pub struct ZoneConfig {
     /// Should return JSON with "temp_c" field
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_sensor: Option<String>,
+}
+
+// Custom deserializer for ZoneConfig to handle underscore-prefixed fields (comments)
+impl<'de> Deserialize<'de> for ZoneConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct RawZoneConfig {
+            relay_pin: u8,
+            temp_pin: u8,
+            temp_id: String,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            extra_sensor: Option<String>,
+            #[serde(flatten)]
+            other: HashMap<String, serde_json::Value>,
+        }
+
+        let raw = RawZoneConfig::deserialize(deserializer)?;
+
+        // Validate that all extra fields start with underscore (are comments)
+        for key in raw.other.keys() {
+            if !key.starts_with('_') {
+                return Err(serde::de::Error::custom(format!(
+                    "Unknown field '{}' in zone configuration",
+                    key
+                )));
+            }
+        }
+
+        Ok(ZoneConfig {
+            relay_pin: raw.relay_pin,
+            temp_pin: raw.temp_pin,
+            temp_id: raw.temp_id,
+            extra_sensor: raw.extra_sensor,
+        })
+    }
 }
 
 impl Config {
@@ -466,5 +541,48 @@ mod tests {
         // Should use default when not specified
         assert_eq!(config.redis_url(), "redis://localhost:6379");
         assert_eq!(config.zones.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_comments() {
+        // Test that underscore-prefixed fields (comments) are properly ignored
+        let config_json = r#"
+        {
+            "_comment": "This is a comment field that should be ignored",
+            "redis_url": "redis://localhost:6379",
+            "_note": "Another comment at top level",
+            "Zone1": {
+                "relay_pin": 23,
+                "temp_pin": 4,
+                "temp_id": "00000ab12345",
+                "_description": "Living room zone"
+            },
+            "Zone2": {
+                "relay_pin": 24,
+                "temp_pin": 4,
+                "temp_id": "00000ab12346",
+                "_note": "Bedroom zone"
+            }
+        }
+        "#;
+
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(config_json.as_bytes()).unwrap();
+
+        let result = Config::load(temp_file.path()).await;
+        assert!(
+            result.is_ok(),
+            "Config with underscore fields should load successfully"
+        );
+
+        let config = result.unwrap();
+        assert_eq!(config.redis_url(), "redis://localhost:6379");
+        assert_eq!(config.zones.len(), 2);
+        assert!(config.zones.contains_key("Zone1"));
+        assert!(config.zones.contains_key("Zone2"));
+
+        // Make sure the underscore fields are NOT parsed as zones
+        assert!(!config.zones.contains_key("_comment"));
+        assert!(!config.zones.contains_key("_note"));
     }
 }
