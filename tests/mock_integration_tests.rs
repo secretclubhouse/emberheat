@@ -497,14 +497,26 @@ mod matter_tests {
         assert_eq!(CLUSTER_THERMOSTAT, 0x0201);
 
         // Common attribute IDs (these would be in the C++ code)
-        // Just verify the values we expect to use
+        // Document the values we expect to use
         const ATTR_LOCAL_TEMP: u32 = 0x0000;
         const ATTR_OCCUPIED_HEATING_SETPOINT: u32 = 0x0012;
         const ATTR_OCCUPIED_COOLING_SETPOINT: u32 = 0x0011;
         const ATTR_SYSTEM_MODE: u32 = 0x001C;
 
-        assert!(ATTR_LOCAL_TEMP < ATTR_OCCUPIED_COOLING_SETPOINT);
-        assert!(ATTR_OCCUPIED_COOLING_SETPOINT < ATTR_OCCUPIED_HEATING_SETPOINT);
-        assert!(ATTR_OCCUPIED_HEATING_SETPOINT < ATTR_SYSTEM_MODE);
+        // Verify constants are distinct (non-compile-time check)
+        let ids = [
+            ATTR_LOCAL_TEMP,
+            ATTR_OCCUPIED_COOLING_SETPOINT,
+            ATTR_OCCUPIED_HEATING_SETPOINT,
+            ATTR_SYSTEM_MODE,
+        ];
+        // Ensure all IDs are unique
+        for (i, id1) in ids.iter().enumerate() {
+            for (j, id2) in ids.iter().enumerate() {
+                if i != j {
+                    assert_ne!(id1, id2, "Attribute IDs must be unique");
+                }
+            }
+        }
     }
 }

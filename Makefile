@@ -1,6 +1,6 @@
 # Makefile for Thermos-Rust
 
-.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install matter-download matter-build matter-libs matter-clean
+.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install install-hooks matter-download matter-build matter-libs matter-clean
 
 # Detect operating system
 UNAME_S := $(shell uname -s)
@@ -33,6 +33,7 @@ endif
 	@echo "  lint           - Run clippy linter"
 	@echo "  check          - Check code without building"
 	@echo "  install        - Install to system"
+	@echo "  install-hooks  - Install git pre-commit hooks"
 	@echo "  docs           - Generate documentation"
 	@echo ""
 	@echo "Matter library targets:"
@@ -189,6 +190,24 @@ setup:
 		cp config/config.example.json config/config.json; \
 		echo "Created config/config.json - please edit with your settings"; \
 	fi
+
+# Install git hooks
+install-hooks:
+	@echo "Installing git pre-commit hook..."
+	@if [ ! -f scripts/pre-commit ]; then \
+		echo "❌ Error: scripts/pre-commit not found"; \
+		exit 1; \
+	fi
+	@cp scripts/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "✅ Git pre-commit hook installed successfully!"
+	@echo ""
+	@echo "The hook will automatically run before each commit:"
+	@echo "  • cargo fmt (format check)"
+	@echo "  • cargo clippy (lint check)"
+	@echo "  • cargo test (run tests)"
+	@echo ""
+	@echo "To bypass the hook (emergency only): git commit --no-verify"
 
 # Create systemd service
 install-service:
