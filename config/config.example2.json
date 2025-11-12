@@ -1,0 +1,46 @@
+{
+    "_comment": "Optional: Redis server URL (defaults to redis://localhost:6379 if not specified)",
+    "redis_url": "redis://localhost:6379",
+    "KidsRoom": {
+        "relay_pin": 17,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 1"
+    },
+    "MasterBedroom": {
+        "relay_pin": 27,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 2"
+    },
+    "DiningRoom": {
+        "relay_pin": 25,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 6"
+    },
+    "LivingRoom": {
+        "relay_pin": 5,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 7"
+    },
+    "Downstairs1": {
+        "relay_pin": 22,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 3"
+    },
+    "Downstairs2": {
+        "relay_pin": 23,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 4"
+    },
+    "Downstairs3": {
+        "relay_pin": 24,
+        "temp_pin": 0,
+        "temp_id": "00000f82ecf1",
+        "_note": "Zone 5"
+    }
+}
