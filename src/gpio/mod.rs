@@ -146,9 +146,12 @@ impl RelayController {
     /// * `gpio` - GPIO instance
     /// * `pin_number` - GPIO pin number (BCM mode)
     pub fn new(gpio: &Gpio, pin_number: u8) -> Result<Self> {
-        // First, get the pin as input to read current state
-        let input_pin = gpio.get(pin_number)?.into_input();
-        let current_level = input_pin.read();
+        // Read current state before configuring as output
+        // Must drop the input pin before getting it again as output
+        let current_level = {
+            let input_pin = gpio.get(pin_number)?.into_input();
+            input_pin.read()
+        }; // input_pin is dropped here
 
         // Now configure as output, preserving current state
         let mut output_pin = gpio.get(pin_number)?.into_output();

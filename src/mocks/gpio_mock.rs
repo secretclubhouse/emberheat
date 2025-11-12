@@ -187,4 +187,106 @@ mod tests {
         // Should be back on
         assert!(gpio.is_vcc_powered());
     }
+
+    #[test]
+    fn test_relay_initialization_multiple_pins() {
+        let gpio = MockGpioController::new();
+
+        // Initialize multiple relays on different pins
+        let pins = [17, 18, 23, 24, 25];
+
+        for pin in pins {
+            let result = gpio.init_relay(pin);
+            assert!(
+                result.is_ok(),
+                "Initialization should succeed for pin {}",
+                pin
+            );
+        }
+
+        // Verify all relays are accessible
+        for pin in pins {
+            let state = gpio.get_relay_state(pin);
+            assert!(
+                state.is_ok(),
+                "Should be able to read state for pin {}",
+                pin
+            );
+            assert_eq!(state.unwrap(), RelayState::Off);
+        }
+    }
+
+    #[test]
+    fn test_relay_control_after_initialization() {
+        let gpio = MockGpioController::new();
+
+        // Initialize relay
+        gpio.init_relay(23).expect("Initialization should succeed");
+
+        // Should be able to control relay after initialization
+        gpio.set_relay(23, RelayState::On)
+            .expect("Should be able to turn relay ON");
+        assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::On);
+
+        gpio.set_relay(23, RelayState::Off)
+            .expect("Should be able to turn relay OFF");
+        assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::Off);
+    }
+
+    #[test]
+    fn test_relay_initialization_sequence() {
+        let gpio = MockGpioController::new();
+
+        // Simulate the sequence that would have failed before the fix:
+        // 1. Initialize a relay (internally reads current state then sets as output)
+        // 2. Control the relay
+        // 3. Initialize another relay on different pin
+        // 4. Both relays should work independently
+
+        // Initialize first relay
+        gpio.init_relay(23)
+            .expect("First relay init should succeed");
+        gpio.set_relay(23, RelayState::On)
+            .expect("Should control first relay");
+
+        // Initialize second relay - this tests that pin resources are properly managed
+        gpio.init_relay(24)
+            .expect("Second relay init should succeed");
+        gpio.set_relay(24, RelayState::On)
+            .expect("Should control second relay");
+
+        // Both relays should maintain independent state
+        assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::On);
+        assert_eq!(gpio.get_relay_state(24).unwrap(), RelayState::On);
+
+        // Change first relay state
+        gpio.set_relay(23, RelayState::Off)
+            .expect("Should change first relay");
+
+        // Second relay should be unaffected
+        assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::Off);
+        assert_eq!(gpio.get_relay_state(24).unwrap(), RelayState::On);
+    }
+
+    #[test]
+    fn test_relay_duplicate_initialization_error_message() {
+        let gpio = MockGpioController::new();
+
+        // First initialization should succeed
+        let result1 = gpio.init_relay(23);
+        assert!(result1.is_ok(), "First initialization should succeed");
+
+        // Second initialization on same pin should fail
+        let result2 = gpio.init_relay(23);
+        assert!(result2.is_err(), "Second initialization should fail");
+
+        // Verify error message mentions pin in use
+        let err = result2.unwrap_err();
+        let err_msg = format!("{}", err);
+        assert!(
+            err_msg.contains("already in use") || err_msg.contains("23"),
+            "Error should mention pin is in use: {}",
+            err_msg
+        );
+    }
 }
