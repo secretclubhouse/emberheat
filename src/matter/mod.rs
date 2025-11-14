@@ -519,6 +519,9 @@ pub struct MatterServer {
 
     /// Matter device handle (FFI)
     matter_device: Option<Arc<RwLock<ffi::Device>>>,
+
+    /// Metrics server for status updates (optional)
+    metrics_server: Option<Arc<crate::metrics::MetricsServer>>,
 }
 
 impl MatterServer {
@@ -535,7 +538,17 @@ impl MatterServer {
             accessories: HashMap::new(),
             next_endpoint_id: 1, // Endpoint 0 is reserved for root node
             matter_device: None,
+            metrics_server: None,
         })
+    }
+
+    /// Set metrics server for status updates
+    ///
+    /// This should be called before `run()` to enable Matter status reporting
+    /// to the metrics/diagnostics HTTP server.
+    pub fn set_metrics_server(&mut self, metrics_server: Arc<crate::metrics::MetricsServer>) {
+        self.metrics_server = Some(metrics_server);
+        info!("Metrics server linked to Matter server for status updates");
     }
 
     /// Add a thermostat to the Matter server
@@ -595,6 +608,7 @@ impl MatterServer {
         let pairing_code = device.get_pairing_code()?;
 
         // Generate ASCII QR code and save to file
+        let qr_code_file_path = get_qr_code_file_path().ok();
         match generate_and_save_qr_code(&qr_code_data, &pairing_code) {
             Ok(qr_string) => {
                 info!("═══════════════════════════════════════════════");
@@ -612,6 +626,28 @@ impl MatterServer {
                 info!("Manual Pairing Code: {}", pairing_code);
                 info!("QR Code Data: {}", qr_code_data);
                 info!("═══════════════════════════════════════════════");
+
+                // Update metrics server with QR code data
+                if let Some(ref metrics_server) = self.metrics_server {
+                    // Create full QR code content for HTTP display
+                    let qr_content = format!(
+                        "═══════════════════════════════════════════════════════════\n\
+                         Matter Device Commissioning QR Code\n\
+                         ═══════════════════════════════════════════════════════════\n\
+                         \n\
+                         Scan this QR code with your Matter controller:\n\
+                         (Apple Home, Google Home, Amazon Alexa, etc.)\n\
+                         \n\
+                         {}\n\
+                         \n\
+                         Manual Pairing Code: {}\n\
+                         QR Code Data: {}\n\
+                         \n\
+                         ═══════════════════════════════════════════════════════════\n",
+                        qr_string, pairing_code, qr_code_data
+                    );
+                    metrics_server.set_qr_code(qr_content).await;
+                }
             }
             Err(e) => {
                 warn!("Failed to generate QR code: {}", e);
@@ -625,7 +661,30 @@ impl MatterServer {
                 info!("Scan the QR code with your Matter controller");
                 info!("(Apple Home, Google Home, Amazon Alexa, etc.)");
                 info!("═══════════════════════════════════════════════");
+
+                // Still update metrics server with text-only information
+                if let Some(ref metrics_server) = self.metrics_server {
+                    let qr_content = format!(
+                        "QR Code generation failed, but you can still pair manually:\n\n\
+                         QR Code Data: {}\n\
+                         Manual Pairing Code: {}\n\n\
+                         Check the QR code file for a visual version.\n",
+                        qr_code_data, pairing_code
+                    );
+                    metrics_server.set_qr_code(qr_content).await;
+                }
             }
+        }
+
+        // Update Matter status in metrics server
+        if let Some(ref metrics_server) = self.metrics_server {
+            let status = crate::metrics::MatterStatus {
+                commissioned: device.is_commissioned(),
+                initialized: true,
+                qr_code_available: true,
+                qr_code_file_path: qr_code_file_path.map(|p| p.display().to_string()),
+            };
+            metrics_server.set_matter_status(status).await;
         }
 
         let device = Arc::new(RwLock::new(device));

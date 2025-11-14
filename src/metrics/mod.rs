@@ -11,11 +11,19 @@
 //! - `target_temperature` - Target setpoint temperature in Fahrenheit
 //! - `heat_status` - Relay state (0=off, 1=on)
 //! - `response_time` - Sensor read latency in seconds
+//! - `matter_commissioned` - Matter device commissioned status (0=no, 1=yes)
+//! - `matter_initialization_status` - Matter initialization status (0=failed, 1=success)
 //!
 //! ## Counters (cumulative)
 //! - `reset_error_count` - Number of sensor power cycle attempts
 //!
 //! All metrics include labels: `room` (zone name), `heat_status` (0/1)
+//!
+//! # HTTP Endpoints
+//!
+//! - `/metrics` - Prometheus metrics
+//! - `/matter/status` - Matter commissioning status (JSON)
+//! - `/matter/qr_code` - Matter QR code (text)
 //!
 //! # Example
 //!
@@ -33,10 +41,12 @@
 use anyhow::Result;
 use lazy_static::lazy_static;
 use prometheus::{
-    register_counter_vec, register_gauge_vec, CounterVec, Encoder, GaugeVec, TextEncoder,
+    register_counter_vec, register_gauge_vec, register_gauge, CounterVec, Encoder, Gauge, GaugeVec, TextEncoder,
 };
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
 lazy_static! {
@@ -79,11 +89,36 @@ lazy_static! {
         &["room"]
     )
     .unwrap();
+
+    /// Matter commissioned status (0=no, 1=yes)
+    pub static ref MATTER_COMMISSIONED: Gauge = register_gauge!(
+        "matter_commissioned",
+        "Matter device commissioned status (0=no, 1=yes)"
+    )
+    .unwrap();
+
+    /// Matter initialization status (0=failed, 1=success)
+    pub static ref MATTER_INIT_STATUS: Gauge = register_gauge!(
+        "matter_initialization_status",
+        "Matter initialization status (0=failed, 1=success)"
+    )
+    .unwrap();
 }
 
-/// Metrics server for Prometheus export
+/// Matter status information
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MatterStatus {
+    pub commissioned: bool,
+    pub initialized: bool,
+    pub qr_code_available: bool,
+    pub qr_code_file_path: Option<String>,
+}
+
+/// Metrics server for Prometheus export and Matter diagnostics
 pub struct MetricsServer {
     port: u16,
+    matter_status: Arc<RwLock<Option<MatterStatus>>>,
+    qr_code_data: Arc<RwLock<Option<String>>>,
 }
 
 impl MetricsServer {
@@ -94,24 +129,63 @@ impl MetricsServer {
     /// * `port` - Port to listen on (typically 8080)
     pub fn new(port: u16) -> Result<Self> {
         info!("Metrics server initialized on port {}", port);
-        Ok(Self { port })
+        Ok(Self {
+            port,
+            matter_status: Arc::new(RwLock::new(None)),
+            qr_code_data: Arc::new(RwLock::new(None)),
+        })
+    }
+
+    /// Update Matter status
+    pub async fn set_matter_status(&self, status: MatterStatus) {
+        let mut matter_status = self.matter_status.write().await;
+        *matter_status = Some(status.clone());
+
+        // Update Prometheus metrics
+        MATTER_COMMISSIONED.set(if status.commissioned { 1.0 } else { 0.0 });
+        MATTER_INIT_STATUS.set(if status.initialized { 1.0 } else { 0.0 });
+
+        info!(
+            "Matter status updated: initialized={}, commissioned={}",
+            status.initialized, status.commissioned
+        );
+    }
+
+    /// Set QR code data for display
+    pub async fn set_qr_code(&self, qr_code: String) {
+        let mut qr_data = self.qr_code_data.write().await;
+        *qr_data = Some(qr_code);
+        debug!("QR code data updated");
+    }
+
+    /// Get Matter status
+    async fn get_matter_status(&self) -> Option<MatterStatus> {
+        self.matter_status.read().await.clone()
+    }
+
+    /// Get QR code
+    async fn get_qr_code(&self) -> Option<String> {
+        self.qr_code_data.read().await.clone()
     }
 
     /// Run the metrics server
     ///
-    /// Serves Prometheus metrics on /metrics endpoint
-    pub async fn run(&self) -> Result<()> {
+    /// Serves Prometheus metrics on /metrics endpoint and Matter diagnostics on /matter/*
+    pub async fn run(self: Arc<Self>) -> Result<()> {
         let addr = SocketAddr::from(([0, 0, 0, 0], self.port));
         let listener = TcpListener::bind(addr).await?;
 
         info!("Metrics server listening on http://{}/metrics", addr);
+        info!("Matter diagnostics available at http://{}/matter/status", addr);
+        info!("Matter QR code available at http://{}/matter/qr_code", addr);
 
         loop {
             match listener.accept().await {
                 Ok((stream, _)) => {
+                    let server = self.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream).await {
-                            error!("Error handling metrics request: {}", e);
+                        if let Err(e) = handle_connection(stream, server).await {
+                            error!("Error handling request: {}", e);
                         }
                     });
                 }
@@ -124,16 +198,20 @@ impl MetricsServer {
 }
 
 /// Handle incoming HTTP connection
-async fn handle_connection(mut stream: tokio::net::TcpStream) -> Result<()> {
+async fn handle_connection(mut stream: tokio::net::TcpStream, server: Arc<MetricsServer>) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let mut buffer = [0; 1024];
+    let mut buffer = [0; 2048];
     let _n = stream.read(&mut buffer).await?;
 
     let request = String::from_utf8_lossy(&buffer);
 
-    // Simple HTTP router - only serve /metrics
-    if request.starts_with("GET /metrics") {
+    // Extract request line
+    let request_line = request.lines().next().unwrap_or("");
+
+    // Simple HTTP router
+    if request_line.starts_with("GET /metrics") {
+        // Prometheus metrics endpoint
         let encoder = TextEncoder::new();
         let metric_families = prometheus::gather();
         let mut buffer = Vec::new();
@@ -144,6 +222,64 @@ async fn handle_connection(mut stream: tokio::net::TcpStream) -> Result<()> {
             "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\n\r\n{}",
             buffer.len(),
             String::from_utf8_lossy(&buffer)
+        );
+
+        stream.write_all(response.as_bytes()).await?;
+    } else if request_line.starts_with("GET /matter/status") {
+        // Matter status endpoint (JSON)
+        let status = server.get_matter_status().await;
+
+        let json_body = if let Some(status) = status {
+            serde_json::to_string_pretty(&status)?
+        } else {
+            serde_json::to_string_pretty(&serde_json::json!({
+                "error": "Matter not initialized",
+                "commissioned": false,
+                "initialized": false
+            }))?
+        };
+
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+            json_body.len(),
+            json_body
+        );
+
+        stream.write_all(response.as_bytes()).await?;
+    } else if request_line.starts_with("GET /matter/qr_code") {
+        // Matter QR code endpoint (text)
+        let qr_code = server.get_qr_code().await;
+
+        let body = if let Some(qr_code) = qr_code {
+            qr_code
+        } else {
+            "QR code not available. Matter may not be initialized yet.\n\n\
+             Try checking the QR code file at:\n\
+             - /var/lib/thermos-rust/matter_qr_code.txt\n\
+             - ~/.config/thermos-rust/matter_qr_code.txt\n\
+             - ./matter_qr_code.txt\n".to_string()
+        };
+
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
+        );
+
+        stream.write_all(response.as_bytes()).await?;
+    } else if request_line.starts_with("GET /") && request_line.contains("HTTP") {
+        // Root endpoint - show available endpoints
+        let body = "Thermos-Rust Metrics and Diagnostics Server\n\n\
+                    Available endpoints:\n\
+                    - GET /metrics - Prometheus metrics\n\
+                    - GET /matter/status - Matter commissioning status (JSON)\n\
+                    - GET /matter/qr_code - Matter QR code (text)\n\n\
+                    For help, see: https://github.com/yourusername/thermos-rust\n";
+
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
+            body.len(),
+            body
         );
 
         stream.write_all(response.as_bytes()).await?;

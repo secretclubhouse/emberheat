@@ -46,6 +46,7 @@ use futures::StreamExt;
 use signal_hook::consts::signal::*;
 use signal_hook_tokio::Signals;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::select;
 use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -57,6 +58,7 @@ mod matter;
 mod metrics;
 #[cfg(test)]
 mod mocks;
+mod network_diagnostics;
 mod persistence;
 mod sensors;
 
@@ -134,16 +136,30 @@ async fn main() -> Result<()> {
         "Starting Prometheus metrics server on port {}",
         DEFAULT_METRICS_PORT
     );
-    let metrics_server = MetricsServer::new(DEFAULT_METRICS_PORT)?;
+    let metrics_server = Arc::new(MetricsServer::new(DEFAULT_METRICS_PORT)?);
+    let metrics_server_clone = metrics_server.clone();
     let metrics_handle = tokio::spawn(async move {
-        if let Err(e) = metrics_server.run().await {
+        if let Err(e) = metrics_server_clone.run().await {
             error!("Metrics server error: {}", e);
         }
     });
 
+    // Run network diagnostics before starting Matter
+    info!("Running network diagnostics for Matter commissioning...");
+    if let Err(warnings) = network_diagnostics::run_network_diagnostics(DEFAULT_MATTER_PORT).await {
+        info!("Network diagnostics completed with {} warning(s)", warnings.len());
+        info!("Matter commissioning may experience issues. Check the logs above for details.");
+    }
+
+    // Optionally check firewall rules (informational only)
+    network_diagnostics::check_firewall_rules(DEFAULT_MATTER_PORT).await;
+
     // Initialize Matter server
     info!("Initializing Matter server on port {}", DEFAULT_MATTER_PORT);
     let mut matter_server = MatterServer::new(DEFAULT_MATTER_PORT).await?;
+
+    // Link metrics server to Matter server for status updates
+    matter_server.set_metrics_server(metrics_server.clone());
 
     // Create thermostat bridge with all zones
     info!("Creating thermostat bridge");
