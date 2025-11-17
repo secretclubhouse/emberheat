@@ -1,6 +1,6 @@
 # Makefile for Thermos-Rust
 
-.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install install-hooks matter-download matter-build matter-libs matter-clean
+.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install install-hooks matter-download matter-build matter-libs matter-clean zap-generate
 
 # Detect operating system
 UNAME_S := $(shell uname -s)
@@ -44,6 +44,7 @@ endif
 	@echo "  matter-clean          - Remove downloaded Matter source"
 	@echo "  matter-setup          - Complete Matter setup (host build)"
 	@echo "  matter-setup-docker   - Complete Matter setup (Docker build - recommended)"
+	@echo "  zap-generate          - Generate ZAP configuration files from matter/thermostat.zap"
 	@echo ""
 	@echo "Workflows:"
 	@echo "  dev            - Format, lint, and test"
@@ -305,3 +306,45 @@ matter-clean:
 	else \
 		echo "No Matter source directory to remove"; \
 	fi
+
+# Generate ZAP configuration files from matter/thermostat.zap
+zap-generate:
+	@echo "═══════════════════════════════════════════════════════════"
+	@echo "ZAP Code Generation"
+	@echo "═══════════════════════════════════════════════════════════"
+	@echo ""
+	@if [ ! -d "third_party/connectedhomeip" ]; then \
+		echo "❌ Error: Matter SDK not found"; \
+		echo "   Run 'make matter-download' first to download the SDK"; \
+		exit 1; \
+	fi
+	@if [ ! -f "matter/thermostat.zap" ]; then \
+		echo "❌ Error: matter/thermostat.zap not found"; \
+		exit 1; \
+	fi
+	@echo "→ Input: matter/thermostat.zap"
+	@echo "→ Running ZAP code generator..."
+	@cd third_party/connectedhomeip && \
+		./scripts/tools/zap/generate.py \
+			-z ../../matter/thermostat.zap \
+			-o zzz_generated/thermostat \
+			-t examples/thermostat/thermostat-common 2>&1 | grep -v "^DEBUG:" || true
+	@echo ""
+	@echo "→ Copying generated files to lib/connectedhomeip..."
+	@PLATFORM=$$(uname -s | tr '[:upper:]' '[:lower:]')-$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') && \
+		mkdir -p lib/connectedhomeip/$$PLATFORM/include/zap-generated && \
+		echo "   Platform: $$PLATFORM" && \
+		cp -v third_party/connectedhomeip/zzz_generated/thermostat/zap-generated/*.h \
+		   lib/connectedhomeip/$$PLATFORM/include/zap-generated/ 2>&1 | sed 's/^/   /'
+	@echo ""
+	@echo "✓ ZAP generation complete!"
+	@echo ""
+	@echo "Generated files:"
+	@PLATFORM=$$(uname -s | tr '[:upper:]' '[:lower:]')-$$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/') && \
+		ls -lh lib/connectedhomeip/$$PLATFORM/include/zap-generated/*.h 2>/dev/null | awk '{print "  - " $$9 " (" $$5 ")"}' || echo "  (none)"
+	@echo ""
+	@echo "Next steps:"
+	@echo "  1. Set environment variable: export USE_REAL_ZAP_DATA=1"
+	@echo "  2. Build with real ZAP data: cargo build --release"
+	@echo "  3. See docs/ZAP_INTEGRATION.md for more information"
+	@echo "═══════════════════════════════════════════════════════════"

@@ -129,7 +129,32 @@ fn main() {
     }
 
     // =========================================================================
-    // Step 2: Compile the C wrapper
+    // Step 2: Check for real ZAP data
+    // =========================================================================
+
+    // Check if real ZAP-generated data should be used
+    // Set USE_REAL_ZAP_DATA=1 environment variable to enable
+    let use_real_zap_data = env::var("USE_REAL_ZAP_DATA").unwrap_or_else(|_| "0".to_string()) == "1";
+
+    if use_real_zap_data {
+        eprintln!("INFO: Real ZAP data enabled (USE_REAL_ZAP_DATA=1)");
+
+        // Verify ZAP-generated files exist
+        let zap_gen_dir = prebuilt_lib_dir.join("include/zap-generated");
+        if !zap_gen_dir.join("gen_config.h").exists() || !zap_gen_dir.join("endpoint_config.h").exists() {
+            eprintln!("WARNING: USE_REAL_ZAP_DATA=1 but ZAP files not found at {}", zap_gen_dir.display());
+            eprintln!("         Expected files: gen_config.h, endpoint_config.h");
+            eprintln!("         See docs/ZAP_INTEGRATION.md for instructions on generating ZAP data");
+            eprintln!("         Falling back to stub mode");
+        } else {
+            eprintln!("INFO: Found ZAP-generated files at {}", zap_gen_dir.display());
+        }
+    } else {
+        eprintln!("INFO: Using stub ZAP data (set USE_REAL_ZAP_DATA=1 to enable real ZAP data)");
+    }
+
+    // =========================================================================
+    // Step 3: Compile the C wrapper
     // =========================================================================
 
     let mut build = cc::Build::new();
@@ -172,6 +197,21 @@ fn main() {
         build.define("CHIP_SYSTEM_CONFIG_USE_SOCKETS", "1");
         build.define("CHIP_ADDRESS_RESOLVE_IMPL_INCLUDE_HEADER", "<lib/address_resolve/AddressResolve_DefaultImpl.h>");
 
+        // Enable real ZAP data if requested and files exist
+        if use_real_zap_data {
+            let zap_gen_dir = if has_prebuilt {
+                prebuilt_lib_dir.join("include/zap-generated")
+            } else {
+                chip_root.join("zzz_generated/thermostat/zap-generated")
+            };
+
+            if zap_gen_dir.join("gen_config.h").exists() && zap_gen_dir.join("endpoint_config.h").exists() {
+                build.define("USE_REAL_ZAP_DATA", "1");
+                eprintln!("INFO: Compiling with real ZAP data support");
+                println!("cargo:rustc-cfg=use_real_zap_data");
+            }
+        }
+
         println!("cargo:rustc-cfg=matter_sdk_available");
     } else {
         // Stub implementation
@@ -182,7 +222,7 @@ fn main() {
     build.compile("matter_wrapper");
 
     // =========================================================================
-    // Step 3: Link against Connected Home IP library (if available)
+    // Step 4: Link against Connected Home IP library (if available)
     // =========================================================================
 
     if chip_available {
@@ -236,7 +276,7 @@ fn main() {
     }
 
     // =========================================================================
-    // Step 4: Generate Rust bindings
+    // Step 5: Generate Rust bindings
     // =========================================================================
 
     #[cfg(feature = "bindgen")]
@@ -263,11 +303,21 @@ fn main() {
     }
 
     // =========================================================================
-    // Step 5: Output build information
+    // Step 6: Output build information
     // =========================================================================
 
-    println!(
-        "cargo:rustc-env=MATTER_BUILD_TYPE={}",
-        if chip_available { "full" } else { "stub" }
-    );
+    let build_type = if chip_available {
+        if use_real_zap_data {
+            "full-with-zap"
+        } else {
+            "full-stub-zap"
+        }
+    } else {
+        "stub"
+    };
+
+    println!("cargo:rustc-env=MATTER_BUILD_TYPE={}", build_type);
+
+    // Rerun build script if ZAP data environment variable changes
+    println!("cargo:rerun-if-env-changed=USE_REAL_ZAP_DATA");
 }

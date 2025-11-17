@@ -30,6 +30,13 @@
 #include <lib/core/CHIPError.h>
 #include <lib/support/logging/CHIPLogging.h>
 
+// Conditionally include ZAP-generated headers and data model provider
+#ifdef USE_REAL_ZAP_DATA
+#include <zap-generated/gen_config.h>
+#include <zap-generated/endpoint_config.h>
+#include <app/codegen-data-model/CodegenDataModelProvider.h>
+#endif
+
 using namespace chip;
 using namespace chip::DeviceLayer;
 using namespace chip::app;
@@ -230,10 +237,20 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
     }
 
     // NOTE: dataModelProvider is required in newer Matter SDK versions
-    // However, CodegenDataModelProvider requires application-specific ZAP-generated code
-    // For now, we leave it as nullptr to use the legacy ember/attribute storage path
-    // TODO: Generate proper ZAP configuration for thermostat cluster
+    // Configure data model provider based on whether real ZAP data is available
+#ifdef USE_REAL_ZAP_DATA
+    // Use real ZAP-generated data model (CodegenDataModelProvider)
+    // This provides full Matter specification compliance with ZAP-generated attribute storage
+    static chip::app::CodegenDataModelProvider sDataModelProvider;
+    initParams.dataModelProvider = &sDataModelProvider;
+    fprintf(stderr, "Matter: Using CodegenDataModelProvider with real ZAP-generated data\n");
+#else
+    // Use legacy ember/attribute storage path (stub mode)
+    // This allows compilation without ZAP-generated files but has limited functionality
+    // TODO: Generate proper ZAP configuration for thermostat cluster (see docs/ZAP_INTEGRATION.md)
     initParams.dataModelProvider = nullptr;
+    fprintf(stderr, "Matter: Using legacy Ember attribute storage (stub mode)\n");
+#endif
 
     err = Server::GetInstance().Init(initParams);
     if (err != CHIP_NO_ERROR) {

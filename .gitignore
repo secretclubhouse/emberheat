@@ -11,6 +11,10 @@
 !/third_party/
 !/third_party/.gitkeep
 
+# ZAP generated files (generated from .zap file, not tracked in source)
+# These are regenerated using 'make zap-generate'
+zzz_generated/
+
 # Pre-built Matter libraries (we DO want to track these)
 # The lib/ directory contains pre-built libraries that should be committed
 # to avoid rebuilding the entire Matter stack on every clone
