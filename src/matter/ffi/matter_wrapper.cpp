@@ -34,6 +34,55 @@ using namespace chip;
 using namespace chip::DeviceLayer;
 using namespace chip::app;
 using namespace chip::app::Clusters;
+
+/* ============================================================================
+ * Ember AF Compatibility Layer
+ * ============================================================================
+ * These functions provide implementations for Ember AF functions that may
+ * not be present in all Matter SDK builds. They're part of the legacy
+ * application framework API.
+ * ========================================================================== */
+
+/**
+ * Enable or disable a dynamic endpoint
+ *
+ * Note: In modern Matter SDK builds, endpoints are typically managed through
+ * the device type and cluster configuration. This is a compatibility shim.
+ */
+EmberAfStatus emberAfEndpointEnableDisable(chip::EndpointId endpoint, bool enable) {
+    // For dynamic endpoints, we'd normally call into the endpoint management system
+    // Since our wrapper creates endpoints through the standard Matter Server API,
+    // this is primarily a no-op - endpoints are enabled at creation time
+    fprintf(stderr, "INFO: emberAfEndpointEnableDisable(endpoint=%u, enable=%d) - using compatibility shim\n",
+            endpoint, enable);
+    return EMBER_ZCL_STATUS_SUCCESS;
+}
+
+/**
+ * Write a server attribute value
+ *
+ * This is a legacy Ember AF API. Modern Matter SDK uses AttributeAccessInterface
+ * or direct cluster server APIs. This provides a compatibility implementation.
+ */
+EmberAfStatus emberAfWriteServerAttribute(
+    chip::EndpointId endpoint,
+    chip::ClusterId cluster,
+    chip::AttributeId attributeId,
+    uint8_t* data,
+    uint8_t dataType
+) {
+    // For our wrapper, we don't need to actually write the attribute here
+    // because the calling code in our wrapper immediately updates the internal
+    // thermostat state. This function is called primarily for compatibility.
+    fprintf(stderr, "INFO: emberAfWriteServerAttribute(endpoint=%u, cluster=0x%08X, attr=0x%08X) - using compatibility shim\n",
+            endpoint, cluster, attributeId);
+
+    // In a full implementation, we would write to the attribute storage here
+    // For our purposes, the state is managed in the MatterThermostat structure
+
+    return EMBER_ZCL_STATUS_SUCCESS;
+}
+
 #endif
 
 /* ============================================================================
@@ -167,8 +216,25 @@ MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
         }
     }
 
-    // Initialize the Matter server
-    static ServerInitParams initParams;
+    // Initialize the Matter server with common-case defaults
+    // CommonCaseDeviceServerInitParams provides all required dependencies
+    // (persistentStorageDelegate, groupDataProvider, sessionKeystore, accessDelegate, aclStorage)
+    static CommonCaseDeviceServerInitParams initParams;
+    err = initParams.InitializeStaticResourcesBeforeServerInit();
+    if (err != CHIP_NO_ERROR) {
+        fprintf(stderr, "Matter InitializeStaticResourcesBeforeServerInit failed: %s\n", ErrorStr(err));
+        PlatformMgr().Shutdown();
+        Platform::MemoryShutdown();
+        delete device;
+        return nullptr;
+    }
+
+    // NOTE: dataModelProvider is required in newer Matter SDK versions
+    // However, CodegenDataModelProvider requires application-specific ZAP-generated code
+    // For now, we leave it as nullptr to use the legacy ember/attribute storage path
+    // TODO: Generate proper ZAP configuration for thermostat cluster
+    initParams.dataModelProvider = nullptr;
+
     err = Server::GetInstance().Init(initParams);
     if (err != CHIP_NO_ERROR) {
         fprintf(stderr, "Matter Server Init failed: %s\n", ErrorStr(err));
@@ -292,7 +358,7 @@ MatterErrorCode matter_device_get_qr_code(
 
     // Generate QR code
 #ifdef MATTER_SDK_AVAILABLE
-    PayloadContents payload;
+    SetupPayload payload;
     payload.vendorID = device->config.vendor_id;
     payload.productID = device->config.product_id;
     payload.discriminator.SetLongValue(device->config.discriminator);
@@ -724,19 +790,18 @@ static void MatterThermostatAttributeWriteCallback(
         uint8_t mode = *value;
         thermostat->system_mode = static_cast<MatterThermostatMode>(mode);
 
-            fprintf(stderr, "Endpoint %u: System mode changed to 0x%02X\n",
-                    endpoint, mode);
+        fprintf(stderr, "Endpoint %u: System mode changed to 0x%02X\n",
+                endpoint, mode);
 
-            if (thermostat->mode_callback) {
-                thermostat->mode_callback(
-                    thermostat->mode_context,
-                    endpoint,
-                    thermostat->system_mode
-                );
-            } else {
-                fprintf(stderr, "WARNING: Endpoint %u: Mode changed but callback not registered yet. "
-                        "Attribute change will not propagate to Rust layer.\n", endpoint);
-            }
+        if (thermostat->mode_callback) {
+            thermostat->mode_callback(
+                thermostat->mode_context,
+                endpoint,
+                thermostat->system_mode
+            );
+        } else {
+            fprintf(stderr, "WARNING: Endpoint %u: Mode changed but callback not registered yet. "
+                    "Attribute change will not propagate to Rust layer.\n", endpoint);
         }
     }
 }
