@@ -33,7 +33,7 @@ fn get_glib_includes() -> Vec<PathBuf> {
 
     // Try to get GLib include paths from pkg-config
     if let Ok(output) = Command::new("pkg-config")
-        .args(&["--cflags", "glib-2.0", "gio-2.0"])
+        .args(["--cflags", "glib-2.0", "gio-2.0"])
         .output()
     {
         if output.status.success() {
@@ -59,7 +59,10 @@ fn get_glib_includes() -> Vec<PathBuf> {
             "arm" => "arm-linux-gnueabihf",
             _ => "unknown-linux-gnu",
         };
-        includes.push(PathBuf::from(format!("/usr/lib/{}/glib-2.0/include", multiarch)));
+        includes.push(PathBuf::from(format!(
+            "/usr/lib/{}/glib-2.0/include",
+            multiarch
+        )));
     }
 
     includes
@@ -117,12 +120,18 @@ fn main() {
             eprintln!();
         } else {
             eprintln!("WARNING: Matter submodule found but no libraries available.");
-            eprintln!("         Pre-built libraries are at lib/connectedhomeip/{}", platform);
+            eprintln!(
+                "         Pre-built libraries are at lib/connectedhomeip/{}",
+                platform
+            );
             eprintln!("         Or build from source with: cd third_party/connectedhomeip && gn gen out/host && ninja -C out/host");
             eprintln!();
         }
     } else if has_prebuilt {
-        eprintln!("INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}", platform);
+        eprintln!(
+            "INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}",
+            platform
+        );
         eprintln!("INFO: Using Matter headers from third_party/connectedhomeip");
     } else {
         eprintln!("INFO: Using Matter submodule source at third_party/connectedhomeip");
@@ -134,20 +143,31 @@ fn main() {
 
     // Check if real ZAP-generated data should be used
     // Set USE_REAL_ZAP_DATA=1 environment variable to enable
-    let use_real_zap_data = env::var("USE_REAL_ZAP_DATA").unwrap_or_else(|_| "0".to_string()) == "1";
+    let use_real_zap_data =
+        env::var("USE_REAL_ZAP_DATA").unwrap_or_else(|_| "0".to_string()) == "1";
 
     if use_real_zap_data {
         eprintln!("INFO: Real ZAP data enabled (USE_REAL_ZAP_DATA=1)");
 
         // Verify ZAP-generated files exist
         let zap_gen_dir = prebuilt_lib_dir.join("include/zap-generated");
-        if !zap_gen_dir.join("gen_config.h").exists() || !zap_gen_dir.join("endpoint_config.h").exists() {
-            eprintln!("WARNING: USE_REAL_ZAP_DATA=1 but ZAP files not found at {}", zap_gen_dir.display());
+        if !zap_gen_dir.join("gen_config.h").exists()
+            || !zap_gen_dir.join("endpoint_config.h").exists()
+        {
+            eprintln!(
+                "WARNING: USE_REAL_ZAP_DATA=1 but ZAP files not found at {}",
+                zap_gen_dir.display()
+            );
             eprintln!("         Expected files: gen_config.h, endpoint_config.h");
-            eprintln!("         See docs/ZAP_INTEGRATION.md for instructions on generating ZAP data");
+            eprintln!(
+                "         See docs/ZAP_INTEGRATION.md for instructions on generating ZAP data"
+            );
             eprintln!("         Falling back to stub mode");
         } else {
-            eprintln!("INFO: Found ZAP-generated files at {}", zap_gen_dir.display());
+            eprintln!(
+                "INFO: Found ZAP-generated files at {}",
+                zap_gen_dir.display()
+            );
         }
     } else {
         eprintln!("INFO: Using stub ZAP data (set USE_REAL_ZAP_DATA=1 to enable real ZAP data)");
@@ -171,13 +191,13 @@ fn main() {
     if chip_available {
         // Add include paths from submodule (required for both pre-built and source builds)
         build
-            .include(&chip_root)  // Root for zap-generated includes
+            .include(&chip_root) // Root for zap-generated includes
             .include(chip_root.join("src"))
             .include(chip_root.join("src/include"))
             .include(chip_root.join("src/lib"))
-            .include(chip_root.join("config"))  // Build configuration headers
-            .include(chip_root.join("config/standalone"))  // Standalone project config
-            .include(chip_root.join("out/unified/gen/include"))  // Generated build config headers
+            .include(chip_root.join("config")) // Build configuration headers
+            .include(chip_root.join("config/standalone")) // Standalone project config
+            .include(chip_root.join("out/unified/gen/include")) // Generated build config headers
             .include(chip_root.join("zzz_generated/app-common"))
             .include(chip_root.join("third_party/nlassert/repo/include"))
             .include(chip_root.join("third_party/nlio/repo/include"))
@@ -195,7 +215,10 @@ fn main() {
         // Add required CHIP configuration defines for Linux
         build.define("CHIP_HAVE_CONFIG_H", "1");
         build.define("CHIP_SYSTEM_CONFIG_USE_SOCKETS", "1");
-        build.define("CHIP_ADDRESS_RESOLVE_IMPL_INCLUDE_HEADER", "<lib/address_resolve/AddressResolve_DefaultImpl.h>");
+        build.define(
+            "CHIP_ADDRESS_RESOLVE_IMPL_INCLUDE_HEADER",
+            "<lib/address_resolve/AddressResolve_DefaultImpl.h>",
+        );
 
         // Enable real ZAP data if requested and files exist
         if use_real_zap_data {
@@ -205,7 +228,9 @@ fn main() {
                 chip_root.join("zzz_generated/thermostat/zap-generated")
             };
 
-            if zap_gen_dir.join("gen_config.h").exists() && zap_gen_dir.join("endpoint_config.h").exists() {
+            if zap_gen_dir.join("gen_config.h").exists()
+                && zap_gen_dir.join("endpoint_config.h").exists()
+            {
                 build.define("USE_REAL_ZAP_DATA", "1");
                 eprintln!("INFO: Compiling with real ZAP data support");
                 println!("cargo:rustc-cfg=use_real_zap_data");

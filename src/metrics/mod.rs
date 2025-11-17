@@ -41,7 +41,8 @@
 use anyhow::Result;
 use lazy_static::lazy_static;
 use prometheus::{
-    register_counter_vec, register_gauge_vec, register_gauge, CounterVec, Encoder, Gauge, GaugeVec, TextEncoder,
+    register_counter_vec, register_gauge, register_gauge_vec, CounterVec, Encoder, Gauge, GaugeVec,
+    TextEncoder,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -176,7 +177,10 @@ impl MetricsServer {
         let listener = TcpListener::bind(addr).await?;
 
         info!("Metrics server listening on http://{}/metrics", addr);
-        info!("Matter diagnostics available at http://{}/matter/status", addr);
+        info!(
+            "Matter diagnostics available at http://{}/matter/status",
+            addr
+        );
         info!("Matter QR code available at http://{}/matter/qr_code", addr);
 
         loop {
@@ -198,7 +202,10 @@ impl MetricsServer {
 }
 
 /// Handle incoming HTTP connection
-async fn handle_connection(mut stream: tokio::net::TcpStream, server: Arc<MetricsServer>) -> Result<()> {
+async fn handle_connection(
+    mut stream: tokio::net::TcpStream,
+    server: Arc<MetricsServer>,
+) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut buffer = [0; 2048];
@@ -257,7 +264,8 @@ async fn handle_connection(mut stream: tokio::net::TcpStream, server: Arc<Metric
              Try checking the QR code file at:\n\
              - /var/lib/thermos-rust/matter_qr_code.txt\n\
              - ~/.config/thermos-rust/matter_qr_code.txt\n\
-             - ./matter_qr_code.txt\n".to_string()
+             - ./matter_qr_code.txt\n"
+                .to_string()
         };
 
         let response = format!(

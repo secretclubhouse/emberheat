@@ -147,7 +147,10 @@ async fn main() -> Result<()> {
     // Run network diagnostics before starting Matter
     info!("Running network diagnostics for Matter commissioning...");
     if let Err(warnings) = network_diagnostics::run_network_diagnostics(DEFAULT_MATTER_PORT).await {
-        info!("Network diagnostics completed with {} warning(s)", warnings.len());
+        info!(
+            "Network diagnostics completed with {} warning(s)",
+            warnings.len()
+        );
         info!("Matter commissioning may experience issues. Check the logs above for details.");
     }
 
