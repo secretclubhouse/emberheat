@@ -132,6 +132,43 @@ echo "  Note: Skipping example app builds - using ZAP files from main build"
 # Note: There is no single "chip" target in Matter's build system.
 # The targets above (server, controller, setup_payload, lib) provide all necessary libraries.
 
+# Step 5.5: Generate ZAP data from project's thermostat.zap file
+echo ""
+echo "Step 5.5: Generating ZAP data from project configuration..."
+echo ""
+
+REPO_ZAP_FILE="/output/matter/thermostat.zap"
+if [ -f "$REPO_ZAP_FILE" ]; then
+    echo "Found project ZAP file: $REPO_ZAP_FILE"
+    echo "Generating ZAP code..."
+
+    ZAP_OUTPUT_DIR="$MATTER_DIR/zzz_generated/thermostat"
+    mkdir -p "$ZAP_OUTPUT_DIR"
+
+    # Run ZAP code generation
+    # The generate.py script should be available after bootstrap
+    if [ -f "$MATTER_DIR/scripts/tools/zap/generate.py" ]; then
+        cd "$MATTER_DIR"
+        python3 scripts/tools/zap/generate.py \
+            -z "$REPO_ZAP_FILE" \
+            -o "$ZAP_OUTPUT_DIR" \
+            -t examples/thermostat/thermostat-common 2>&1 | grep -v "^DEBUG:" || true
+
+        if [ -d "$ZAP_OUTPUT_DIR/zap-generated" ]; then
+            echo "✓ ZAP generation successful"
+            echo "  Generated files in: $ZAP_OUTPUT_DIR/zap-generated"
+            ls -la "$ZAP_OUTPUT_DIR/zap-generated" | head -10
+        else
+            echo "⚠ Warning: ZAP generation may have failed (no output directory)"
+        fi
+    else
+        echo "⚠ Warning: ZAP generator not found, skipping generation"
+    fi
+else
+    echo "No project ZAP file found at $REPO_ZAP_FILE"
+    echo "Skipping ZAP generation (will use stub or example ZAP files)"
+fi
+
 # Step 6: Copy libraries and headers to output
 echo ""
 echo "Step 6: Copying libraries and headers to output directory..."
@@ -214,16 +251,33 @@ echo "  → Searching for ZAP generated files"
 
 ZAP_CLUSTER_FILES_FOUND=false
 
-# Method 1: Look in zzz_generated source directory (not obj directory)
-echo "    Searching in zzz_generated source directory"
-if [ -d "$MATTER_DIR/zzz_generated/app-common/app-common/zap-generated" ]; then
-    FIRST_ZAP_DIR="$MATTER_DIR/zzz_generated/app-common/app-common/zap-generated"
-    echo "    Found ZAP directory: $FIRST_ZAP_DIR"
+# Method 0: Check our project's generated ZAP data first (highest priority)
+echo "    Checking for project-specific ZAP data"
+PROJECT_ZAP_DIR="$MATTER_DIR/zzz_generated/thermostat/zap-generated"
+if [ -d "$PROJECT_ZAP_DIR" ]; then
+    echo "    ✓ Found project ZAP directory: $PROJECT_ZAP_DIR"
     mkdir -p "$DEST_HEADERS_DIR/zap-generated"
-    if cp -r "$FIRST_ZAP_DIR"/* "$DEST_HEADERS_DIR/zap-generated/" 2>/dev/null; then
-        echo "    ✓ Copied ZAP cluster files from source to $DEST_HEADERS_DIR/zap-generated"
+    if cp -r "$PROJECT_ZAP_DIR"/* "$DEST_HEADERS_DIR/zap-generated/" 2>/dev/null; then
+        echo "    ✓ Copied project ZAP files to $DEST_HEADERS_DIR/zap-generated"
         ls -la "$DEST_HEADERS_DIR/zap-generated/" | head -10
         ZAP_CLUSTER_FILES_FOUND=true
+    fi
+else
+    echo "    No project-specific ZAP data found, will search for fallback options"
+fi
+
+# Method 1: Look in zzz_generated source directory (not obj directory)
+if [ "$ZAP_CLUSTER_FILES_FOUND" = false ]; then
+    echo "    Searching in zzz_generated source directory"
+    if [ -d "$MATTER_DIR/zzz_generated/app-common/app-common/zap-generated" ]; then
+        FIRST_ZAP_DIR="$MATTER_DIR/zzz_generated/app-common/app-common/zap-generated"
+        echo "    Found ZAP directory: $FIRST_ZAP_DIR"
+        mkdir -p "$DEST_HEADERS_DIR/zap-generated"
+        if cp -r "$FIRST_ZAP_DIR"/* "$DEST_HEADERS_DIR/zap-generated/" 2>/dev/null; then
+            echo "    ✓ Copied ZAP cluster files from source to $DEST_HEADERS_DIR/zap-generated"
+            ls -la "$DEST_HEADERS_DIR/zap-generated/" | head -10
+            ZAP_CLUSTER_FILES_FOUND=true
+        fi
     fi
 fi
 

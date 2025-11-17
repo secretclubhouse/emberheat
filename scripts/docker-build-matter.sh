@@ -143,9 +143,25 @@ if [ "$HEADERS_EXIST" = "Yes" ]; then
     echo -e "${BLUE}Headers location:${NC} $HEADERS_DIR"
 fi
 echo ""
+# Check if ZAP files were generated
+ZAP_DIR="lib/connectedhomeip/${PLATFORM}/include/zap-generated"
+if [ -d "$ZAP_DIR" ] && [ -f "$ZAP_DIR/gen_config.h" ]; then
+    ZAP_GENERATED="Yes (from matter/thermostat.zap)"
+    echo -e "${BLUE}ZAP files generated:${NC} $ZAP_GENERATED"
+    echo -e "${BLUE}ZAP location:${NC} $ZAP_DIR"
+else
+    ZAP_GENERATED="No (using stubs)"
+fi
+
 echo -e "${YELLOW}Next steps:${NC}"
 echo "  1. Test the build: cargo build --release"
-echo "  2. Commit the libraries and headers:"
+if [ "$ZAP_GENERATED" = "Yes (from matter/thermostat.zap)" ]; then
+    echo "  2. Enable real ZAP data: export USE_REAL_ZAP_DATA=1"
+    echo "  3. Build with ZAP data: cargo build --release"
+    echo "  4. Commit the libraries, headers, and ZAP files:"
+else
+    echo "  2. Commit the libraries and headers:"
+fi
 echo "     git add lib/connectedhomeip/${PLATFORM}/"
 echo "     git add third_party/connectedhomeip/"
 echo "     git commit -m \"Add pre-built Matter libraries and headers for ${PLATFORM}\""

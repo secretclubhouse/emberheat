@@ -13,11 +13,10 @@ This document provides comprehensive instructions for generating and integrating
 
 ## Current Status
 
-The project currently uses **stub ZAP files** as placeholders:
-- `lib/connectedhomeip/*/include/zap-generated/gen_config.h` (minimal stubs)
-- `lib/connectedhomeip/*/include/zap-generated/endpoint_config.h` (minimal stubs)
+The project includes **real ZAP-generated files** created from `matter/thermostat.zap`:
+- `lib/connectedhomeip/*/include/zap-generated/*.h` (committed to repository)
 
-These stubs allow compilation but don't provide full Matter functionality. The code at `src/matter/ffi/matter_wrapper.cpp:235` uses `dataModelProvider = nullptr`, which falls back to the legacy Ember attribute storage path.
+These files are automatically generated during Docker builds (`make matter-build-docker`) and committed to the repository for easy use. The code at `src/matter/ffi/matter_wrapper.cpp` supports toggling between real ZAP data (via `USE_REAL_ZAP_DATA=1`) and stub mode (default for backward compatibility).
 
 ## Why Use Real ZAP Data?
 
@@ -58,11 +57,31 @@ Real ZAP-generated code provides:
    python3 --version
    ```
 
-## Step-by-Step Guide
+## Quick Start (Using Docker Build)
 
-### Step 1: Create ZAP Configuration File
+**Recommended approach**: The Docker build automatically generates ZAP data from `matter/thermostat.zap`:
 
-Create a `.zap` file that defines your thermostat device. A sample configuration is provided at `matter/thermostat.zap`.
+```bash
+# Build Matter libraries with automatic ZAP generation
+make matter-build-docker
+
+# The ZAP-generated files are now in lib/connectedhomeip/<platform>/include/zap-generated/
+# These files are committed to the repository for convenience
+```
+
+The Docker build process:
+1. Reads `matter/thermostat.zap` configuration
+2. Runs ZAP code generation
+3. Copies generated headers to the appropriate platform directory
+4. Files are ready to commit to the repository
+
+## Manual Generation (For Customization)
+
+If you need to modify the ZAP configuration or regenerate files locally:
+
+### Step 1: Create/Edit ZAP Configuration File
+
+Edit the `.zap` file at `matter/thermostat.zap` to customize your thermostat device.
 
 **Key sections to configure:**
 
@@ -158,7 +177,7 @@ cd third_party/connectedhomeip
 - `-o`: Output directory
 - `-t`: Template directory (use thermostat example templates)
 
-### Step 3: Copy Generated Files
+### Step 3: Copy and Commit Generated Files
 
 After generation, copy the ZAP-generated files to your project:
 
@@ -173,13 +192,16 @@ mkdir -p lib/connectedhomeip/$PLATFORM/include/zap-generated
 cp third_party/connectedhomeip/zzz_generated/thermostat/zap-generated/*.h \
    lib/connectedhomeip/$PLATFORM/include/zap-generated/
 
-# Key files that should be copied:
-# - gen_config.h (cluster enables, feature flags)
-# - endpoint_config.h (endpoint definitions, attribute storage)
-# - attribute-size.h (attribute sizes)
-# - cluster-objects.h (cluster data structures)
-# - callback.h (callback declarations)
+# Commit the generated files (they're tracked in git)
+git add lib/connectedhomeip/$PLATFORM/include/zap-generated/
+git commit -m "Update ZAP-generated files for $PLATFORM"
 ```
+
+**Note**: The generated files are **committed to the repository** (unlike typical generated code) because:
+- Allows builds without Node.js/Java dependencies
+- Ensures consistent builds across environments
+- Same philosophy as committing pre-built Matter libraries
+- Header files are small (~100KB total)
 
 ### Step 4: Enable Real ZAP Data in Build
 
@@ -416,9 +438,11 @@ RUN cd /matter && ./scripts/tools/zap/generate.py ...
 
 ## Best Practices
 
-1. **Version Control**: Commit the `.zap` file, not the generated code
-   - Generated code is large and platform-specific
-   - .zap file is small and portable
+1. **Version Control**: Commit both the `.zap` file AND the generated headers
+   - `.zap` file is the source of truth
+   - Generated headers in `lib/connectedhomeip/*/include/zap-generated/` ARE committed (exception to typical practice)
+   - This allows builds without ZAP tooling installed
+   - Regenerate and recommit when `.zap` file changes
 
 2. **Regenerate After SDK Updates**: When updating Matter SDK version:
    ```bash

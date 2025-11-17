@@ -22,6 +22,8 @@ zzz_generated/
 !/lib/connectedhomeip/
 !/lib/connectedhomeip/**/*.a
 !/lib/connectedhomeip/**/*.md
+!/lib/connectedhomeip/**/zap-generated/
+!/lib/connectedhomeip/**/zap-generated/*.h
 
 # IDE
 .vscode/
