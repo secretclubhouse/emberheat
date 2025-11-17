@@ -6,13 +6,21 @@
 
 # Matter/Connected Home IP source (downloaded, not checked in)
 # We download this from GitHub releases instead of using submodules
-/third_party/connectedhomeip/
+/third_party/connectedhomeip/*
 # But keep the directory structure
 !/third_party/
 !/third_party/.gitkeep
+!/third_party/connectedhomeip/
 
-# ZAP generated files (generated from .zap file, not tracked in source)
-# These are regenerated using 'make zap-generate'
+# EXCEPT: Keep ZAP-generated files (these ARE committed for convenience)
+# Generated during Docker build from matter/thermostat.zap
+!/third_party/connectedhomeip/zap-generated/
+!/third_party/connectedhomeip/zap-generated/**
+# But exclude binary build artifacts
+/third_party/connectedhomeip/zap-generated/**/*.o
+/third_party/connectedhomeip/zap-generated/**/*.a
+
+# Temporary ZAP build artifacts (not committed)
 zzz_generated/
 
 # Pre-built Matter libraries (we DO want to track these)
@@ -22,8 +30,6 @@ zzz_generated/
 !/lib/connectedhomeip/
 !/lib/connectedhomeip/**/*.a
 !/lib/connectedhomeip/**/*.md
-!/lib/connectedhomeip/**/zap-generated/
-!/lib/connectedhomeip/**/zap-generated/*.h
 
 # IDE
 .vscode/
