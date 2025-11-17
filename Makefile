@@ -95,6 +95,9 @@ build-arm:
 	cargo build --release --target armv7-unknown-linux-gnueabihf
 
 build-arm64:
+	cargo build --target aarch64-unknown-linux-gnu
+
+build-release-arm64:
 	cargo build --release --target aarch64-unknown-linux-gnu
 
 # Test targets

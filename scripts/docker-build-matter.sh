@@ -126,16 +126,27 @@ fi
 LIB_COUNT=$(find "$LIBS_DIR" -name "*.a" | wc -l)
 TOTAL_SIZE=$(du -sh "$LIBS_DIR" | cut -f1)
 
+HEADERS_DIR="third_party/connectedhomeip"
+if [ -d "$HEADERS_DIR/src" ]; then
+    HEADERS_EXIST="Yes"
+else
+    HEADERS_EXIST="No"
+fi
+
 echo -e "${GREEN}✓ Build completed successfully!${NC}"
 echo ""
 echo -e "${BLUE}Platform:${NC} $PLATFORM"
-echo -e "${BLUE}Location:${NC} $LIBS_DIR"
-echo -e "${BLUE}Libraries:${NC} $LIB_COUNT files"
-echo -e "${BLUE}Total size:${NC} $TOTAL_SIZE"
+echo -e "${BLUE}Libraries:${NC} $LIB_COUNT files ($TOTAL_SIZE)"
+echo -e "${BLUE}Libraries location:${NC} $LIBS_DIR"
+echo -e "${BLUE}Headers copied:${NC} $HEADERS_EXIST"
+if [ "$HEADERS_EXIST" = "Yes" ]; then
+    echo -e "${BLUE}Headers location:${NC} $HEADERS_DIR"
+fi
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. Test the build: cargo build"
-echo "  2. Commit the libraries:"
+echo "  1. Test the build: cargo build --release"
+echo "  2. Commit the libraries and headers:"
 echo "     git add lib/connectedhomeip/${PLATFORM}/"
-echo "     git commit -m \"Add pre-built Matter libraries for ${PLATFORM}\""
+echo "     git add third_party/connectedhomeip/"
+echo "     git commit -m \"Add pre-built Matter libraries and headers for ${PLATFORM}\""
 echo ""

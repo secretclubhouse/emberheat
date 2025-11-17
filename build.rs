@@ -9,6 +9,7 @@
 
 use std::env;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 /// Detect the current platform and return a string like "darwin-arm64" or "linux-x64"
 fn get_platform_string() -> String {
@@ -23,6 +24,45 @@ fn get_platform_string() -> String {
     };
 
     format!("{}-{}", os, arch_normalized)
+}
+
+/// Get GLib include paths from pkg-config
+/// Returns a Vec of include paths needed for GLib/GIO headers
+fn get_glib_includes() -> Vec<PathBuf> {
+    let mut includes = Vec::new();
+
+    // Try to get GLib include paths from pkg-config
+    if let Ok(output) = Command::new("pkg-config")
+        .args(&["--cflags", "glib-2.0", "gio-2.0"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for flag in stdout.split_whitespace() {
+                if let Some(path) = flag.strip_prefix("-I") {
+                    includes.push(PathBuf::from(path));
+                }
+            }
+        }
+    }
+
+    // Fallback: common GLib include paths if pkg-config fails
+    if includes.is_empty() {
+        eprintln!("WARNING: pkg-config failed to find GLib includes, using fallback paths");
+        includes.push(PathBuf::from("/usr/include/glib-2.0"));
+
+        // Try to detect the architecture-specific glib include path
+        let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".to_string());
+        let multiarch = match arch.as_str() {
+            "aarch64" => "aarch64-linux-gnu",
+            "x86_64" => "x86_64-linux-gnu",
+            "arm" => "arm-linux-gnueabihf",
+            _ => "unknown-linux-gnu",
+        };
+        includes.push(PathBuf::from(format!("/usr/lib/{}/glib-2.0/include", multiarch)));
+    }
+
+    includes
 }
 
 /// Check if a directory contains the required Matter libraries
@@ -49,15 +89,43 @@ fn main() {
     // Step 1: Check for Connected Home IP library
     // =========================================================================
 
+    // Check for pre-built libraries first (preferred for cross-compilation)
+    let platform = get_platform_string();
+    let prebuilt_lib_dir = PathBuf::from("lib/connectedhomeip").join(&platform);
+    let has_prebuilt = prebuilt_lib_dir.exists() && has_required_libraries(&prebuilt_lib_dir);
+
+    // Check for submodule source code (needed for headers even with pre-built libs)
     let chip_root = PathBuf::from("third_party/connectedhomeip");
-    let chip_available = chip_root.exists() && chip_root.join("src").exists();
+    let has_submodule = chip_root.exists() && chip_root.join("src").exists();
+
+    // SDK is available if we have BOTH headers AND libraries
+    // Pre-built libraries still require submodule headers for compilation
+    let chip_available = has_submodule && (has_prebuilt || chip_root.join("out/host/lib").exists());
 
     if !chip_available {
-        eprintln!("WARNING: Connected Home IP library not found at third_party/connectedhomeip");
-        eprintln!("         The Matter integration will use stub implementation.");
-        eprintln!("         To enable full Matter support, run:");
-        eprintln!("         git submodule update --init --recursive");
-        eprintln!();
+        if has_prebuilt && !has_submodule {
+            eprintln!("WARNING: Pre-built Matter libraries found but headers are missing.");
+            eprintln!("         The Matter C++ wrapper requires headers from the submodule.");
+            eprintln!("         To enable full Matter support:");
+            eprintln!("           git submodule update --init --recursive");
+            eprintln!();
+        } else if !has_submodule {
+            eprintln!("WARNING: Connected Home IP library not found.");
+            eprintln!("         The Matter integration will use stub implementation.");
+            eprintln!("         To enable full Matter support:");
+            eprintln!("           git submodule update --init --recursive");
+            eprintln!();
+        } else {
+            eprintln!("WARNING: Matter submodule found but no libraries available.");
+            eprintln!("         Pre-built libraries are at lib/connectedhomeip/{}", platform);
+            eprintln!("         Or build from source with: cd third_party/connectedhomeip && gn gen out/host && ninja -C out/host");
+            eprintln!();
+        }
+    } else if has_prebuilt {
+        eprintln!("INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}", platform);
+        eprintln!("INFO: Using Matter headers from third_party/connectedhomeip");
+    } else {
+        eprintln!("INFO: Using Matter submodule source at third_party/connectedhomeip");
     }
 
     // =========================================================================
@@ -76,16 +144,33 @@ fn main() {
 
     // Add Connected Home IP includes if available
     if chip_available {
+        // Add include paths from submodule (required for both pre-built and source builds)
         build
+            .include(&chip_root)  // Root for zap-generated includes
             .include(chip_root.join("src"))
             .include(chip_root.join("src/include"))
             .include(chip_root.join("src/lib"))
+            .include(chip_root.join("config"))  // Build configuration headers
+            .include(chip_root.join("config/standalone"))  // Standalone project config
+            .include(chip_root.join("out/unified/gen/include"))  // Generated build config headers
             .include(chip_root.join("zzz_generated/app-common"))
-            .include(chip_root.join("third_party/nlassert/include"))
-            .include(chip_root.join("third_party/nlio/include"));
+            .include(chip_root.join("third_party/nlassert/repo/include"))
+            .include(chip_root.join("third_party/nlio/repo/include"))
+            .include(chip_root.join("third_party/inipp/repo/inipp"));
 
-        // Define that we have the full SDK
+        // Add GLib system includes (required by Matter platform layer on Linux)
+        // These are needed for src/platform/GLibTypeDeleter.h and BlueZ support
+        for glib_include in get_glib_includes() {
+            build.include(&glib_include);
+        }
+
+        // Define that we have the full SDK (either pre-built or from source)
         build.define("MATTER_SDK_AVAILABLE", "1");
+
+        // Add required CHIP configuration defines for Linux
+        build.define("CHIP_HAVE_CONFIG_H", "1");
+        build.define("CHIP_SYSTEM_CONFIG_USE_SOCKETS", "1");
+        build.define("CHIP_ADDRESS_RESOLVE_IMPL_INCLUDE_HEADER", "<lib/address_resolve/AddressResolve_DefaultImpl.h>");
 
         println!("cargo:rustc-cfg=matter_sdk_available");
     } else {
@@ -101,33 +186,32 @@ fn main() {
     // =========================================================================
 
     if chip_available {
-        // Try to find pre-built libraries in the following order:
-        // 1. Pre-built libs in lib/connectedhomeip/{platform}/
+        // Try to find libraries in the following order:
+        // 1. Pre-built libs in lib/connectedhomeip/{platform}/ (already checked)
         // 2. Submodule build at third_party/connectedhomeip/out/host/lib/
 
-        let platform = get_platform_string();
-        let prebuilt_lib_dir = PathBuf::from("lib/connectedhomeip").join(&platform);
         let chip_lib_dir = chip_root.join("out/host/lib");
 
-        let lib_dir = if prebuilt_lib_dir.exists() && has_required_libraries(&prebuilt_lib_dir) {
+        let lib_dir = if has_prebuilt {
             eprintln!(
                 "INFO: Using pre-built Matter libraries from lib/connectedhomeip/{}",
                 platform
             );
             prebuilt_lib_dir
-        } else if chip_lib_dir.exists() {
+        } else if has_submodule && chip_lib_dir.exists() {
             eprintln!("INFO: Using Matter libraries from submodule build");
             chip_lib_dir
-        } else {
-            eprintln!("WARNING: Connected Home IP library not found.");
-            eprintln!("         Option 1: Use pre-built libraries");
-            eprintln!("           Run: ./scripts/copy-matter-libs.sh");
-            eprintln!("         Option 2: Build from source");
+        } else if has_submodule {
+            eprintln!("WARNING: Matter submodule found but libraries not built.");
+            eprintln!("         To build the libraries:");
             eprintln!("           cd third_party/connectedhomeip");
             eprintln!("           source scripts/activate.sh");
             eprintln!("           gn gen out/host");
             eprintln!("           ninja -C out/host");
             eprintln!();
+            PathBuf::new() // Empty path
+        } else {
+            // Should not reach here since chip_available requires has_prebuilt || has_submodule
             PathBuf::new() // Empty path
         };
 
@@ -142,6 +226,12 @@ fn main() {
             // System libraries required by Matter
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=stdc++");
+
+            // GLib libraries required by Matter platform layer on Linux
+            // The Matter library uses GLib types (like GError) for platform abstraction
+            println!("cargo:rustc-link-lib=dylib=glib-2.0");
+            println!("cargo:rustc-link-lib=dylib=gobject-2.0");
+            println!("cargo:rustc-link-lib=dylib=gio-2.0");
         }
     }
 
