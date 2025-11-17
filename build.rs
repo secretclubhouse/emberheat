@@ -85,6 +85,11 @@ fn has_required_libraries(lib_dir: &Path) -> bool {
 fn main() {
     let _out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
 
+    // Declare custom cfg attributes for conditional compilation
+    println!("cargo::rustc-check-cfg=cfg(use_real_zap_data)");
+    println!("cargo::rustc-check-cfg=cfg(matter_sdk_available)");
+    println!("cargo::rustc-check-cfg=cfg(matter_sdk_stub)");
+
     println!("cargo:rerun-if-changed=src/matter/ffi/matter_wrapper.h");
     println!("cargo:rerun-if-changed=src/matter/ffi/matter_wrapper.cpp");
 
