@@ -29,45 +29,27 @@ ZAP (ZCL Advanced Platform) configuration file that defines the Matter device da
 
 ### Automatic Generation (Recommended)
 
-The **easiest way** to generate ZAP data is during the Docker Matter build:
+ZAP data is **automatically generated** during the Docker Matter build:
 
 ```bash
 # Build Matter libraries - automatically generates ZAP data
 make matter-build-docker
-
-# Generated files are placed in lib/connectedhomeip/<platform>/include/zap-generated/
-# These files are tracked in git for convenience
 ```
 
-The Docker build:
-1. Reads `matter/thermostat.zap`
+The Docker build process:
+1. Reads `matter/thermostat.zap` configuration
 2. Runs ZAP code generation inside the container
-3. Copies generated headers to the correct location
+3. Copies generated headers to `third_party/connectedhomeip/zap-generated/`
 4. Files are ready to use and commit
-
-### Manual Generation (For Local Development)
-
-To manually regenerate ZAP data after editing `thermostat.zap`:
-
-```bash
-# Requires Matter SDK downloaded locally
-make matter-download
-
-# Generate ZAP code
-make zap-generate
-```
-
-This will:
-1. Run the ZAP code generator
-2. Create files in `third_party/connectedhomeip/zzz_generated/thermostat/`
-3. Copy generated headers to `lib/connectedhomeip/<platform>/include/zap-generated/`
 
 Generated files include:
 - `gen_config.h` - Cluster enables and feature flags
 - `endpoint_config.h` - Endpoint definitions and attribute storage
-- `attribute-size.h` - Attribute size definitions
-- `cluster-objects.h` - Cluster data structures
-- `callback.h` - Callback declarations
+- `access.h` - Access control definitions
+- `IMClusterCommandHandler.cpp` - Cluster command handlers
+- Plus standard cluster files from `zzz_generated/app-common`
+
+**Note**: The generated ZAP headers are **committed to the repository** in `third_party/connectedhomeip/zap-generated/` to enable builds without requiring ZAP tooling.
 
 ### View/Edit Configuration in GUI
 
@@ -106,7 +88,7 @@ To support multiple thermostat zones:
 2. Add new endpoints (endpoint 2, 3, etc.)
 3. Assign the "MA-thermostat" endpoint type to each
 4. Save the file
-5. Regenerate code: `make zap-generate`
+5. Regenerate code: `make matter-build-docker`
 6. Rebuild: `cargo build --release`
 
 Example for 4 zones:
@@ -173,18 +155,15 @@ npm install
 
 ### Generated Files Missing
 
-**Problem**: Generated files not found after running `make zap-generate`
+**Problem**: Generated files not found after Docker build
 
 **Solution**:
 ```bash
 # Check that generation succeeded
-ls -la third_party/connectedhomeip/zzz_generated/thermostat/zap-generated/
+ls -la third_party/connectedhomeip/zap-generated/
 
-# Manually copy if needed
-PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)
-mkdir -p lib/connectedhomeip/$PLATFORM/include/zap-generated
-cp third_party/connectedhomeip/zzz_generated/thermostat/zap-generated/*.h \
-   lib/connectedhomeip/$PLATFORM/include/zap-generated/
+# If missing, re-run the Docker build
+make matter-build-docker
 ```
 
 ### Build Fails with ZAP Data

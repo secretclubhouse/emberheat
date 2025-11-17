@@ -14,7 +14,7 @@ This document provides comprehensive instructions for generating and integrating
 ## Current Status
 
 The project includes **real ZAP-generated files** created from `matter/thermostat.zap`:
-- `lib/connectedhomeip/*/include/zap-generated/*.h` (committed to repository)
+- `third_party/connectedhomeip/zap-generated/*.{h,cpp}` (committed to repository)
 
 These files are automatically generated during Docker builds (`make matter-build-docker`) and committed to the repository for easy use. The code at `src/matter/ffi/matter_wrapper.cpp` supports toggling between real ZAP data (via `USE_REAL_ZAP_DATA=1`) and stub mode (default for backward compatibility).
 
@@ -65,7 +65,7 @@ Real ZAP-generated code provides:
 # Build Matter libraries with automatic ZAP generation
 make matter-build-docker
 
-# The ZAP-generated files are now in lib/connectedhomeip/<platform>/include/zap-generated/
+# The ZAP-generated files are now in third_party/connectedhomeip/zap-generated/
 # These files are committed to the repository for convenience
 ```
 
@@ -177,31 +177,25 @@ cd third_party/connectedhomeip
 - `-o`: Output directory
 - `-t`: Template directory (use thermostat example templates)
 
-### Step 3: Copy and Commit Generated Files
+### Step 3: Generated Files Location
 
-After generation, copy the ZAP-generated files to your project:
+The Docker build automatically copies generated files to the correct location:
 
 ```bash
-# From thermos-rust root directory
-PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m)
-
-# Create destination directory
-mkdir -p lib/connectedhomeip/$PLATFORM/include/zap-generated
-
-# Copy generated files
-cp third_party/connectedhomeip/zzz_generated/thermostat/zap-generated/*.h \
-   lib/connectedhomeip/$PLATFORM/include/zap-generated/
-
-# Commit the generated files (they're tracked in git)
-git add lib/connectedhomeip/$PLATFORM/include/zap-generated/
-git commit -m "Update ZAP-generated files for $PLATFORM"
+# Generated files are placed here:
+third_party/connectedhomeip/zap-generated/
+├── gen_config.h              # Cluster configuration
+├── endpoint_config.h         # Endpoint definitions
+├── access.h                  # Access control
+├── IMClusterCommandHandler.cpp  # Command handlers
+└── (other cluster files from zzz_generated/app-common)
 ```
 
 **Note**: The generated files are **committed to the repository** (unlike typical generated code) because:
 - Allows builds without Node.js/Java dependencies
 - Ensures consistent builds across environments
 - Same philosophy as committing pre-built Matter libraries
-- Header files are small (~100KB total)
+- Files are relatively small (< 1MB total)
 
 ### Step 4: Enable Real ZAP Data in Build
 
@@ -278,35 +272,22 @@ The wrapper code (`src/matter/ffi/matter_wrapper.cpp`) automatically handles thi
 
 ## Build System Integration
 
-### Makefile Target
+### Automated Generation in Docker (Current Implementation)
 
-Add a convenience target to regenerate ZAP data:
+ZAP generation is **automatically integrated** into the Docker Matter build:
 
 ```bash
-make zap-generate
+make matter-build-docker
 ```
 
-This target:
-1. Checks for Matter SDK
-2. Runs ZAP code generation
-3. Copies files to correct platform directory
-4. Shows summary of generated files
+The Docker build script (`scripts/docker-build-matter-internal.sh`):
+1. Checks for `matter/thermostat.zap` in the project
+2. Copies the ZAP file to a temporary location with proper path resolution
+3. Creates symlinks for relative path references
+4. Runs ZAP code generation with `app-templates.json`
+5. Copies generated files to `third_party/connectedhomeip/zap-generated/`
 
-### Automated Generation in Docker
-
-For Docker builds, ZAP generation can be integrated into the Matter build:
-
-```bash
-# In scripts/docker-build-matter-internal.sh
-# After building Matter libraries, generate ZAP files
-if [ -f "$REPO_ROOT/matter/thermostat.zap" ]; then
-    echo "Generating ZAP code..."
-    cd "$MATTER_DIR"
-    ./scripts/tools/zap/generate.py \
-        -z "$REPO_ROOT/matter/thermostat.zap" \
-        -o zzz_generated/thermostat \
-        -t examples/thermostat/thermostat-common
-fi
+This approach ensures ZAP files are always up-to-date with the Matter SDK version used in the build
 ```
 
 ## Testing
@@ -315,14 +296,14 @@ fi
 
 ```bash
 # Check that required files exist
-ls -l lib/connectedhomeip/*/include/zap-generated/
+ls -l third_party/connectedhomeip/zap-generated/
 
 # Expected files:
 # - gen_config.h
 # - endpoint_config.h
-# - attribute-size.h
-# - cluster-objects.h
-# - callback.h
+# - access.h
+# - IMClusterCommandHandler.cpp
+# - Plus cluster files from app-common
 ```
 
 ### Build Tests
@@ -409,62 +390,59 @@ make matter-setup-docker
 
 ## Platform-Specific Notes
 
-### Linux (Raspberry Pi)
+### ZAP Files are Platform-Independent
 
-ZAP files are platform-independent. Use the same generated files across platforms:
+The generated ZAP files (`.h` and `.cpp`) are platform-independent C++ source code. They're stored in a single location:
+
 ```bash
-# Generate once, copy to all platforms
-for platform in linux-arm64 linux-x64 darwin-arm64; do
-    cp -r zzz_generated/thermostat/zap-generated/* \
-          lib/connectedhomeip/$platform/include/zap-generated/
-done
+third_party/connectedhomeip/zap-generated/
 ```
 
-### macOS (Development)
+Only the **compiled Matter libraries** (`.a` files) are platform-specific and stored in:
 
-Same ZAP files work on macOS. Only the compiled libraries are platform-specific.
+```bash
+lib/connectedhomeip/linux-arm64/
+lib/connectedhomeip/linux-x64/  (if built)
+lib/connectedhomeip/darwin-arm64/  (if built)
+```
 
 ### Docker Builds
 
-ZAP generation can run in the Docker build:
-```dockerfile
-# Install Node.js for ZAP
-RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-RUN nvm install 20
+ZAP generation is fully integrated into the Docker build (`make matter-build-docker`). The Docker image includes:
+- Node.js 20 (via nvm)
+- Java runtime
+- ZAP tool (bundled with Matter SDK)
+- Python 3 for code generation scripts
 
-# Generate ZAP during build
-RUN cd /matter && ./scripts/tools/zap/generate.py ...
-```
+No manual setup required!
 
 ## Best Practices
 
 1. **Version Control**: Commit both the `.zap` file AND the generated headers
-   - `.zap` file is the source of truth
-   - Generated headers in `lib/connectedhomeip/*/include/zap-generated/` ARE committed (exception to typical practice)
+   - `.zap` file in `matter/thermostat.zap` is the source of truth
+   - Generated headers in `third_party/connectedhomeip/zap-generated/` ARE committed (exception to typical practice)
    - This allows builds without ZAP tooling installed
    - Regenerate and recommit when `.zap` file changes
 
 2. **Regenerate After SDK Updates**: When updating Matter SDK version:
    ```bash
-   # Pull new SDK
-   make matter-download
-   # Regenerate with new templates
-   make zap-generate
-   # Rebuild libraries
-   make matter-setup-docker
+   # Rebuild Matter libraries (automatically regenerates ZAP)
+   make matter-build-docker
+
+   # Generated files will be updated in third_party/connectedhomeip/zap-generated/
+   git add third_party/connectedhomeip/zap-generated/
+   git commit -m "Update ZAP files for new Matter SDK version"
    ```
 
 3. **Document Custom Attributes**: If adding non-standard attributes, document in ARCHITECTURE.md
 
 4. **Test Both Modes**: Regularly test with both stub and real ZAP data to ensure fallback works
 
-5. **CI/CD Integration**: Generate ZAP files in CI pipeline:
+5. **CI/CD Integration**: ZAP files are generated automatically during Docker build:
    ```yaml
    # .github/workflows/build.yml
-   - name: Generate ZAP data
-     run: |
-       export USE_REAL_ZAP_DATA=1
-       make zap-generate
+   - name: Build Matter libraries (includes ZAP generation)
+     run: make matter-build-docker
    ```
 
 ## Reference Files
