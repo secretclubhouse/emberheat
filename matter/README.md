@@ -27,25 +27,33 @@ ZAP (ZCL Advanced Platform) configuration file that defines the Matter device da
 
 ## Using ZAP Configuration
 
-### View/Edit Configuration
+### Automatic Generation (Recommended)
 
-To view or edit the ZAP configuration in the GUI:
+The **easiest way** to generate ZAP data is during the Docker Matter build:
 
 ```bash
-# Ensure Matter SDK is downloaded
-make matter-download
+# Build Matter libraries - automatically generates ZAP data
+make matter-build-docker
 
-# Launch ZAP GUI
-cd third_party/connectedhomeip
-./scripts/tools/zap/run_zaptool.sh ../../matter/thermostat.zap
+# Generated files are placed in lib/connectedhomeip/<platform>/include/zap-generated/
+# These files are tracked in git for convenience
 ```
 
-### Generate Code from ZAP File
+The Docker build:
+1. Reads `matter/thermostat.zap`
+2. Runs ZAP code generation inside the container
+3. Copies generated headers to the correct location
+4. Files are ready to use and commit
 
-To generate C++ code from the ZAP configuration:
+### Manual Generation (For Local Development)
+
+To manually regenerate ZAP data after editing `thermostat.zap`:
 
 ```bash
-# From project root
+# Requires Matter SDK downloaded locally
+make matter-download
+
+# Generate ZAP code
 make zap-generate
 ```
 
@@ -61,7 +69,22 @@ Generated files include:
 - `cluster-objects.h` - Cluster data structures
 - `callback.h` - Callback declarations
 
+### View/Edit Configuration in GUI
+
+To view or edit the ZAP configuration graphically:
+
+```bash
+# Ensure Matter SDK is downloaded
+make matter-download
+
+# Launch ZAP GUI
+cd third_party/connectedhomeip
+./scripts/tools/zap/run_zaptool.sh ../../matter/thermostat.zap
+```
+
 ### Build with Real ZAP Data
+
+After generating ZAP files (either via Docker or manually):
 
 ```bash
 # Enable real ZAP data
@@ -70,6 +93,8 @@ export USE_REAL_ZAP_DATA=1
 # Build
 cargo build --release
 ```
+
+**Note**: The generated ZAP headers are **committed to the repository** to enable builds without requiring Node.js/Java ZAP tooling.
 
 ## Customizing for Your Setup
 
