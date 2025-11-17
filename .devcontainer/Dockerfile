@@ -81,6 +81,19 @@ ENV DEBIAN_FRONTEND=dialog
 # Set the default user
 USER $USERNAME
 
+# Install nvm (Node Version Manager) and Node.js 20
+ENV NVM_DIR=/home/$USERNAME/.nvm
+ENV NODE_VERSION=20
+
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash \
+    && . $NVM_DIR/nvm.sh \
+    && nvm install $NODE_VERSION \
+    && nvm alias default $NODE_VERSION \
+    && nvm use default
+
+# Add nvm to PATH for non-interactive shells
+ENV PATH=$NVM_DIR/versions/node/v$NODE_VERSION/bin:$PATH
+
 # Pre-install common Rust tools as the vscode user
 RUN cargo install cargo-watch cargo-expand cargo-tree
 
