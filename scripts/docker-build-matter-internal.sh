@@ -149,17 +149,54 @@ if [ -f "$REPO_ZAP_FILE" ]; then
     # The generate.py script should be available after bootstrap
     if [ -f "$MATTER_DIR/scripts/tools/zap/generate.py" ]; then
         cd "$MATTER_DIR"
-        python3 scripts/tools/zap/generate.py \
-            -z "$REPO_ZAP_FILE" \
-            -o "$ZAP_OUTPUT_DIR" \
-            -t examples/thermostat/thermostat-common 2>&1 | grep -v "^DEBUG:" || true
 
-        if [ -d "$ZAP_OUTPUT_DIR/zap-generated" ]; then
-            echo "✓ ZAP generation successful"
-            echo "  Generated files in: $ZAP_OUTPUT_DIR/zap-generated"
-            ls -la "$ZAP_OUTPUT_DIR/zap-generated" | head -10
+        # Copy the ZAP file to a temporary location
+        # The ZAP file contains relative paths like ../third_party/connectedhomeip/...
+        # which need to resolve correctly
+        TEMP_DIR="/build/matter-zap-temp"
+        rm -rf "$TEMP_DIR"
+        mkdir -p "$TEMP_DIR"
+
+        TEMP_ZAP_FILE="$TEMP_DIR/thermostat.zap"
+        cp "$REPO_ZAP_FILE" "$TEMP_ZAP_FILE"
+
+        # Create a symlink to the Matter SDK at the expected location
+        # The ZAP file references ../third_party/connectedhomeip/...
+        # From /build/matter-zap-temp/thermostat.zap, the ../ resolves to /build/
+        # So we need /build/third_party/connectedhomeip -> /build/connectedhomeip
+        mkdir -p "/build/third_party"
+        ln -sf "$MATTER_DIR" "/build/third_party/connectedhomeip"
+
+        # Use the standard Matter app-templates.json for code generation
+        TEMPLATE_FILE="$MATTER_DIR/src/app/zap-templates/app-templates.json"
+
+        if [ -f "$TEMPLATE_FILE" ]; then
+            echo "Using template file: $TEMPLATE_FILE"
+
+            # Generate ZAP code with the app templates
+            python3 scripts/tools/zap/generate.py \
+                "$TEMP_ZAP_FILE" \
+                -t "$TEMPLATE_FILE" \
+                -o "$ZAP_OUTPUT_DIR" 2>&1 | grep -v "^DEBUG:" || true
         else
-            echo "⚠ Warning: ZAP generation may have failed (no output directory)"
+            echo "⚠ Warning: Template file not found: $TEMPLATE_FILE"
+            echo "Trying generation without explicit template (using default)..."
+
+            # Fallback: try without template file (uses default matter-idl-server.json)
+            python3 scripts/tools/zap/generate.py \
+                "$TEMP_ZAP_FILE" \
+                -o "$ZAP_OUTPUT_DIR" 2>&1 | grep -v "^DEBUG:" || true
+        fi
+
+        # Clean up temporary directory
+        rm -rf "$TEMP_DIR"
+
+        if [ -d "$ZAP_OUTPUT_DIR" ] && [ "$(ls -A $ZAP_OUTPUT_DIR 2>/dev/null)" ]; then
+            echo "✓ ZAP generation successful"
+            echo "  Generated files in: $ZAP_OUTPUT_DIR"
+            ls -la "$ZAP_OUTPUT_DIR" | head -10
+        else
+            echo "⚠ Warning: ZAP generation may have failed (no output directory or empty)"
         fi
     else
         echo "⚠ Warning: ZAP generator not found, skipping generation"
@@ -253,11 +290,11 @@ ZAP_CLUSTER_FILES_FOUND=false
 
 # Method 0: Check our project's generated ZAP data first (highest priority)
 echo "    Checking for project-specific ZAP data"
-PROJECT_ZAP_DIR="$MATTER_DIR/zzz_generated/thermostat/zap-generated"
-if [ -d "$PROJECT_ZAP_DIR" ]; then
+PROJECT_ZAP_DIR="$MATTER_DIR/zzz_generated/thermostat"
+if [ -d "$PROJECT_ZAP_DIR" ] && [ "$(ls -A $PROJECT_ZAP_DIR/*.h 2>/dev/null)" ]; then
     echo "    ✓ Found project ZAP directory: $PROJECT_ZAP_DIR"
     mkdir -p "$DEST_HEADERS_DIR/zap-generated"
-    if cp -r "$PROJECT_ZAP_DIR"/* "$DEST_HEADERS_DIR/zap-generated/" 2>/dev/null; then
+    if cp "$PROJECT_ZAP_DIR"/*.h "$PROJECT_ZAP_DIR"/*.cpp "$DEST_HEADERS_DIR/zap-generated/" 2>/dev/null; then
         echo "    ✓ Copied project ZAP files to $DEST_HEADERS_DIR/zap-generated"
         ls -la "$DEST_HEADERS_DIR/zap-generated/" | head -10
         ZAP_CLUSTER_FILES_FOUND=true
