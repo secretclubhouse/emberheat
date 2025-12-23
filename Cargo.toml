@@ -8,16 +8,12 @@ license = "MIT"
 repository = "https://github.com/josht/thermos-rust"
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("bindgen"))'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
 
 [dependencies]
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
 futures = "0.3"
-
-# Matter protocol integration via Connected Home IP C library
-# The actual library is in third_party/connectedhomeip (git submodule)
-# FFI bindings are compiled via build.rs
 
 # Async trait support
 async-trait = "0.1"
@@ -64,11 +60,7 @@ qrcode = "0.14"
 rppal = "0.22"  # Raspberry Pi GPIO library (Linux only)
 
 [build-dependencies]
-# Build script dependencies for compiling Matter C wrapper
-cc = "1.0"
-# Optional: bindgen for auto-generating FFI bindings
-# Enable with: cargo build --features bindgen
-# bindgen = { version = "0.69", optional = true }
+# Minimal build dependencies (Matter integration removed)
 
 [dev-dependencies]
 mockall = "0.13"
@@ -78,9 +70,9 @@ pretty_assertions = "1.4"
 serial_test = "3.2"
 
 [features]
-# Optional feature to regenerate FFI bindings
-# bindgen = ["dep:bindgen"]
 default = []
+# Matter integration is currently disabled
+# See MATTER_INTEGRATION.md for re-integration instructions
 
 [profile.release]
 opt-level = 3

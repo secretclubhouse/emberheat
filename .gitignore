@@ -4,33 +4,6 @@
 *.pdb
 # Note: Cargo.lock is committed for binary projects to ensure reproducible builds
 
-# Matter/Connected Home IP source (downloaded, not checked in)
-# We download this from GitHub releases instead of using submodules
-/third_party/connectedhomeip/*
-# But keep the directory structure
-!/third_party/
-!/third_party/.gitkeep
-!/third_party/connectedhomeip/
-
-# EXCEPT: Keep ZAP-generated files (these ARE committed for convenience)
-# Generated during Docker build from matter/thermostat.zap
-!/third_party/connectedhomeip/zap-generated/
-!/third_party/connectedhomeip/zap-generated/**
-# But exclude binary build artifacts
-/third_party/connectedhomeip/zap-generated/**/*.o
-/third_party/connectedhomeip/zap-generated/**/*.a
-
-# Temporary ZAP build artifacts (not committed)
-zzz_generated/
-
-# Pre-built Matter libraries (we DO want to track these)
-# The lib/ directory contains pre-built libraries that should be committed
-# to avoid rebuilding the entire Matter stack on every clone
-!/lib/
-!/lib/connectedhomeip/
-!/lib/connectedhomeip/**/*.a
-!/lib/connectedhomeip/**/*.md
-
 # IDE
 .vscode/
 .idea/
@@ -59,3 +32,4 @@ grafana-data/
 # Test artifacts
 tarpaulin-report.html
 cobertura.xml
+coverage/

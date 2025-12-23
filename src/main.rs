@@ -110,6 +110,16 @@ async fn main() -> Result<()> {
     // Initialize tracing/logging
     init_logging();
 
+    // Set up panic hook to ensure GPIO cleanup on panic/abort
+    // This is critical because the Matter SDK may call VerifyOrDie which panics
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        error!("PANIC: {:?}", panic_info);
+        // Call default panic handler (prints backtrace, etc.)
+        default_panic(panic_info);
+        // Cleanup will happen when the process exits and Drop impls are called
+    }));
+
     info!("Starting Thermos-Rust multi-zone thermostat system");
 
     // Load configuration
