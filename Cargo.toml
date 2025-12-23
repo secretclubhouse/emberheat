@@ -11,8 +11,15 @@ repository = "https://github.com/josht/thermos-rust"
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
 
 [dependencies]
-# Async runtime
-tokio = { version = "1.48", features = ["full"] }
+# Embassy async runtime (primary executor with std support)
+embassy-executor = { version = "0.9", features = ["arch-std", "executor-thread"] }
+embassy-time = { version = "0.5", features = ["std", "generic-queue-64"] }
+embassy-sync = "0.7"
+embassy-futures = "0.1"
+critical-section = { version = "1.2", features = ["std"] }
+
+# Tokio - kept for redis/reqwest compatibility and during migration
+tokio = { version = "1.48", features = ["rt", "rt-multi-thread", "sync", "time", "net", "io-util", "fs", "macros", "signal"] }
 futures = "0.3"
 
 # Async trait support

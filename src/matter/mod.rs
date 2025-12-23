@@ -200,7 +200,7 @@ impl MatterServer {
 
         // Keep running (the actual server would run the Matter event loop here)
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+            embassy_time::Timer::after(embassy_time::Duration::from_secs(60)).await;
         }
     }
 }
