@@ -222,6 +222,7 @@ impl Thermostat {
     }
 
     /// Get current temperature (Celsius)
+    #[allow(dead_code)]
     pub async fn get_current_temp(&self) -> f32 {
         *self.current_temp.lock().await
     }
@@ -268,6 +269,7 @@ impl Thermostat {
     }
 
     /// Get current heating state
+    #[allow(dead_code)]
     pub async fn get_current_state(&self) -> HeatingState {
         *self.current_state.lock().await
     }

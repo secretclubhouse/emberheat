@@ -41,6 +41,7 @@ const MATTER_PORT: u16 = 5540;
 /// when Matter support is re-added.
 pub struct ThermostatAccessory {
     /// Zone name / accessory name
+    #[allow(dead_code)]
     name: String,
 
     /// Underlying thermostat device
@@ -72,6 +73,7 @@ impl ThermostatAccessory {
     }
 
     /// Get accessory name
+    #[allow(dead_code)]
     pub fn name(&self) -> &str {
         &self.name
     }
