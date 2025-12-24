@@ -54,6 +54,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod config;
 mod devices;
 mod gpio;
+mod hal;
 mod matter;
 mod metrics;
 #[cfg(test)]

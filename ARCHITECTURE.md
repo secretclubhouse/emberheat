@@ -33,6 +33,10 @@ src/
 │   └── mod.rs             # Hysteresis control, state management
 ├── gpio/                   # Hardware abstraction
 │   └── mod.rs             # GPIO control, relay management
+├── hal/                    # Hardware Abstraction Layer (ESP32 prep)
+│   ├── mod.rs             # HAL traits (OutputPin, Platform)
+│   ├── linux.rs           # Linux/rppal implementation
+│   └── stub.rs            # Stub for testing/development
 ├── sensors/                # Temperature sensing
 │   ├── mod.rs             # Sensor trait, composite sensor
 │   └── onewire.rs         # 1-Wire DS18B20 implementation
@@ -54,13 +58,14 @@ src/
 | Module | Responsibility | External Dependencies |
 |--------|----------------|----------------------|
 | `config` | Configuration loading and validation | `serde`, `serde_json` |
-| `devices` | Thermostat control logic | `tokio`, `tracing` |
-| `gpio` | GPIO hardware interface | `rppal` |
-| `sensors` | Temperature reading | `reqwest`, `tokio` |
-| `persistence` | State storage | `redis` |
-| `metrics` | Metrics export | `prometheus` |
+| `devices` | Thermostat control logic | `embassy_time`, `embassy_sync`, `tracing` |
+| `gpio` | GPIO hardware interface | `rppal`, `embassy_time` |
+| `hal` | Platform abstraction (ESP32 prep) | `rppal` (Linux) |
+| `sensors` | Temperature reading | `reqwest`, `embassy_time` |
+| `persistence` | State storage | `redis`, `tokio` |
+| `metrics` | Metrics export | `prometheus`, `embassy_sync` |
 | `matter` | Matter protocol | Connected Home IP (C++ FFI) |
-| `mocks` | Test infrastructure | `mockall`, `tokio-test` |
+| `mocks` | Test infrastructure | `mockall`, `embassy_time` |
 
 ## Data Flow
 
@@ -136,22 +141,25 @@ Main Thread (Tokio)
 
 ### Shared State
 
-Shared state is protected using `Arc<RwLock<T>>`:
+Shared state is protected using `Arc<Mutex<T>>` from Embassy:
 
 ```rust
+use embassy_sync::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+
 pub struct Thermostat {
-    current_temp: Arc<RwLock<f32>>,
-    target_temp: Arc<RwLock<f32>>,
-    target_state: Arc<RwLock<HeatingState>>,
-    current_state: Arc<RwLock<HeatingState>>,
+    current_temp: Arc<Mutex<NoopRawMutex, f32>>,
+    target_temp: Arc<Mutex<NoopRawMutex, f32>>,
+    target_state: Arc<Mutex<NoopRawMutex, HeatingState>>,
+    current_state: Arc<Mutex<NoopRawMutex, HeatingState>>,
     // ...
 }
 ```
 
 **Design rationale:**
 - `Arc`: Multiple tasks share ownership
-- `RwLock`: Multiple readers, single writer (read-heavy workload)
-- Alternative considered: `Mutex` (simpler but less performant for reads)
+- `embassy_sync::Mutex`: Portable sync primitives for future ESP32 support
+- `NoopRawMutex`: Appropriate for std targets with OS scheduling; use `CriticalSectionRawMutex` on bare-metal
 
 ### GPIO Access
 
@@ -293,12 +301,33 @@ Thermos-Rust implements the Thermostat cluster (0x0201):
 - **Concurrency**: Fearless concurrency with ownership system
 - **Reliability**: Type system catches errors at compile time
 
-### Why Tokio?
+### Why Tokio + Embassy Hybrid?
 
-- **Industry standard**: Most popular Rust async runtime
-- **Feature rich**: Timers, I/O, synchronization primitives
-- **Well maintained**: Active development and support
-- **Performance**: Efficient task scheduling
+The project uses a hybrid approach combining Tokio and Embassy primitives:
+
+**Tokio (executor and network):**
+- **Industry standard**: Required by `redis` and `reqwest` crates
+- **Network I/O**: Async TCP, TLS, and HTTP support
+- **Linux optimized**: Best performance on Raspberry Pi
+
+**Embassy (sync and time primitives):**
+- **Portability**: Same primitives work on bare-metal ESP32
+- **rs-matter compatible**: rs-matter library uses Embassy primitives
+- **Future-ready**: Enables ESP32-C6 port with minimal changes
+
+```rust
+// Time primitives from Embassy
+use embassy_time::{Timer, Duration, Ticker};
+Timer::after(Duration::from_secs(3)).await;
+
+// Sync primitives from Embassy  
+use embassy_sync::mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+```
+
+**Tokio runtime bridge**: Redis and reqwest operations run on a dedicated
+Tokio runtime, bridged via `tokio::runtime::Handle::block_on()` when called
+from Embassy-based code.
 
 ### Why Redis?
 
@@ -366,9 +395,18 @@ Thermos-Rust implements the Thermostat cluster (0x0201):
 ### Short Term
 
 - [ ] Complete rs-matter integration
-- [ ] Hardware abstraction for testing
+- [x] Hardware abstraction layer (HAL) for ESP32 portability
+- [x] Embassy primitives for bare-metal compatibility
 - [ ] Web configuration UI
 - [ ] More comprehensive tests
+
+### Medium Term (ESP32-C6 Port)
+
+- [ ] Implement ESP32 HAL (`src/hal/esp32.rs`)
+- [ ] Replace `rppal` with `embassy-esp` GPIO
+- [ ] Implement 1-Wire via bit-banging on ESP32
+- [ ] Replace HTTP sensors with local I2C/SPI sensors
+- [ ] Thread networking for Matter on ESP32
 
 ### Long Term
 
