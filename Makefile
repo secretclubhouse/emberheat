@@ -1,6 +1,6 @@
 # Makefile for Thermos-Rust
 
-.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install install-hooks matter-download matter-build matter-libs matter-clean
+.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install install-hooks
 
 # Detect operating system
 UNAME_S := $(shell uname -s)
@@ -36,20 +36,14 @@ endif
 	@echo "  install-hooks  - Install git pre-commit hooks"
 	@echo "  docs           - Generate documentation"
 	@echo ""
-	@echo "Matter library targets:"
-	@echo "  matter-download       - Download Matter source from GitHub"
-	@echo "  matter-build          - Build Matter libraries from source (host)"
-	@echo "  matter-build-docker   - Build Matter libraries in Docker (recommended)"
-	@echo "  matter-libs           - Copy built libraries to lib/ directory"
-	@echo "  matter-clean          - Remove downloaded Matter source"
-	@echo "  matter-setup          - Complete Matter setup (host build)"
-	@echo "  matter-setup-docker   - Complete Matter setup (Docker build - recommended)"
-	@echo ""
 	@echo "Workflows:"
 	@echo "  dev            - Format, lint, and test"
 	@echo "  ci             - CI checks with mock tests"
 	@echo "  ci-full        - CI checks with all tests (Linux only)"
 	@echo "  release        - Full release build"
+	@echo ""
+	@echo "Note: Matter/HomeKit integration has been removed."
+	@echo "      See MATTER_INTEGRATION.md for re-integration instructions."
 
 status:
 	@echo "Platform Status"
@@ -77,6 +71,8 @@ else
 	@echo ""
 	@echo "To run hardware tests, use Linux/Raspberry Pi or Docker"
 endif
+	@echo ""
+	@echo "Matter Integration: DISABLED (see MATTER_INTEGRATION.md)"
 	@echo ""
 	@echo "Recommended commands:"
 	@echo "  make test      - Auto-detect and run appropriate tests"
@@ -244,64 +240,3 @@ ci-full: fmt check lint test-all
 	@echo ""
 	@echo "✓ Full CI checks complete (with hardware tests)!"
 	@echo "  Platform: $(UNAME_S)"
-
-# ============================================================================
-# Matter/Connected Home IP Library Targets
-# ============================================================================
-
-# Download Matter source code from GitHub
-matter-download:
-	@echo "Downloading Matter/Connected Home IP source..."
-	./scripts/download-matter.sh
-
-# Build Matter libraries from source (host system)
-matter-build:
-	@echo "Building Matter libraries..."
-	@if [ ! -d "third_party/connectedhomeip" ]; then \
-		echo "Matter source not found. Running matter-download first..."; \
-		$(MAKE) matter-download; \
-	fi
-	./scripts/build-matter.sh
-
-# Build Matter libraries using Docker (recommended - avoids local config issues)
-matter-build-docker:
-	@echo "Building Matter libraries in Docker..."
-	./scripts/docker-build-matter.sh
-
-# Copy built Matter libraries to lib/ directory for version control
-matter-libs:
-	@echo "Copying Matter libraries..."
-	@if [ ! -d "third_party/connectedhomeip/out/host/lib" ]; then \
-		echo "Matter libraries not built yet. Run 'make matter-build' first."; \
-		exit 1; \
-	fi
-	./scripts/copy-matter-libs.sh
-
-# Complete Matter setup: download, build, and copy libraries (host system)
-matter-setup: matter-download matter-build matter-libs
-	@echo ""
-	@echo "✓ Matter setup complete!"
-	@echo "  Source: third_party/connectedhomeip/"
-	@echo "  Libraries: lib/connectedhomeip/<platform>/"
-	@echo ""
-	@echo "You can now build thermos-rust:"
-	@echo "  make build"
-
-# Complete Matter setup using Docker (recommended)
-matter-setup-docker: matter-build-docker
-	@echo ""
-	@echo "✓ Matter setup complete (Docker build)!"
-	@echo "  Libraries: lib/connectedhomeip/<platform>/"
-	@echo ""
-	@echo "You can now build thermos-rust:"
-	@echo "  make build"
-
-# Remove downloaded Matter source (keeps pre-built libraries in lib/)
-matter-clean:
-	@echo "Removing Matter source directory..."
-	@if [ -d "third_party/connectedhomeip" ]; then \
-		rm -rf third_party/connectedhomeip; \
-		echo "✓ Removed third_party/connectedhomeip"; \
-	else \
-		echo "No Matter source directory to remove"; \
-	fi

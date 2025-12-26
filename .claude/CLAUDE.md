@@ -4,12 +4,13 @@ This document provides guidance for Claude (AI assistant) when working with the 
 
 ## Project Overview
 
-Thermos-Rust is a multi-zone HomeKit thermostat system for hydronic heating, written in Rust with Matter protocol support. It's a Rust reimplementation of a Python project, targeting Raspberry Pi with GPIO control.
+Thermos-Rust is a multi-zone thermostat system for hydronic heating, written in Rust. It's a Rust reimplementation of a Python project, targeting Raspberry Pi with GPIO control.
 
 **Platform:** Linux (Raspberry Pi recommended)
 **Language:** Rust (2021 edition)
-**Protocol:** Matter/Thread for smart home integration
 **Hardware:** GPIO-based relay control, 1-Wire temperature sensors
+
+> **Note:** Matter/HomeKit integration has been removed. See `MATTER_INTEGRATION.md` for re-integration instructions.
 
 ## Key Project Characteristics
 
@@ -24,27 +25,26 @@ Thermos-Rust is a multi-zone HomeKit thermostat system for hydronic heating, wri
 1. **Hardware dependency**: GPIO operations require Linux (rppal crate)
 2. **Real-time control**: 6-second control loop must be reliable
 3. **State persistence**: Redis required for production use
-4. **Matter protocol**: Complex C++ FFI integration via Connected Home IP
-5. **Safety critical**: Controls physical heating systems
+4. **Safety critical**: Controls physical heating systems
 
 ## Project Structure
 
 ```
 src/
 ├── main.rs              - Entry point, orchestration, signal handling
-├── config/mod.rs        - Configuration loading, validation (470 lines)
-├── devices/mod.rs       - Thermostat logic, hysteresis control (581 lines)
-├── gpio/mod.rs          - Hardware abstraction, relay control (372 lines)
+├── config/mod.rs        - Configuration loading, validation
+├── devices/mod.rs       - Thermostat logic, hysteresis control
+├── gpio/mod.rs          - Hardware abstraction, relay control
 ├── sensors/             - Temperature sensor implementations
-│   ├── mod.rs          - Sensor traits, composite sensors (318 lines)
-│   └── onewire.rs      - DS18B20 1-Wire implementation (222 lines)
-├── persistence/mod.rs   - Redis state management (333 lines)
-├── metrics/mod.rs       - Prometheus metrics export (279 lines)
-├── matter/mod.rs        - Matter protocol integration (1,174 lines)
+│   ├── mod.rs          - Sensor traits, composite sensors
+│   └── onewire.rs      - DS18B20 1-Wire implementation
+├── persistence/mod.rs   - Redis state management
+├── metrics/mod.rs       - Prometheus metrics export
+├── matter/mod.rs        - Matter protocol stub (disabled)
 └── mocks/               - Test infrastructure
-    ├── gpio_mock.rs    - Mock GPIO for testing (190 lines)
-    ├── sensor_mock.rs  - Mock sensors (228 lines)
-    └── state_mock.rs   - Mock state manager (276 lines)
+    ├── gpio_mock.rs    - Mock GPIO for testing
+    ├── sensor_mock.rs  - Mock sensors
+    └── state_mock.rs   - Mock state manager
 ```
 
 ## Working with This Project
@@ -64,7 +64,6 @@ src/
 
 3. **Check for breaking changes:**
    - GPIO pin assignments are critical (documented in config)
-   - Matter cluster attributes must match specification
    - State persistence format affects Redis compatibility
    - Hysteresis constants affect heating behavior
 
@@ -91,7 +90,6 @@ make test-mock
 - Hysteresis logic (prevent relay chatter)
 - Sensor error handling (power cycling)
 - State persistence (Redis round-trips)
-- Matter attribute conversions (centi-degrees)
 - GPIO safety (no concurrent access)
 
 ### Code Style Guidelines
@@ -143,15 +141,6 @@ make test-mock
 4. Document rationale in commit message
 5. Update ARCHITECTURE.md if design changes
 
-#### Adding Matter Cluster Attributes
-
-1. Define attribute in `src/matter/mod.rs`
-2. Implement read/write handlers
-3. Add to thermostat state synchronization
-4. Test with Matter controller (HomeKit, etc.)
-5. Verify specification compliance
-6. Update documentation
-
 #### Changing GPIO Pin Assignments
 
 ⚠️ **DANGEROUS**: Incorrect pins can damage hardware
@@ -195,8 +184,6 @@ cargo tarpaulin --out Html
 
 ### Makefile Targets
 
-The project includes a comprehensive Makefile (286 lines):
-
 ```bash
 make help           # Show all available targets
 make build          # Build release binary
@@ -226,22 +213,6 @@ make clean          # Clean build artifacts
 - `redis` - State persistence (0.27)
 - `prometheus` - Metrics (0.14)
 - `serde/serde_json` - Serialization (1.0)
-
-### Matter Protocol Integration
-
-The Matter integration uses FFI to Connected Home IP (C++ library):
-
-**Build process:**
-1. `build.rs` compiles C wrapper code
-2. Generates Rust bindings
-3. Links against CHIP library (if available)
-4. Falls back to stub implementation for development
-
-**Working with Matter code:**
-- C++ library in `third_party/connectedhomeip` (git submodule)
-- FFI bindings in `src/matter/ffi/`
-- Rust wrapper in `src/matter/mod.rs`
-- See `MATTER_SETUP.md` for full build instructions
 
 ### Configuration Format
 
@@ -281,7 +252,6 @@ Configuration is JSON-based (`config.json`):
 
 ### Security
 - **No authentication**: Redis and Prometheus should be firewalled
-- **Matter security**: Uses Matter's built-in commissioning flow
 - **Config validation**: Invalid configs fail fast at startup
 - **Privilege escalation**: Requires root for GPIO access
 
@@ -315,11 +285,6 @@ RUST_LOG=thermos_rust::devices=debug,thermos_rust::sensors=trace ./thermos-rust
 - Check Redis running: `sudo systemctl status redis`
 - Test connectivity: `redis-cli ping`
 
-**"Matter commissioning fails"**
-- Check UDP port 5540 open
-- Verify device on same network
-- Review logs for specific errors
-
 ### Metrics and Monitoring
 
 Prometheus metrics available at `http://<ip>:8080/metrics`:
@@ -346,7 +311,7 @@ Follow conventional commits format:
 ```
 feat: add humidity sensor support
 fix: correct hysteresis boundary condition
-docs: update Matter setup instructions
+docs: update setup instructions
 test: add integration tests for power cycling
 refactor: extract sensor error handling
 ```
@@ -372,6 +337,7 @@ cargo test --test mock_integration_tests  # Cross-platform tests
 - **ARCHITECTURE.md**: Technical design decisions
 - **TESTING.md**: Test infrastructure, mocking
 - **CONTRIBUTING.md**: Development workflow
+- **MATTER_INTEGRATION.md**: Re-adding Matter support
 
 ### Inline Comments
 - Explain "why" not "what" (code shows what)
@@ -401,33 +367,6 @@ cargo test --test mock_integration_tests  # Cross-platform tests
 - Redis writes: async, non-blocking
 - Metrics update: per control loop iteration
 
-## Matter Protocol Specifics
-
-### Thermostat Cluster (0x0201)
-
-**Attributes:**
-- `LocalTemperature` (0x0000): int16, centi-degrees C, read-only
-- `OccupiedHeatingSetpoint` (0x0012): int16, centi-degrees C, read-write
-- `SystemMode` (0x001C): enum8, Off(0x00) or Heat(0x04), read-write
-- `ThermostatRunningState` (0x0029): bitmap8, bit 0 = heat on, read-only
-
-**Conversions:**
-```rust
-// Celsius to centi-degrees
-let centi_c = (temp_c * 100.0) as i16;
-
-// Centi-degrees to Celsius
-let temp_c = (centi_c as f32) / 100.0;
-```
-
-### Commissioning Flow
-1. App starts Matter server
-2. Generate QR code + pairing code (displayed in logs)
-3. User scans QR code in smart home app
-4. Matter handshake, cryptographic pairing
-5. Device joins Matter fabric
-6. Thermostats appear as accessories
-
 ## Quick Reference
 
 ### File Locations
@@ -445,14 +384,12 @@ let temp_c = (centi_c as f32) / 100.0;
 
 ### Port Usage
 - Prometheus metrics: 8080
-- Matter protocol: 5540 (UDP)
 - Redis: 6379
 
 ## Resources
 
 - [Rust Book](https://doc.rust-lang.org/book/)
 - [Tokio Tutorial](https://tokio.rs/tokio/tutorial)
-- [Matter Specification](https://csa-iot.org/developer-resource/specifications-download-request/)
 - [rppal Documentation](https://docs.rs/rppal)
 - [Prometheus Metrics](https://prometheus.io/docs/introduction/overview/)
 

@@ -6,9 +6,9 @@
 use super::{SensorError, TemperatureReading, TemperatureSensor, SENSOR_READ_TIMEOUT};
 use anyhow::Result;
 use async_trait::async_trait;
+use embassy_time::{with_timeout, Duration as EmbassyDuration};
 use std::path::PathBuf;
 use tokio::fs;
-use tokio::time::timeout;
 use tracing::{debug, trace};
 
 /// 1-Wire base directory on Linux
@@ -131,8 +131,9 @@ impl TemperatureSensor for OneWireSensor {
     async fn read_temperature(&self) -> Result<TemperatureReading> {
         debug!("Reading 1-Wire sensor: {}", self.sensor_id);
 
-        // Read with timeout
-        let content = timeout(SENSOR_READ_TIMEOUT, fs::read_to_string(&self.device_path))
+        // Read with timeout - convert std::time::Duration to embassy_time::Duration
+        let timeout_duration = EmbassyDuration::from_millis(SENSOR_READ_TIMEOUT.as_millis() as u64);
+        let content = with_timeout(timeout_duration, fs::read_to_string(&self.device_path))
             .await
             .map_err(|_| SensorError::Timeout)?
             .map_err(|e| SensorError::IoError(e.to_string()))?;

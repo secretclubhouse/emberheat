@@ -67,7 +67,10 @@ pub async fn run_network_diagnostics(matter_port: u16) -> Result<(), Vec<Network
         info!("✓ Network diagnostics passed: All checks OK");
         Ok(())
     } else {
-        warn!("⚠ Network diagnostics found {} potential issue(s):", warnings.len());
+        warn!(
+            "⚠ Network diagnostics found {} potential issue(s):",
+            warnings.len()
+        );
         for warning in &warnings {
             warn!("  [{}] {}", warning.category, warning.message);
             if let Some(ref suggestion) = warning.suggestion {
@@ -217,7 +220,10 @@ pub async fn check_firewall_rules(port: u16) {
                 if status.contains(&format!("{}/udp", port)) {
                     info!("✓ Firewall allows UDP port {}", port);
                 } else {
-                    warn!("Firewall is active but UDP port {} may not be allowed", port);
+                    warn!(
+                        "Firewall is active but UDP port {} may not be allowed",
+                        port
+                    );
                     warn!("  → To allow: sudo ufw allow {}/udp", port);
                 }
             } else {

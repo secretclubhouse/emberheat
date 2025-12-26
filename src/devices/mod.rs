@@ -45,11 +45,12 @@ use crate::metrics;
 use crate::persistence::{StateManager, ThermostatState};
 use crate::sensors::{CompositeSensor, TemperatureReading, TemperatureSensor};
 use anyhow::{Context, Result};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+use embassy_time::{Duration as EmbassyDuration, Ticker, Timer};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
-use tokio::time::{interval, sleep};
+use std::time::Instant;
 use tracing::{debug, error, info, warn};
 
 /// Hysteresis upper threshold (°C)
@@ -119,6 +120,10 @@ impl From<HeatingState> for RelayState {
     }
 }
 
+/// Type alias for Embassy mutex used in this module
+/// Uses CriticalSectionRawMutex for Send + Sync compatibility with tokio::spawn
+type EmbassyMutex<T> = Mutex<CriticalSectionRawMutex, T>;
+
 /// Thermostat implementation
 pub struct Thermostat {
     /// Zone name
@@ -137,19 +142,19 @@ pub struct Thermostat {
     state_manager: Arc<StateManager>,
 
     /// Current temperature (Celsius)
-    current_temp: Arc<RwLock<f32>>,
+    current_temp: EmbassyMutex<f32>,
 
     /// Target temperature (Celsius)
-    target_temp: Arc<RwLock<f32>>,
+    target_temp: EmbassyMutex<f32>,
 
     /// Target heating state
-    target_state: Arc<RwLock<HeatingState>>,
+    target_state: EmbassyMutex<HeatingState>,
 
     /// Current heating state
-    current_state: Arc<RwLock<HeatingState>>,
+    current_state: EmbassyMutex<HeatingState>,
 
     /// Sensor reset tracking
-    sensor_being_reset: Arc<RwLock<HashMap<String, Instant>>>,
+    sensor_being_reset: EmbassyMutex<HashMap<String, Instant>>,
 }
 
 impl Thermostat {
@@ -208,23 +213,24 @@ impl Thermostat {
             sensor,
             gpio,
             state_manager,
-            current_temp: Arc::new(RwLock::new(TEMP_ERROR_DEFAULT_C)),
-            target_temp: Arc::new(RwLock::new(initial_state.target_temp)),
-            target_state: Arc::new(RwLock::new(HeatingState::from(initial_state.target_state))),
-            current_state: Arc::new(RwLock::new(HeatingState::from(initial_state.current_state))),
-            sensor_being_reset: Arc::new(RwLock::new(HashMap::new())),
+            current_temp: Mutex::new(TEMP_ERROR_DEFAULT_C),
+            target_temp: Mutex::new(initial_state.target_temp),
+            target_state: Mutex::new(HeatingState::from(initial_state.target_state)),
+            current_state: Mutex::new(HeatingState::from(initial_state.current_state)),
+            sensor_being_reset: Mutex::new(HashMap::new()),
         })
     }
 
     /// Get current temperature (Celsius)
+    #[allow(dead_code)]
     pub async fn get_current_temp(&self) -> f32 {
-        *self.current_temp.read().await
+        *self.current_temp.lock().await
     }
 
     /// Get target temperature (Celsius)
     #[allow(dead_code)]
     pub async fn get_target_temp(&self) -> f32 {
-        *self.target_temp.read().await
+        *self.target_temp.lock().await
     }
 
     /// Set target temperature (Celsius)
@@ -235,7 +241,7 @@ impl Thermostat {
             self.name, temp
         );
 
-        *self.target_temp.write().await = temp;
+        *self.target_temp.lock().await = temp;
 
         // Persist state
         self.save_state().await?;
@@ -246,7 +252,7 @@ impl Thermostat {
     /// Get target heating state
     #[allow(dead_code)]
     pub async fn get_target_state(&self) -> HeatingState {
-        *self.target_state.read().await
+        *self.target_state.lock().await
     }
 
     /// Set target heating state
@@ -254,7 +260,7 @@ impl Thermostat {
     pub async fn set_target_state(&self, state: HeatingState) -> Result<()> {
         info!("Zone {}: Setting target state to {:?}", self.name, state);
 
-        *self.target_state.write().await = state;
+        *self.target_state.lock().await = state;
 
         // Persist state
         self.save_state().await?;
@@ -263,8 +269,9 @@ impl Thermostat {
     }
 
     /// Get current heating state
+    #[allow(dead_code)]
     pub async fn get_current_state(&self) -> HeatingState {
-        *self.current_state.read().await
+        *self.current_state.lock().await
     }
 
     /// Save current state to persistence
@@ -273,9 +280,9 @@ impl Thermostat {
             relay_pin: self.config.relay_pin,
             temp_pin: self.config.temp_pin,
             temp_id: self.config.temp_id.clone(),
-            target_temp: *self.target_temp.read().await,
-            target_state: (*self.target_state.read().await).into(),
-            current_state: (*self.current_state.read().await).into(),
+            target_temp: *self.target_temp.lock().await,
+            target_state: (*self.target_state.lock().await).into(),
+            current_state: (*self.current_state.lock().await).into(),
             last_updated: chrono::Utc::now(),
         };
 
@@ -302,11 +309,11 @@ impl Thermostat {
 
         // Check if already resetting
         {
-            let reset_map = self.sensor_being_reset.read().await;
+            let reset_map = self.sensor_being_reset.lock().await;
             if let Some(reset_time) = reset_map.get(sensor_id) {
                 let elapsed = reset_time.elapsed();
                 if elapsed
-                    < Duration::from_secs(
+                    < std::time::Duration::from_secs(
                         POWER_CYCLE_DOWN_TIME_SECS + POWER_CYCLE_RECOVERY_TIME_SECS,
                     )
                 {
@@ -321,7 +328,7 @@ impl Thermostat {
 
         // Mark sensor as being reset
         {
-            let mut reset_map = self.sensor_being_reset.write().await;
+            let mut reset_map = self.sensor_being_reset.lock().await;
             reset_map.insert(sensor_id.to_string(), Instant::now());
         }
 
@@ -331,18 +338,18 @@ impl Thermostat {
         // Power cycle VCC
         if let Err(e) = self
             .gpio
-            .power_cycle_vcc(Duration::from_secs(POWER_CYCLE_DOWN_TIME_SECS))
+            .power_cycle_vcc(std::time::Duration::from_secs(POWER_CYCLE_DOWN_TIME_SECS))
             .await
         {
             error!("Zone {}: Failed to power cycle VCC: {}", self.name, e);
         }
 
         // Wait for recovery
-        sleep(Duration::from_secs(POWER_CYCLE_RECOVERY_TIME_SECS)).await;
+        Timer::after(EmbassyDuration::from_secs(POWER_CYCLE_RECOVERY_TIME_SECS)).await;
 
         // Remove from reset tracking
         {
-            let mut reset_map = self.sensor_being_reset.write().await;
+            let mut reset_map = self.sensor_being_reset.lock().await;
             reset_map.remove(sensor_id);
         }
 
@@ -351,8 +358,8 @@ impl Thermostat {
 
     /// Apply hysteresis control logic
     async fn apply_control_logic(&self, current_temp_c: f32) {
-        let target_temp_c = *self.target_temp.read().await;
-        let target_state = *self.target_state.read().await;
+        let target_temp_c = *self.target_temp.lock().await;
+        let target_state = *self.target_state.lock().await;
         let current_relay_state = self
             .gpio
             .get_relay_state(self.config.relay_pin)
@@ -391,7 +398,7 @@ impl Thermostat {
                     self.name, new_heating_state, current_temp_c, target_temp_c
                 );
 
-                *self.current_state.write().await = new_heating_state;
+                *self.current_state.lock().await = new_heating_state;
 
                 // Persist state change
                 if let Err(e) = self.save_state().await {
@@ -406,8 +413,8 @@ impl Thermostat {
 
     /// Update metrics
     async fn update_metrics(&self, temp_reading: &TemperatureReading) {
-        let heat_on = *self.current_state.read().await == HeatingState::Heat;
-        let target_temp = *self.target_temp.read().await;
+        let heat_on = *self.current_state.lock().await == HeatingState::Heat;
+        let target_temp = *self.target_temp.lock().await;
 
         metrics::update_current_temp(&self.name, temp_reading.fahrenheit, heat_on);
         metrics::update_target_temp(&self.name, target_temp * 9.0 / 5.0 + 32.0, heat_on);
@@ -418,12 +425,12 @@ impl Thermostat {
     ///
     /// Runs continuously, reading temperature and applying control logic
     pub async fn run(&self) -> Result<()> {
-        let mut ticker = interval(Duration::from_secs(CONTROL_LOOP_INTERVAL_SECS));
+        let mut ticker = Ticker::every(EmbassyDuration::from_secs(CONTROL_LOOP_INTERVAL_SECS));
 
         info!("Zone {}: Starting control loop", self.name);
 
         loop {
-            ticker.tick().await;
+            ticker.next().await;
 
             // Read temperature
             match self.read_temperature().await {
@@ -433,7 +440,7 @@ impl Thermostat {
                         self.name, reading.celsius, reading.fahrenheit
                     );
 
-                    *self.current_temp.write().await = reading.celsius;
+                    *self.current_temp.lock().await = reading.celsius;
 
                     // Apply control logic
                     self.apply_control_logic(reading.celsius).await;
@@ -448,7 +455,7 @@ impl Thermostat {
                     self.handle_sensor_error(&e).await;
 
                     // Use default temperature
-                    *self.current_temp.write().await = TEMP_ERROR_DEFAULT_C;
+                    *self.current_temp.lock().await = TEMP_ERROR_DEFAULT_C;
                 }
             }
         }

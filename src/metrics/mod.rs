@@ -39,14 +39,16 @@
 //! ```
 
 use anyhow::Result;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex as EmbassyMutex;
 use lazy_static::lazy_static;
 use prometheus::{
-    register_counter_vec, register_gauge_vec, register_gauge, CounterVec, Encoder, Gauge, GaugeVec, TextEncoder,
+    register_counter_vec, register_gauge, register_gauge_vec, CounterVec, Encoder, Gauge, GaugeVec,
+    TextEncoder,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 
 lazy_static! {
@@ -117,8 +119,9 @@ pub struct MatterStatus {
 /// Metrics server for Prometheus export and Matter diagnostics
 pub struct MetricsServer {
     port: u16,
-    matter_status: Arc<RwLock<Option<MatterStatus>>>,
-    qr_code_data: Arc<RwLock<Option<String>>>,
+    /// Uses CriticalSectionRawMutex for Send + Sync compatibility with tokio::spawn
+    matter_status: EmbassyMutex<CriticalSectionRawMutex, Option<MatterStatus>>,
+    qr_code_data: EmbassyMutex<CriticalSectionRawMutex, Option<String>>,
 }
 
 impl MetricsServer {
@@ -131,14 +134,14 @@ impl MetricsServer {
         info!("Metrics server initialized on port {}", port);
         Ok(Self {
             port,
-            matter_status: Arc::new(RwLock::new(None)),
-            qr_code_data: Arc::new(RwLock::new(None)),
+            matter_status: EmbassyMutex::new(None),
+            qr_code_data: EmbassyMutex::new(None),
         })
     }
 
     /// Update Matter status
     pub async fn set_matter_status(&self, status: MatterStatus) {
-        let mut matter_status = self.matter_status.write().await;
+        let mut matter_status = self.matter_status.lock().await;
         *matter_status = Some(status.clone());
 
         // Update Prometheus metrics
@@ -153,19 +156,19 @@ impl MetricsServer {
 
     /// Set QR code data for display
     pub async fn set_qr_code(&self, qr_code: String) {
-        let mut qr_data = self.qr_code_data.write().await;
+        let mut qr_data = self.qr_code_data.lock().await;
         *qr_data = Some(qr_code);
         debug!("QR code data updated");
     }
 
     /// Get Matter status
     async fn get_matter_status(&self) -> Option<MatterStatus> {
-        self.matter_status.read().await.clone()
+        self.matter_status.lock().await.clone()
     }
 
     /// Get QR code
     async fn get_qr_code(&self) -> Option<String> {
-        self.qr_code_data.read().await.clone()
+        self.qr_code_data.lock().await.clone()
     }
 
     /// Run the metrics server
@@ -176,7 +179,10 @@ impl MetricsServer {
         let listener = TcpListener::bind(addr).await?;
 
         info!("Metrics server listening on http://{}/metrics", addr);
-        info!("Matter diagnostics available at http://{}/matter/status", addr);
+        info!(
+            "Matter diagnostics available at http://{}/matter/status",
+            addr
+        );
         info!("Matter QR code available at http://{}/matter/qr_code", addr);
 
         loop {
@@ -198,7 +204,10 @@ impl MetricsServer {
 }
 
 /// Handle incoming HTTP connection
-async fn handle_connection(mut stream: tokio::net::TcpStream, server: Arc<MetricsServer>) -> Result<()> {
+async fn handle_connection(
+    mut stream: tokio::net::TcpStream,
+    server: Arc<MetricsServer>,
+) -> Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let mut buffer = [0; 2048];
@@ -257,7 +266,8 @@ async fn handle_connection(mut stream: tokio::net::TcpStream, server: Arc<Metric
              Try checking the QR code file at:\n\
              - /var/lib/thermos-rust/matter_qr_code.txt\n\
              - ~/.config/thermos-rust/matter_qr_code.txt\n\
-             - ./matter_qr_code.txt\n".to_string()
+             - ./matter_qr_code.txt\n"
+                .to_string()
         };
 
         let response = format!(

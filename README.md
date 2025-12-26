@@ -1,15 +1,16 @@
 # Thermos-Rust
 
-A multi-zone HomeKit thermostat system for hydronic heating, written in Rust with Matter protocol support.
+A multi-zone thermostat system for hydronic heating, written in Rust.
 
 **Platform Requirements:** Linux (Raspberry Pi recommended)
 
-This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and Matter/Thread protocol integration for modern smart home ecosystems using the official Connected Home IP library.
+This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and a foundation for smart home integration.
+
+> **Note:** Matter/HomeKit integration has been removed from this version. See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for re-integration instructions.
 
 ## Features
 
 - **Multi-Zone Control**: Independent temperature control for multiple heating zones
-- **Matter Protocol**: Native Matter/Thread support using Connected Home IP library for seamless integration with HomeKit, Google Home, and Alexa
 - **Hysteresis Control**: Intelligent heating control with configurable dead band to prevent rapid cycling
 - **Multiple Sensor Types**:
   - 1-Wire DS18B20 temperature sensors (primary)
@@ -22,18 +23,9 @@ This is a Rust reimplementation of the [Thermos](https://github.com/truncj/therm
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│          Apple Home / Matter Controllers                │
-└────────────────┬────────────────────────────────────────┘
-                 │ Matter Protocol (UDP 5540)
-         ┌───────▼──────────────┐
-         │  Matter Server       │
-         │  (Connected Home IP) │
-         └───────┬──────────────┘
-                 │
-         ┌───────▼──────────────┐
-         │  Thermostat Bridge   │
-         └───────┬──────────────┘
+         ┌───────────────────────┐
+         │  Thermostat Bridge    │
+         └───────┬───────────────┘
                  │
     ┌────────────┼────────────┬──────────┐
     │            │            │          │
@@ -47,8 +39,8 @@ This is a Rust reimplementation of the [Thermos](https://github.com/truncj/therm
     ▼    ▼      ▼     ▼     ▼      ▼   ▼
  ┌─────────────────────────────────────┐
  │ GPIO Controller (rppal)             │
- │ ├─ Relay Pins (heating control)    │
- │ ├─ Temp Pins (sensor power)        │
+ │ ├─ Relay Pins (heating control)     │
+ │ ├─ Temp Pins (sensor power)         │
  │ └─ VCC Pin (power cycling)          │
  └─────────────────────────────────────┘
     │           │                      │
@@ -96,18 +88,7 @@ sudo apt-get install -y \
     build-essential \
     pkg-config \
     libssl-dev \
-    redis-server \
-    g++ \
-    clang \
-    cmake \
-    ninja-build \
-    python3 \
-    python3-pip \
-    git \
-    git-lfs
-
-# Optional: Matter protocol dependencies (for full Matter support)
-# sudo apt-get install -y libglib2.0-dev libavahi-client-dev libreadline-dev
+    redis-server
 
 # Enable 1-Wire interface
 sudo raspi-config
@@ -124,48 +105,6 @@ cd thermos-rust
 cargo build --release
 
 # The binary will be at: target/release/thermos-rust
-
-# For Matter protocol support, see MATTER_SETUP.md for additional steps
-```
-
-## Matter Protocol Integration
-
-Thermos-Rust integrates with the **Matter protocol** (formerly Project CHIP) using the official **Connected Home IP** C++ library. This enables native integration with Apple HomeKit, Google Home, Amazon Alexa, and other Matter-compatible ecosystems.
-
-### Quick Start (Stub Implementation)
-
-The project includes a stub implementation for development:
-
-```bash
-# Standard build (uses stub, no actual Matter functionality)
-cargo build --release
-```
-
-### Full Matter Support
-
-For actual Matter protocol functionality, you need to build the Connected Home IP library. See **[MATTER_SETUP.md](MATTER_SETUP.md)** for complete instructions.
-
-**Quick summary:**
-
-```bash
-# 1. Initialize the Connected Home IP submodule
-git submodule update --init --recursive
-
-# 2. Build the Matter library
-cd third_party/connectedhomeip
-source scripts/activate.sh
-gn gen out/host
-ninja -C out/host
-cd ../..
-
-# 3. Build Thermos-Rust
-cargo build --release
-```
-
-**Commissioning:** When you run the application, it will display a QR code and pairing code that you can use to add the device to your smart home ecosystem.
-
-For detailed setup instructions, troubleshooting, and configuration options, see **[MATTER_SETUP.md](MATTER_SETUP.md)**.
-
 ```
 
 ### Cross-Compilation for Raspberry Pi
@@ -304,15 +243,6 @@ sudo systemctl enable thermos-rust
 sudo systemctl start thermos-rust
 sudo systemctl status thermos-rust
 ```
-
-### Commissioning with Matter
-
-1. Start the application
-2. Look for the QR code and pairing code in the logs
-3. Open your Matter-compatible app (Apple Home, Google Home, etc.)
-4. Select "Add Accessory" or "Add Device"
-5. Scan the QR code or enter the manual pairing code
-6. Follow the on-screen instructions to complete commissioning
 
 ## Monitoring
 
@@ -524,9 +454,8 @@ cargo clippy --all-features -- -W clippy::pedantic
 
 ## Comparison with Python Version
 
-| Feature | Python (HAP) | Rust (Matter) |
-|---------|--------------|---------------|
-| **Protocol** | HAP (HomeKit Accessory Protocol) | Matter (CHIP) |
+| Feature | Python (HAP) | Rust |
+|---------|--------------|------|
 | **Language** | Python 3 | Rust |
 | **Memory Usage** | ~50-100 MB | ~5-10 MB (estimated) |
 | **Startup Time** | ~5 seconds | ~1 second (estimated) |
@@ -536,8 +465,6 @@ cargo clippy --all-features -- -W clippy::pedantic
 | **Sensor Library** | w1thermsensor | Custom 1-Wire reader |
 | **Redis Client** | redis-py | redis-rs |
 | **Metrics** | prometheus_client | prometheus |
-| **Ecosystems** | Apple HomeKit only | Apple, Google, Amazon, etc. |
-| **Setup Complexity** | QR code pairing | Matter commissioning |
 
 ## Troubleshooting
 
@@ -580,13 +507,6 @@ redis-cli ping
 # Should respond: PONG
 ```
 
-#### 4. Matter Pairing Fails
-
-- Ensure UDP port 5540 is not blocked by firewall
-- Verify device is on same network as controller
-- Try factory reset and re-commission
-- Check logs for specific error messages
-
 ### Debug Mode
 
 Enable detailed logging:
@@ -600,7 +520,6 @@ This will show:
 - Detailed sensor readings
 - GPIO pin state changes
 - Redis operations
-- Matter protocol messages
 
 ## Performance Tuning
 
@@ -659,7 +578,6 @@ cargo test gpio           # GPIO tests
 | Sensors   | 5 tests    | ✓          | ✓                 |
 | State     | 5 tests    | ✓          | ✓                 |
 | Devices   | 2 tests    | ✓          | 50+ scenarios     |
-| Matter    | 50+ tests  | ✓          | ✓                 |
 
 See [TESTING.md](TESTING.md) for detailed information about mock implementations and cross-platform testing.
 
@@ -684,8 +602,6 @@ MIT License - see LICENSE file for details
 ## Acknowledgments
 
 - Original Python implementation: [Thermos](https://github.com/truncj/thermos)
-- Matter protocol: [Project CHIP](https://github.com/project-chip/connectedhomeip)
-- Rust Matter stack: [rs-matter](https://github.com/project-chip/rs-matter)
 - GPIO library: [rppal](https://github.com/golemparts/rppal)
 
 ## Support
@@ -697,8 +613,7 @@ For issues and questions:
 
 ## Roadmap
 
-- [ ] Complete Matter stack integration with rs-matter
-- [ ] Thread network support
+- [ ] Re-add Matter/HomeKit integration (see [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md))
 - [ ] Web UI for configuration and monitoring
 - [ ] Mobile app for direct control
 - [x] Grafana dashboard templates
@@ -706,4 +621,3 @@ For issues and questions:
 - [ ] Home Assistant integration
 - [ ] Energy usage tracking
 - [ ] Smart scheduling and automation
-- [ ] Machine learning for predictive heating
