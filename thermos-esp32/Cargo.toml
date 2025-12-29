@@ -8,12 +8,12 @@ license = "MIT"
 # Platform-agnostic core library (without embassy - esp-rtos provides it)
 thermos-core = { path = "../thermos-core", default-features = false }
 
-# ESP32-C6 HAL and platform support (latest stable versions)
-esp-hal = { version = "1.0", features = ["esp32c6"] }
-esp-rtos = { version = "0.2", features = ["esp32c6", "embassy"] }
+# ESP32-C6 HAL and platform support (with unstable feature for esp-radio)
+esp-hal = { version = "1.0", features = ["esp32c6", "unstable"] }
+esp-rtos = { version = "0.2", features = ["esp32c6", "embassy", "esp-radio", "esp-alloc"] }
 esp-backtrace = { version = "0.18", features = ["esp32c6", "panic-handler", "println"] }
 esp-println = { version = "0.16", features = ["esp32c6"] }
-esp-alloc = "0.9"
+esp-alloc = { version = "0.9", features = ["esp32c6"] }
 esp-storage = { version = "0.8", features = ["esp32c6"] }
 
 # Embassy dependencies (must match esp-rtos versions)
@@ -37,11 +37,21 @@ bme280 = { version = "0.5", default-features = false }
 # Embedded storage traits
 embedded-storage = "0.3"
 
+# WiFi and networking (esp-radio replaces esp-wifi)
+esp-radio = { version = "0.17", features = ["esp32c6", "wifi", "esp-alloc"] }
+embassy-net = { version = "0.7", features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embedded-io-async = "0.6"
+
+# MQTT client (no_std compatible)
+rust-mqtt = { version = "0.3", default-features = false }
+
 # Utilities
 log = { workspace = true }
 heapless = "0.9"
 static_cell = "2.1"
 fugit = "0.3"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+serde-json-core = { version = "0.6", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.48", features = ["rt", "macros", "sync", "time"] }
@@ -52,6 +62,10 @@ default = []
 [profile.dev]
 opt-level = "z"
 lto = "fat"
+
+# esp-radio requires optimization level 2 or 3 for proper connectivity
+[profile.dev.package.esp-radio]
+opt-level = 3
 
 [profile.release]
 opt-level = "z"

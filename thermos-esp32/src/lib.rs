@@ -5,6 +5,8 @@
 //! This library provides ESP32-specific implementations of the
 //! thermos-core traits for bare-metal embedded systems.
 
+extern crate alloc;
+
 pub mod gpio_impl;
 pub mod persistence_nvs;
 pub mod sensor_i2c;
@@ -17,4 +19,4 @@ mod mocks;
 pub use gpio_impl::Esp32GpioPin;
 pub use persistence_nvs::NvsStorage;
 pub use sensor_i2c::{Bme280Sensor, MockSensor};
-pub use wifi::{WifiConfig, WifiManager};
+pub use wifi::WifiConfig;
