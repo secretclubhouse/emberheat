@@ -1,92 +1,38 @@
-[package]
-name = "thermos-rust"
-version = "0.1.0"
-edition = "2021"
-authors = ["Thermos Contributors"]
-description = "Multi-zone HomeKit thermostat system using Matter protocol"
-license = "MIT"
-repository = "https://github.com/josht/thermos-rust"
+[workspace]
+members = [
+    "thermos-core",
+    "thermos-linux",
+    "thermos-esp32",
+]
+resolver = "2"
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
-
-[dependencies]
-# Embassy async runtime (primary executor with std support)
-embassy-executor = { version = "0.9", features = ["arch-std", "executor-thread"] }
-embassy-time = { version = "0.5", features = ["std", "generic-queue-64"] }
-embassy-sync = "0.7"
+[workspace.dependencies]
+# Shared Embassy dependencies for all crates
+# Using 0.2 versions to match esp-rtos requirements
+embassy-executor = "0.6"
+embassy-time = "0.3"
+embassy-sync = "0.6"
 embassy-futures = "0.1"
-critical-section = { version = "1.2", features = ["std"] }
 
-# Tokio - kept for redis/reqwest compatibility and during migration
-tokio = { version = "1.48", features = ["rt", "rt-multi-thread", "sync", "time", "net", "io-util", "fs", "macros", "signal"] }
-futures = "0.3"
+# Shared serialization
+# Must disable default 'std' feature for no_std compatibility
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
-# Async trait support
-async-trait = "0.1"
-
-# Lazy static for global metrics
-lazy_static = "1.5"
-
-# Configuration and serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-toml = "0.8"
-
-# Redis client
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-
-# Prometheus metrics
-prometheus = { version = "0.14", features = ["process"] }
-
-# HTTP client for extra sensors
-# Using rustls-tls instead of default openssl for easier cross-compilation
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-
-# Error handling
+# Shared error handling
 thiserror = "2.0"
 anyhow = "1.0"
 
-# Signal handling
-tokio-util = "0.7"
-signal-hook = "0.3"
-signal-hook-tokio = { version = "0.3", features = ["futures-v0_3"] }
+# Shared logging
+tracing = "0.1"
+log = "0.4"
+
+# Shared async utilities
+async-trait = "0.1"
+futures = "0.3"
 
 # Time utilities
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4"
 
-# QR code generation for Matter commissioning
-qrcode = "0.14"
-
-# Platform-specific dependencies
-[target.'cfg(target_os = "linux")'.dependencies]
-rppal = "0.22"  # Raspberry Pi GPIO library (Linux only)
-
-[build-dependencies]
-# Minimal build dependencies (Matter integration removed)
-
-[dev-dependencies]
-mockall = "0.13"
-tokio-test = "0.4"
-tempfile = "3.14"
-pretty_assertions = "1.4"
-serial_test = "3.2"
-
-[features]
-default = []
-# Matter integration is currently disabled
-# See MATTER_INTEGRATION.md for re-integration instructions
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
-
-[profile.dev]
-opt-level = 0
-debug = true
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
