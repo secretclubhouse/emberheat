@@ -10,6 +10,7 @@ extern crate alloc;
 pub mod gpio_impl;
 pub mod persistence_nvs;
 pub mod sensor_i2c;
+pub mod sensor_onewire;
 pub mod wifi;
 
 #[cfg(test)]
@@ -19,4 +20,5 @@ mod mocks;
 pub use gpio_impl::Esp32GpioPin;
 pub use persistence_nvs::NvsStorage;
 pub use sensor_i2c::{Bme280Sensor, MockSensor};
+pub use sensor_onewire::Ds18b20Sensor;
 pub use wifi::WifiConfig;
