@@ -1,0 +1,59 @@
+[package]
+name = "thermos-esp32"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+# Platform-agnostic core library (without embassy - esp-rtos provides it)
+thermos-core = { path = "../thermos-core", default-features = false }
+
+# ESP32-C6 HAL and platform support (latest stable versions)
+esp-hal = { version = "1.0", features = ["esp32c6"] }
+esp-rtos = { version = "0.2", features = ["esp32c6", "embassy"] }
+esp-backtrace = { version = "0.18", features = ["esp32c6", "panic-handler", "println"] }
+esp-println = { version = "0.16", features = ["esp32c6"] }
+esp-alloc = "0.9"
+esp-storage = { version = "0.8", features = ["esp32c6"] }
+
+# Embassy dependencies (must match esp-rtos versions)
+embassy-executor = "0.9"
+embassy-sync = "0.7"
+embassy-time = "0.4"
+
+# Embassy async runtime - esp-rtos provides these, so don't use workspace versions
+# embassy-executor = { workspace = true }
+# embassy-time = { workspace = true }
+# embassy-sync = { workspace = true }
+# embassy-futures = { workspace = true }
+
+# Embedded HAL traits
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+
+# I2C sensor driver (BME280)
+bme280 = { version = "0.5", default-features = false }
+
+# Embedded storage traits
+embedded-storage = "0.3"
+
+# Utilities
+log = { workspace = true }
+heapless = "0.9"
+static_cell = "2.1"
+fugit = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["rt", "macros", "sync", "time"] }
+
+[features]
+default = []
+
+[profile.dev]
+opt-level = "z"
+lto = "fat"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
