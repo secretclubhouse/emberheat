@@ -45,6 +45,9 @@ embedded-io-async = "0.6"
 # MQTT client (no_std compatible)
 rust-mqtt = { version = "0.3", default-features = false }
 
+# 1-Wire DS18B20 temperature sensor (using RMT peripheral)
+esp-hal-rmt-onewire = "0.4"
+
 # Utilities
 log = { workspace = true }
 heapless = "0.9"
