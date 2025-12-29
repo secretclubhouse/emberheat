@@ -1,330 +1,557 @@
-# Matter Protocol Re-Integration Guide
+# Matter Protocol Integration Guide
 
-This document describes how to re-add Matter/HomeKit support to thermos-rust.
-The Connected Home IP integration was removed to simplify the build process.
+This document describes how to add Matter/HomeKit support to thermos-rust using the modern **rs-matter** pure Rust implementation.
 
 ## Overview
 
-Matter (formerly Project CHIP) is an open-source connectivity standard for smart home devices.
-It enables integration with Apple HomeKit, Google Home, Amazon Alexa, and other ecosystems.
+Matter (formerly Project CHIP) is an open-source connectivity standard for smart home devices. It enables integration with Apple HomeKit, Google Home, Amazon Alexa, and other ecosystems.
 
-### What Was Removed
+## Current Status
 
-1. **FFI Layer** (`src/matter/ffi/`):
-   - `matter_wrapper.h` - C header defining the wrapper API
-   - `matter_wrapper.cpp` - C++ implementation wrapping Connected Home IP
-   - `bindings.rs` - Rust FFI bindings to the C wrapper
-   - `wrapper.rs` - Safe Rust wrapper around unsafe FFI
-   - `mod.rs` - FFI module definition
+**Raspberry Pi (`thermos-linux`):** Matter support is **not currently implemented**. The `src/matter/mod.rs` contains a stub implementation that allows the application to compile and run without Matter functionality.
 
-2. **Build System**:
-   - `build.rs` - Complex build script that compiled C++ and linked Matter library
-   - Matter-related Makefile targets (`matter-download`, `matter-build`, etc.)
-   - Docker build for Matter libraries (`Dockerfile.matter-build`)
-   - Various shell scripts for Matter library management
+**ESP32 (`thermos-esp32`):** Matter integration is **planned** using the `rs-matter` pure Rust library, which provides native support for Embassy async executor and bare-metal ESP32 hardware.
 
-3. **Third-Party Dependencies**:
-   - `third_party/connectedhomeip/` - Connected Home IP source code
-   - `lib/connectedhomeip/` - Pre-built Matter libraries (via Git LFS)
-   - ZAP-generated cluster definitions
+## Recommended Approach: rs-matter
 
-4. **Documentation**:
-   - Multiple Matter setup, debugging, and troubleshooting guides
+### Why rs-matter Instead of Connected Home IP?
 
-## Current State
+The previous Matter integration attempt used C++ FFI bindings to the Connected Home IP SDK, which proved complex and difficult to maintain. As of 2025, **rs-matter** provides a superior alternative:
 
-The `src/matter/mod.rs` now contains a **stub implementation** that:
-- Logs warnings that Matter is not implemented
-- Provides the same public API (`MatterServer`, `ThermostatAccessory`)
-- Allows the rest of the application to compile and run
+| Feature | rs-matter (Modern) | Connected Home IP (Legacy) |
+|---------|-------------------|---------------------------|
+| **Language** | Pure Rust | C++ with FFI bindings |
+| **Build complexity** | Cargo dependency | ~300MB SDK, GLib, C++ compiler |
+| **Embedded support** | `no_std` compatible | Linux-focused |
+| **Async runtime** | Executor agnostic (Embassy ✅) | Complex integration |
+| **ESP32 support** | First-class with examples | Requires ESP-IDF wrapper |
+| **Maintenance** | Active development, on crates.io | Complex build scripts |
+| **Dependencies** | Minimal | GLib, pkg-config, pthread, stdc++ |
 
-Thermostats will function locally but won't be accessible via HomeKit/Google Home/Alexa.
+**Conclusion:** Use `rs-matter` for new implementations. The C++ FFI approach documented in previous versions of this file is **deprecated**.
 
-## Re-Integration Steps
+## Integration Timeline
 
-### Step 1: Connected Home IP Library
+Matter integration should be implemented **after** the ESP32 MVP is functional:
 
-You need the Matter SDK (Connected Home IP) which is a large C++ project.
-
-**Option A: Pre-built Libraries**
-
-Download or build the Matter library for your target platform:
-- `libCHIP.a` - Main Matter library
-
-Store in `lib/connectedhomeip/<platform>/` where platform is:
-- `linux-arm64` - Raspberry Pi (64-bit)
-- `linux-x64` - Linux x86_64
-- `darwin-arm64` - macOS Apple Silicon
-- `darwin-x64` - macOS Intel
-
-**Option B: Build from Source**
-
-```bash
-# Clone Matter SDK
-git clone --depth 1 https://github.com/project-chip/connectedhomeip.git third_party/connectedhomeip
-cd third_party/connectedhomeip
-
-# Initialize submodules (required for Pigweed, etc.)
-scripts/checkout_submodules.py --shallow --platform linux
-
-# Activate build environment
-source scripts/activate.sh
-
-# Build the library
-gn gen out/host
-ninja -C out/host src/lib
+```
+✅ Week 1: Platform-agnostic core extraction (COMPLETE)
+→ Week 2: ESP32 platform layer (GPIO, sensors, NVS storage, WiFi)
+→ Week 3: MQTT integration for temperature history
+→ Week 4: Testing and refinement on ESP32 hardware
+→ Week 5-6: Add rs-matter integration ← Matter implementation
 ```
 
-### Step 2: ZAP Configuration
+## ESP32 Matter Integration (Weeks 5-6)
 
-ZAP (ZCL Advanced Platform) generates cluster definitions from `.zap` files.
+### Prerequisites
 
-1. Create `matter/thermostat.zap` with your device configuration
-2. Run ZAP code generation to create cluster headers
-3. Place generated files in `third_party/connectedhomeip/zap-generated/`
+- ESP32-C6 hardware (recommended - has Thread radio for Matter-over-Thread)
+- Working `thermos-esp32` binary with:
+  - Embassy executor running
+  - WiFi connectivity established
+  - Temperature sensor reading
+  - GPIO relay control
+  - NVS state persistence
+  - Basic MQTT logging (optional, can coexist)
 
-Key generated files:
-- `gen_config.h` - Cluster configuration
-- `endpoint_config.h` - Endpoint definitions
-- `callback.h` - Callback interfaces
-- `cluster-objects.h/cpp` - Cluster implementations
+### Step 1: Add rs-matter Dependency
 
-### Step 3: C++ Wrapper
-
-Create `src/matter/ffi/matter_wrapper.h` with C-compatible API:
-
-```c
-// Opaque handles
-typedef struct MatterDevice MatterDevice;
-typedef struct MatterThermostat MatterThermostat;
-
-// Device lifecycle
-MatterDevice* matter_device_init(const MatterDeviceConfig* config);
-void matter_device_shutdown(MatterDevice* device);
-int matter_device_run_event_loop(MatterDevice* device);
-
-// Commissioning
-int matter_device_get_qr_code(MatterDevice* device, char* buffer, size_t size);
-int matter_device_get_pairing_code(MatterDevice* device, char* buffer, size_t size);
-
-// Thermostat
-MatterThermostat* matter_thermostat_create(MatterDevice* device, const MatterThermostatConfig* config);
-void matter_thermostat_destroy(MatterThermostat* thermostat);
-int matter_thermostat_set_local_temperature(MatterThermostat* thermostat, int16_t temp);
-int matter_thermostat_set_running_state(MatterThermostat* thermostat, uint16_t state);
-
-// Callbacks
-typedef void (*SetpointChangedCallback)(void* ctx, uint16_t endpoint, int16_t heat, int16_t cool);
-typedef void (*ModeChangedCallback)(void* ctx, uint16_t endpoint, uint8_t mode);
-void matter_thermostat_set_setpoint_callback(MatterThermostat* t, SetpointChangedCallback cb, void* ctx);
-void matter_thermostat_set_mode_callback(MatterThermostat* t, ModeChangedCallback cb, void* ctx);
-```
-
-Create `src/matter/ffi/matter_wrapper.cpp` implementing the API using CHIP headers:
-
-```cpp
-#include "matter_wrapper.h"
-
-#ifdef MATTER_SDK_AVAILABLE
-#include <platform/CHIPDeviceLayer.h>
-#include <app/server/Server.h>
-// ... other CHIP includes
-#endif
-
-extern "C" {
-
-MatterDevice* matter_device_init(const MatterDeviceConfig* config) {
-#ifdef MATTER_SDK_AVAILABLE
-    // Initialize CHIP stack
-    chip::DeviceLayer::PlatformMgr().InitChipStack();
-    // ... full implementation
-#else
-    return nullptr;  // Stub
-#endif
-}
-
-// ... other functions
-
-}
-```
-
-### Step 4: Rust FFI Bindings
-
-Create `src/matter/ffi/bindings.rs`:
-
-```rust
-use std::os::raw::{c_char, c_int, c_void};
-
-#[repr(C)]
-pub struct MatterDevice { _unused: [u8; 0] }
-
-#[repr(C)]
-pub struct MatterThermostat { _unused: [u8; 0] }
-
-extern "C" {
-    pub fn matter_device_init(config: *const MatterDeviceConfig) -> *mut MatterDevice;
-    pub fn matter_device_shutdown(device: *mut MatterDevice);
-    // ... other bindings
-}
-```
-
-Create `src/matter/ffi/wrapper.rs` with safe wrappers:
-
-```rust
-pub struct Device {
-    ptr: *mut MatterDevice,
-}
-
-impl Device {
-    pub fn new(config: DeviceConfig) -> Result<Self> {
-        let ptr = unsafe { matter_device_init(&c_config) };
-        if ptr.is_null() {
-            return Err(anyhow!("Failed to initialize"));
-        }
-        Ok(Device { ptr })
-    }
-    // ... other methods
-}
-
-impl Drop for Device {
-    fn drop(&mut self) {
-        if !self.ptr.is_null() {
-            unsafe { matter_device_shutdown(self.ptr); }
-        }
-    }
-}
-```
-
-### Step 5: Build Script
-
-Update `build.rs` to compile the C++ wrapper and link Matter:
-
-```rust
-fn main() {
-    let chip_available = check_for_matter_library();
-    
-    if chip_available {
-        // Compile C++ wrapper
-        cc::Build::new()
-            .cpp(true)
-            .file("src/matter/ffi/matter_wrapper.cpp")
-            .include("third_party/connectedhomeip/src")
-            .define("MATTER_SDK_AVAILABLE", "1")
-            .compile("matter_wrapper");
-        
-        // Link Matter library
-        println!("cargo:rustc-link-search=native=lib/connectedhomeip/{}", platform);
-        println!("cargo:rustc-link-lib=static=CHIP");
-        println!("cargo:rustc-link-lib=dylib=pthread");
-        println!("cargo:rustc-link-lib=dylib=stdc++");
-        
-        // Platform-specific (Linux)
-        println!("cargo:rustc-link-lib=dylib=glib-2.0");
-        println!("cargo:rustc-link-lib=dylib=gio-2.0");
-        
-        println!("cargo:rustc-cfg=matter_enabled");
-    }
-}
-```
-
-### Step 6: Update Matter Module
-
-Replace the stub in `src/matter/mod.rs` with the full implementation:
-
-```rust
-#[cfg(matter_enabled)]
-pub mod ffi;
-
-use crate::devices::Thermostat;
-// ... full implementation with MatterServer, ThermostatAccessory, callbacks, etc.
-```
-
-### Step 7: Cargo.toml
-
-Add build dependencies:
+Update `thermos-esp32/Cargo.toml`:
 
 ```toml
-[build-dependencies]
-cc = "1.0"
-# Optional: bindgen = "0.69"  # For auto-generating bindings
+[dependencies]
+thermos-core = { path = "../thermos-core" }
+embassy-executor = { workspace = true }
+embassy-net = "0.5"
+embassy-time = { workspace = true }
+esp-hal = "1.0"
+esp-wifi = "0.11"
+esp-backtrace = "0.14"
+
+# Matter support (optional feature)
+rs-matter = { version = "0.1", optional = true }
+
+# MQTT support (can coexist with Matter)
+rust-mqtt = { version = "0.3", optional = true }
+
+[features]
+default = ["mqtt"]
+matter = ["rs-matter"]
+full = ["mqtt", "matter"]  # Both protocols
 ```
 
-## Matter Thermostat Cluster
+### Step 2: Matter Device Configuration
 
-The thermostat implementation uses Matter cluster 0x0201 with these attributes:
+Create `thermos-esp32/src/matter_device.rs`:
 
-| Attribute | ID | Type | Description |
-|-----------|-----|------|-------------|
-| LocalTemperature | 0x0000 | int16 | Current temp (centi-°C) |
-| OccupiedHeatingSetpoint | 0x0012 | int16 | Heat setpoint (centi-°C) |
-| SystemMode | 0x001C | enum8 | Off(0x00) or Heat(0x04) |
-| ThermostatRunningState | 0x0029 | bitmap8 | Bit 0 = heating active |
+```rust
+use rs_matter::data_model::cluster_basic_information::BasicInfoConfig;
+use rs_matter::data_model::cluster_on_off;
+use rs_matter::data_model::device_types::DEV_TYPE_ON_OFF_LIGHT;
+use rs_matter::data_model::objects::{Endpoint, Node};
+use rs_matter::data_model::system_model::descriptor;
+use rs_matter::Matter;
+use rs_matter::MATTER_PORT;
 
-Temperature conversions:
+use thermos_core::{HeatingState, TemperatureReading, ThermostatState};
+
+/// Matter Thermostat Cluster ID
+const CLUSTER_THERMOSTAT: u32 = 0x0201;
+
+/// Thermostat attributes
+const ATTR_LOCAL_TEMPERATURE: u16 = 0x0000;        // int16 (centi-°C)
+const ATTR_OCCUPIED_HEATING_SETPOINT: u16 = 0x0012; // int16 (centi-°C)
+const ATTR_SYSTEM_MODE: u16 = 0x001C;               // enum8
+const ATTR_THERMOSTAT_RUNNING_STATE: u16 = 0x0029;  // bitmap8
+
+/// System mode values
+const MODE_OFF: u8 = 0x00;
+const MODE_HEAT: u8 = 0x04;
+
+/// Running state bitmap
+const RUNNING_STATE_IDLE: u8 = 0x00;
+const RUNNING_STATE_HEATING: u8 = 0x01;
+
+pub struct MatterThermostat {
+    endpoint_id: u16,
+    state: ThermostatState,
+}
+
+impl MatterThermostat {
+    pub fn new(endpoint_id: u16, zone_name: String) -> Self {
+        Self {
+            endpoint_id,
+            state: ThermostatState::default(),
+        }
+    }
+
+    /// Update local temperature reading
+    pub fn update_temperature(&mut self, reading: TemperatureReading) {
+        self.state.current_temp = reading.celsius;
+        // Convert to centi-degrees for Matter
+        let centi_c = (reading.celsius * 100.0) as i16;
+        // Update Matter attribute (implementation depends on rs-matter API)
+    }
+
+    /// Update target setpoint (called from HomeKit/Google Home)
+    pub fn set_target_temperature(&mut self, centi_c: i16) {
+        let temp_c = (centi_c as f32) / 100.0;
+        self.state.target_temp = temp_c;
+    }
+
+    /// Update heating state
+    pub fn update_heating_state(&mut self, heating: HeatingState) {
+        self.state.target_state = heating;
+        let running_state = match heating {
+            HeatingState::Heat => RUNNING_STATE_HEATING,
+            HeatingState::Off => RUNNING_STATE_IDLE,
+        };
+        // Update Matter attribute
+    }
+
+    /// Get current state for control loop
+    pub fn get_state(&self) -> &ThermostatState {
+        &self.state
+    }
+}
+
+pub struct MatterConfig {
+    pub vendor_id: u16,
+    pub product_id: u16,
+    pub device_name: String,
+    pub serial_number: String,
+}
+
+impl Default for MatterConfig {
+    fn default() -> Self {
+        Self {
+            vendor_id: 0xFFF1,  // Test vendor ID
+            product_id: 0x8001, // Thermostat
+            device_name: "Thermos Thermostat".to_string(),
+            serial_number: "THERMO-001".to_string(),
+        }
+    }
+}
+```
+
+### Step 3: Matter Server Task
+
+Create `thermos-esp32/src/matter_server.rs`:
+
+```rust
+use embassy_executor::Spawner;
+use embassy_net::Stack;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use rs_matter::Matter;
+
+use crate::matter_device::{MatterConfig, MatterThermostat};
+use thermos_core::TemperatureReading;
+
+/// Messages from control loop to Matter server
+pub enum MatterMessage {
+    TemperatureUpdate(TemperatureReading),
+    HeatingStateChanged(bool),
+}
+
+/// Channel for communication between control loop and Matter
+pub static MATTER_CHANNEL: Channel<CriticalSectionRawMutex, MatterMessage, 8> = 
+    Channel::new();
+
+#[embassy_executor::task]
+pub async fn matter_server_task(
+    stack: &'static Stack<esp_wifi::wifi::WifiDevice<'static>>,
+    config: MatterConfig,
+) {
+    log::info!("Starting Matter server");
+
+    // Initialize Matter stack
+    let matter = Matter::new(
+        config.vendor_id,
+        config.product_id,
+        &config.device_name,
+    );
+
+    // Create thermostat endpoint
+    let mut thermostat = MatterThermostat::new(1, "Zone1".to_string());
+
+    // Print commissioning QR code
+    let qr_code = matter.get_qr_code();
+    log::info!("Matter QR Code: {}", qr_code);
+    log::info!("Pairing code: {}", matter.get_pairing_code());
+
+    // Main Matter event loop
+    loop {
+        embassy_futures::select::select(
+            // Handle Matter protocol events
+            matter.run(),
+            // Handle updates from control loop
+            async {
+                match MATTER_CHANNEL.receive().await {
+                    MatterMessage::TemperatureUpdate(reading) => {
+                        thermostat.update_temperature(reading);
+                    }
+                    MatterMessage::HeatingStateChanged(heating) => {
+                        let state = if heating {
+                            thermos_core::HeatingState::Heat
+                        } else {
+                            thermos_core::HeatingState::Off
+                        };
+                        thermostat.update_heating_state(state);
+                    }
+                }
+            }
+        ).await;
+    }
+}
+```
+
+### Step 4: Integrate with Main Application
+
+Update `thermos-esp32/src/main.rs`:
+
+```rust
+use embassy_executor::Spawner;
+use embassy_net::Stack;
+use embassy_time::{Duration, Ticker};
+
+use thermos_core::{apply_hysteresis_control, HysteresisConfig, ThermostatState};
+
+#[cfg(feature = "matter")]
+use crate::matter_server::{matter_server_task, MatterConfig, MatterMessage, MATTER_CHANNEL};
+
+#[cfg(feature = "mqtt")]
+use crate::mqtt::{mqtt_logger_task, MqttConfig};
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    // Initialize hardware (WiFi, sensors, GPIO, NVS storage)
+    // ... hardware setup code ...
+
+    // Spawn Matter server (optional feature)
+    #[cfg(feature = "matter")]
+    {
+        let matter_config = MatterConfig::default();
+        spawner.spawn(matter_server_task(stack, matter_config)).unwrap();
+        log::info!("Matter server started");
+    }
+
+    // Spawn MQTT logger (optional feature)
+    #[cfg(feature = "mqtt")]
+    {
+        let mqtt_config = MqttConfig::default();
+        spawner.spawn(mqtt_logger_task(mqtt_client, mqtt_config)).unwrap();
+        log::info!("MQTT logger started");
+    }
+
+    // Main control loop (uses thermos-core logic)
+    spawner.spawn(thermostat_control_task(
+        sensor,
+        gpio_pin,
+        storage,
+    )).unwrap();
+
+    // Keep main task alive
+    loop {
+        embassy_time::Timer::after(Duration::from_secs(60)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn thermostat_control_task(
+    mut sensor: impl TemperatureSensor,
+    mut gpio: impl OutputPin,
+    mut storage: impl StateStorage,
+) {
+    let hysteresis = HysteresisConfig::default();
+    let mut state = storage.load_state("Zone1").await
+        .unwrap_or_default();
+
+    let mut ticker = embassy_time::Ticker::every(Duration::from_secs(6));
+
+    loop {
+        ticker.next().await;
+
+        // Read temperature
+        match sensor.read_temperature().await {
+            Ok(reading) => {
+                let new_relay_state = apply_hysteresis_control(
+                    reading.celsius,
+                    state.target_temp,
+                    state.target_state,
+                    state.current_relay_state,
+                    &hysteresis,
+                );
+
+                // Update GPIO
+                match new_relay_state {
+                    RelayState::On => gpio.set_low()?,
+                    RelayState::Off => gpio.set_high()?,
+                }
+
+                state.current_relay_state = new_relay_state;
+                state.current_temp = reading.celsius;
+
+                // Notify Matter server
+                #[cfg(feature = "matter")]
+                {
+                    MATTER_CHANNEL.send(MatterMessage::TemperatureUpdate(reading)).await;
+                    if state.current_relay_state != previous_state {
+                        let heating = matches!(state.current_relay_state, RelayState::On);
+                        MATTER_CHANNEL.send(MatterMessage::HeatingStateChanged(heating)).await;
+                    }
+                }
+
+                // Save state to NVS
+                storage.save_state("Zone1", &state).await.ok();
+            }
+            Err(e) => {
+                log::error!("Sensor error: {:?}", e);
+            }
+        }
+    }
+}
+```
+
+### Step 5: Build and Flash
+
+```bash
+# Build with Matter support
+cd thermos-esp32
+cargo build --release --features matter
+
+# Flash to ESP32-C6
+espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Or with both MQTT and Matter
+cargo build --release --features full
+```
+
+### Step 6: Commission the Device
+
+1. **Watch the serial output** for the QR code and pairing code:
+   ```
+   Matter QR Code: MT:Y.K9042C00KA0648G00
+   Pairing code: 34970112332
+   ```
+
+2. **Use a Matter controller** to commission:
+   - **Apple Home App**: Add Accessory → Scan QR Code
+   - **Google Home App**: Add Device → Matter → Scan QR Code
+   - **chip-tool**: `chip-tool pairing qrcode 1 MT:Y.K9042C00KA0648G00`
+
+3. **Control the thermostat**:
+   - "Hey Siri, set the temperature to 72"
+   - "Ok Google, what's the temperature in the living room?"
+   - Adjust setpoint in Home app UI
+
+## Matter Thermostat Cluster Details
+
+### Cluster 0x0201: Thermostat
+
+| Attribute ID | Name | Type | Access | Description |
+|-------------|------|------|--------|-------------|
+| 0x0000 | LocalTemperature | int16 | Read | Current temp (centi-°C) |
+| 0x0012 | OccupiedHeatingSetpoint | int16 | Read/Write | Heat setpoint (centi-°C) |
+| 0x001C | SystemMode | enum8 | Read/Write | Off(0x00) or Heat(0x04) |
+| 0x0029 | ThermostatRunningState | bitmap8 | Read | Bit 0 = heating active |
+
+### Temperature Conversion
+
+Matter uses **centi-degrees Celsius** (hundredths of a degree):
+
 ```rust
 // Celsius to centi-degrees
 let centi_c = (temp_c * 100.0) as i16;
+// Example: 21.5°C → 2150
 
 // Centi-degrees to Celsius
 let temp_c = (centi_c as f32) / 100.0;
+// Example: 2150 → 21.5°C
 ```
 
-## Commissioning
-
-Matter devices are commissioned (paired) via:
-
-1. **QR Code** - Generated from device credentials, scanned by controller app
-2. **Manual Pairing Code** - 11-digit code entered manually
+### Commissioning Credentials
 
 The QR code encodes:
-- Vendor ID
-- Product ID
-- Discriminator (12-bit)
-- Setup passcode
+- **Vendor ID**: 0xFFF1 (test vendor, change for production)
+- **Product ID**: 0x8001 (custom thermostat)
+- **Discriminator**: 12-bit value for device identification
+- **Setup Passcode**: Numeric code for pairing
 
-## Key Dependencies
+## Raspberry Pi Matter Support (Future)
 
-When re-implementing, you'll need:
+**Status:** Not currently planned for immediate implementation.
 
-- Connected Home IP SDK (C++ library, ~300MB shallow clone)
-- GLib 2.0 (Linux platform layer dependency)
-- pkg-config (for finding GLib)
-- C++17 compiler
+**Rationale:** 
+- `rs-matter` is optimized for embedded/no_std environments
+- Linux support in `rs-matter` is still maturing
+- Raspberry Pi deployment works well with existing MQTT/Prometheus architecture
 
-## Testing
+**Future Path:**
+- Monitor `rs-matter` development for improved Linux/std support
+- Consider integration when `rs-matter` provides stable std platform layer
+- Would use same trait-based architecture via `thermos-core`
 
-Test Matter integration with:
+The legacy C++ FFI approach (Connected Home IP SDK) is **not recommended** due to build complexity and maintenance burden.
 
-- **chip-tool** - Command-line Matter controller
-- **Apple Home** - iOS/macOS HomeKit
-- **Google Home** - Android/web
-- **Amazon Alexa** - Echo devices
+## Architecture Benefits
+
+### Shared Core Logic
+
+Both MQTT and Matter use the same control algorithm from `thermos-core`:
+
+```rust
+// thermos-core/src/control.rs (platform-agnostic)
+pub fn apply_hysteresis_control(
+    current_temp_c: f32,
+    target_temp_c: f32,
+    target_state: HeatingState,
+    current_relay_state: RelayState,
+    hysteresis: &HysteresisConfig,
+) -> RelayState {
+    // Same logic for MQTT, Matter, standalone operation
+}
+```
+
+### Optional Features
+
+Use Cargo features to enable/disable protocols:
+
+```bash
+# MQTT only (minimal)
+cargo build --features mqtt
+
+# Matter only
+cargo build --features matter
+
+# Both protocols
+cargo build --features full
+
+# Neither (standalone operation)
+cargo build --no-default-features
+```
+
+### Coexistence
+
+MQTT and Matter can run simultaneously:
+- **Matter**: Control interface (setpoint changes, mode)
+- **MQTT**: Data logging (temperature history, state changes)
+- **Control loop**: Runs independently, updates both protocols
+
+## ESP32 Hardware Requirements
+
+### Recommended: ESP32-C6
+
+- **Thread radio**: Native Matter-over-Thread support
+- **WiFi 6**: Matter-over-WiFi fallback
+- **RISC-V**: Better Rust toolchain support than Xtensa
+- **Low power**: Suitable for battery operation
+- **Price**: ~$3-5 per module
+
+### Alternative: ESP32-C3
+
+- **WiFi only**: Matter-over-WiFi (no Thread)
+- **RISC-V**: Good Rust support
+- **Lower cost**: ~$2-3 per module
+- **Limitation**: No Thread mesh networking
+
+## Testing and Debugging
+
+### Matter Development Tools
+
+1. **chip-tool** - Command-line Matter controller
+   ```bash
+   chip-tool thermostat read local-temperature 1 1
+   chip-tool thermostat write occupied-heating-setpoint 2100 1 1
+   ```
+
+2. **Apple Home App** - iOS/macOS HomeKit integration
+3. **Google Home App** - Android/web Google Home integration
+4. **Python Matter Controller** - Custom automation scripts
+
+### Debugging Tips
+
+**Enable verbose logging:**
+```rust
+// In main.rs
+esp_println::logger::init_logger(log::LevelFilter::Debug);
+```
+
+**Monitor Matter commissioning:**
+```bash
+espflash flash --monitor
+# Watch for:
+# - "Matter QR Code: ..." 
+# - "Device commissioned successfully"
+# - "Received setpoint change: 2100"
+```
+
+**Check network connectivity:**
+- Ensure ESP32 has valid IP address
+- Matter uses port 5540 (UDP)
+- HomeKit uses mDNS for discovery
 
 ## Resources
 
-- [Matter Specification](https://csa-iot.org/developer-resource/specifications-download-request/)
-- [Connected Home IP GitHub](https://github.com/project-chip/connectedhomeip)
-- [Matter Developer Guide](https://developers.home.google.com/matter)
-- [Apple HomeKit + Matter](https://developer.apple.com/homekit/)
+- **rs-matter GitHub**: [github.com/project-chip/rs-matter](https://github.com/project-chip/rs-matter)
+- **Matter Specification**: [CSA IoT Downloads](https://csa-iot.org/developer-resource/specifications-download-request/)
+- **ESP32 Rust**: [esp-rs.github.io/book](https://esp-rs.github.io/book/)
+- **Embassy**: [embassy.dev](https://embassy.dev)
+- **Matter Developer Portal**: [developers.home.google.com/matter](https://developers.home.google.com/matter)
 
-## Files to Create/Restore
+## Summary
 
-```
-src/matter/
-├── mod.rs                    # Full implementation (replace stub)
-└── ffi/
-    ├── mod.rs                # Module definition
-    ├── bindings.rs           # Raw FFI bindings
-    ├── wrapper.rs            # Safe Rust wrapper
-    ├── matter_wrapper.h      # C header
-    └── matter_wrapper.cpp    # C++ implementation
+**Current approach (2025+):**
+- ✅ Use `rs-matter` pure Rust library
+- ✅ Target ESP32-C6 with Embassy executor
+- ✅ Implement in `thermos-esp32` binary
+- ✅ Share control logic via `thermos-core`
+- ✅ Coexist with MQTT for data logging
 
-build.rs                      # Full build script with Matter compilation
+**Deprecated approach (pre-2025):**
+- ❌ C++ FFI to Connected Home IP SDK
+- ❌ Complex build scripts and dependencies
+- ❌ Linux-focused Raspberry Pi implementation
 
-lib/connectedhomeip/
-└── <platform>/
-    └── libCHIP.a             # Pre-built Matter library
-
-third_party/connectedhomeip/  # (Optional) Full SDK source
-└── zap-generated/            # Generated cluster definitions
-```
+The modern pure Rust approach aligns with the Embassy migration, reduces complexity, and provides better embedded platform support.
