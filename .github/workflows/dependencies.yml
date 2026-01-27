@@ -3,7 +3,7 @@ name: Update Dependencies
 on:
   schedule:
     # Run weekly on Mondays at 9 AM UTC
-    - cron: '0 9 * * 1'
+    - cron: "0 9 * * 1"
   workflow_dispatch:
 
 jobs:
@@ -11,29 +11,29 @@ jobs:
     name: Update Rust Dependencies
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Update dependencies
-      run: |
-        cargo update
-        cargo test --test mock_integration_tests
+      - name: Update dependencies
+        run: |
+          cargo update
+          cargo test -p thermos-core -p thermos-linux
 
-    - name: Create Pull Request
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: 'chore: update Rust dependencies'
-        title: 'chore: update Rust dependencies'
-        body: |
-          Automated dependency update.
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: update Rust dependencies"
+          title: "chore: update Rust dependencies"
+          body: |
+            Automated dependency update.
 
-          This PR updates Cargo dependencies to their latest compatible versions.
+            This PR updates Cargo dependencies to their latest compatible versions.
 
-          Please review the changes and ensure all tests pass before merging.
-        branch: automated/dependency-updates
-        delete-branch: true
-        labels: dependencies
+            Please review the changes and ensure all tests pass before merging.
+          branch: automated/dependency-updates
+          delete-branch: true
+          labels: dependencies

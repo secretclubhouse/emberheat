@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
   CARGO_TERM_COLOR: always
@@ -16,39 +16,34 @@ jobs:
     name: Format and Clippy
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: rustfmt, clippy
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: fmt-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          fmt-cargo-registry-
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-clippy-
 
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: fmt-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          fmt-cargo-git-
+      - name: Check formatting
+        run: cargo fmt -- --check
 
-    - name: Check formatting
-      run: cargo fmt -- --check
-
-    - name: Run Clippy
-      run: cargo clippy -- -D warnings
+      - name: Run Clippy (excluding ESP32 - requires cross-compilation)
+        run: cargo clippy --all-targets --all-features -p thermos-core -p thermos-linux -- -D warnings
 
   # Run tests on Debian Trixie
   test:
-    name: Test Suite
+    name: Test (${{ matrix.rust }})
     runs-on: ubuntu-latest
     needs: fmt-and-clippy
     container:
@@ -59,106 +54,83 @@ jobs:
         rust: [stable, nightly]
 
     steps:
-    - name: Install dependencies
-      run: |
-        apt-get update
-        apt-get install -y curl build-essential pkg-config libssl-dev git
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl build-essential pkg-config libssl-dev git
 
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
-        components: rustfmt, clippy
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: debian-trixie-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          debian-trixie-cargo-registry-
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: debian-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            debian-${{ matrix.rust }}-cargo-
 
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: debian-trixie-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          debian-trixie-cargo-git-
+      - name: Build (excluding ESP32)
+        run: cargo build --verbose -p thermos-core -p thermos-linux
 
-    - name: Cache build artifacts
-      uses: actions/cache@v4
-      with:
-        path: target
-        key: debian-trixie-${{ matrix.rust }}-target-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          debian-trixie-${{ matrix.rust }}-target-
-
-    - name: Build
-      run: cargo build --verbose
-
-    - name: Run mock tests
-      run: make test-mock
-
-    - name: Run all tests
-      run: make test-all
+      - name: Run tests (excluding ESP32)
+        run: cargo test -p thermos-core -p thermos-linux
 
   # Security audit
-  security_audit:
+  security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    needs: fmt-and-clippy
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Run security audit
-      uses: rustsec/audit-check@v1.4.1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run security audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Code coverage using llvm-cov (more reliable than tarpaulin)
+  # Code coverage
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
     needs: fmt-and-clippy
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        components: llvm-tools-preview
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: coverage-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          coverage-cargo-registry-
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-coverage-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-coverage-
 
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: coverage-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          coverage-cargo-git-
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
 
-    - name: Install cargo-llvm-cov
-      uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate coverage (excluding ESP32)
+        run: cargo llvm-cov --all-features -p thermos-core -p thermos-linux --lcov --output-path lcov.info
 
-    - name: Generate coverage
-      run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        files: lcov.info
-        fail_ci_if_error: false
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: false

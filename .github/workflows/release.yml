@@ -3,11 +3,11 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release'
+        description: "Tag to release"
         required: true
         type: string
 
@@ -20,72 +20,9 @@ permissions:
   packages: write
 
 jobs:
-  # Create GitHub release
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
-    steps:
-    - name: Get version from tag
-      id: get_version
-      run: |
-        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-        else
-          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ steps.get_version.outputs.version }}
-        release_name: Release ${{ steps.get_version.outputs.version }}
-        draft: false
-        prerelease: false
-        body: |
-          ## Thermos-Rust ${{ steps.get_version.outputs.version }}
-
-          Multi-zone HomeKit thermostat system for Raspberry Pi.
-
-          ### Installation
-
-          Download the appropriate binary for your Raspberry Pi model:
-          - **Raspberry Pi 2/3/4 (32-bit)**: `thermos-rust-armv7-unknown-linux-gnueabihf`
-          - **Raspberry Pi 3/4 (64-bit)**: `thermos-rust-aarch64-unknown-linux-gnu`
-          - **x86_64 Linux**: `thermos-rust-x86_64-unknown-linux-gnu`
-
-          ### Quick Start
-
-          ```bash
-          # Download binary (replace URL with actual asset URL)
-          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.version }}/thermos-rust-armv7-unknown-linux-gnueabihf
-
-          # Make executable
-          chmod +x thermos-rust-armv7-unknown-linux-gnueabihf
-
-          # Move to system path
-          sudo mv thermos-rust-armv7-unknown-linux-gnueabihf /usr/local/bin/thermos-rust
-
-          # Run
-          thermos-rust --config /path/to/config.json
-          ```
-
-          ### Changes
-
-          See [CHANGELOG.md](CHANGELOG.md) for details.
-
   # Build binaries for different Linux targets using cross-compilation
   build:
     name: Build ${{ matrix.target }}
-    needs: create-release
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -104,111 +41,118 @@ jobs:
             cross: false
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-      with:
-        targets: ${{ matrix.target }}
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-    - name: Install cross-compilation tools
-      if: matrix.cross
-      run: |
-        cargo install cross --git https://github.com/cross-rs/cross
+      - name: Install cross-compilation tools
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
-    - name: Cache cargo registry
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/registry
-        key: ${{ matrix.target }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.target }}-cargo-release-
 
-    - name: Cache cargo index
-      uses: actions/cache@v4
-      with:
-        path: ~/.cargo/git
-        key: ${{ matrix.target }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build release binary (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }} -p thermos-linux
 
-    - name: Build release binary (cross)
-      if: matrix.cross
-      run: cross build --release --target ${{ matrix.target }}
+      - name: Build release binary (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }} -p thermos-linux
 
-    - name: Build release binary (native)
-      if: "!matrix.cross"
-      run: cargo build --release --target ${{ matrix.target }}
+      - name: Strip binary
+        run: strip target/${{ matrix.target }}/release/thermos-linux || true
 
-    - name: Strip binary
-      run: |
-        strip target/${{ matrix.target }}/release/thermos-rust || true
+      - name: Create archive
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf thermos-linux-${{ matrix.target }}.tar.gz thermos-linux
+          sha256sum thermos-linux-${{ matrix.target }}.tar.gz > thermos-linux-${{ matrix.target }}.tar.gz.sha256
 
-    - name: Create archive
-      run: |
-        cd target/${{ matrix.target }}/release
-        tar czf thermos-rust-${{ matrix.target }}.tar.gz thermos-rust
-        sha256sum thermos-rust-${{ matrix.target }}.tar.gz > thermos-rust-${{ matrix.target }}.tar.gz.sha256
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermos-linux-${{ matrix.target }}
+          path: |
+            target/${{ matrix.target }}/release/thermos-linux-${{ matrix.target }}.tar.gz
+            target/${{ matrix.target }}/release/thermos-linux-${{ matrix.target }}.tar.gz.sha256
 
-    - name: Upload binary to release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./target/${{ matrix.target }}/release/thermos-rust-${{ matrix.target }}.tar.gz
-        asset_name: thermos-rust-${{ matrix.target }}.tar.gz
-        asset_content_type: application/gzip
+  # Create GitHub release with all artifacts
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Upload checksum to release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ needs.create-release.outputs.upload_url }}
-        asset_path: ./target/${{ matrix.target }}/release/thermos-rust-${{ matrix.target }}.tar.gz.sha256
-        asset_name: thermos-rust-${{ matrix.target }}.tar.gz.sha256
-        asset_content_type: text/plain
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
 
-  # Build Docker images for Linux (Debian Trixie based)
-# docker:
-#   name: Build Docker Images
-#   needs: create-release
-#   runs-on: ubuntu-latest
-#   steps:
-#   - name: Checkout code
-#     uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
 
-#   - name: Set up QEMU
-#     uses: docker/setup-qemu-action@v3
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" \) -exec cp {} release-assets/ \;
+          ls -la release-assets/
 
-#   - name: Set up Docker Buildx
-#     uses: docker/setup-buildx-action@v3
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: release-assets/*
+          body: |
+            ## Thermos-Rust ${{ steps.version.outputs.version }}
 
-#   - name: Login to GitHub Container Registry
-#     uses: docker/login-action@v3
-#     with:
-#       registry: ghcr.io
-#       username: ${{ github.actor }}
-#       password: ${{ secrets.GITHUB_TOKEN }}
+            Multi-zone thermostat system for Raspberry Pi.
 
-#   - name: Extract metadata
-#     id: meta
-#     uses: docker/metadata-action@v5
-#     with:
-#       images: ghcr.io/${{ github.repository }}
-#       tags: |
-#         type=semver,pattern={{version}}
-#         type=semver,pattern={{major}}.{{minor}}
-#         type=semver,pattern={{major}}
-#         type=raw,value=latest,enable={{is_default_branch}}
+            ### Installation
 
-#   - name: Build and push Docker image (Linux only - Debian Trixie)
-#     uses: docker/build-push-action@v5
-#     with:
-#       context: .
-#       platforms: linux/amd64,linux/arm64,linux/arm/v7
-#       push: true
-#       tags: ${{ steps.meta.outputs.tags }}
-#       labels: ${{ steps.meta.outputs.labels }}
-#       cache-from: type=gha
-#       cache-to: type=gha,mode=max
-#       build-args: |
-#         BASE_IMAGE=debian:trixie
+            Download the appropriate binary for your Raspberry Pi model:
+            - **Raspberry Pi 2/3/4 (32-bit)**: `thermos-linux-armv7-unknown-linux-gnueabihf.tar.gz`
+            - **Raspberry Pi 3/4 (64-bit)**: `thermos-linux-aarch64-unknown-linux-gnu.tar.gz`
+            - **x86_64 Linux**: `thermos-linux-x86_64-unknown-linux-gnu.tar.gz`
+
+            ### Quick Start
+
+            ```bash
+            # Download and extract (example for 64-bit Pi)
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/thermos-linux-aarch64-unknown-linux-gnu.tar.gz
+            tar xzf thermos-linux-aarch64-unknown-linux-gnu.tar.gz
+
+            # Make executable and install
+            chmod +x thermos-linux
+            sudo mv thermos-linux /usr/local/bin/
+
+            # Run
+            thermos-linux --config /path/to/config.json
+            ```
+
+            ### Changes
+
+            See [CHANGELOG.md](CHANGELOG.md) for details.
