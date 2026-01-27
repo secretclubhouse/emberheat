@@ -12,7 +12,8 @@ extern crate alloc;
 use alloc::boxed::Box;
 
 use core::fmt::Write as FmtWrite;
-use heapless::{FnvIndexMap, String as HeaplessString};
+use heapless::index_map::FnvIndexMap;
+use heapless::String as HeaplessString;
 use thermos_core::{PersistenceError, StateStorage, ThermostatState};
 
 /// Maximum key length for zone storage keys
@@ -47,7 +48,7 @@ impl StoredState {
         ThermostatState {
             relay_pin: 0,
             temp_pin: 0,
-            temp_id: HeaplessString::new(),
+            temp_id: heapless::String::<64>::new(),
             target_temp: self.target_temp,
             target_state: self.target_state,
             current_state: 0, // Default to off on load

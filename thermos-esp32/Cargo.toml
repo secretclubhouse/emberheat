@@ -46,7 +46,9 @@ embedded-io-async = "0.6"
 rust-mqtt = { version = "0.3", default-features = false }
 
 # 1-Wire DS18B20 temperature sensor (using RMT peripheral)
-esp-hal-rmt-onewire = "0.4"
+# Note: esp-hal-rmt-onewire 0.4 has compatibility issues with esp-hal 1.0
+# Enable via `onewire-rmt` feature when dependency is updated
+esp-hal-rmt-onewire = { version = "0.4", optional = true }
 
 # Utilities
 log = { workspace = true }
@@ -61,6 +63,8 @@ tokio = { version = "1.48", features = ["rt", "macros", "sync", "time"] }
 
 [features]
 default = []
+# Enable RMT-based 1-Wire implementation (requires compatible esp-hal-rmt-onewire)
+onewire-rmt = ["dep:esp-hal-rmt-onewire"]
 
 [profile.dev]
 opt-level = "z"
