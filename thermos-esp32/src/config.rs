@@ -53,53 +53,58 @@ pub struct ZoneConfigData {
 ///
 /// # GPIO Assignments
 ///
-/// - Zone1: GPIO 5
-/// - Zone2: GPIO 6
-/// - Zone3: GPIO 7
-/// - Zone4: GPIO 15
-/// - Zone5: GPIO 16
-/// - Zone6: GPIO 17
-/// - Zone7: GPIO 18
+/// Safe GPIO pins on ESP32-C6 (avoiding USB-UART on 16/17, USB on 12/13,
+/// and strapping pins 4, 5, 8, 9, 15):
+///
+/// - Zone1: GPIO 0
+/// - Zone2: GPIO 1
+/// - Zone3: GPIO 2
+/// - Zone4: GPIO 3
+/// - Zone5: GPIO 10
+/// - Zone6: GPIO 11
+/// - Zone7: GPIO 22
+///
+/// Note: GPIO 4 is reserved for 1-Wire bus (ONEWIRE_PIN)
 pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
     ZoneConfigData {
         name: "Zone1",
-        relay_pin: 5,
+        relay_pin: 0,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 1],
         default_target_c: 21.1,
     },
     ZoneConfigData {
         name: "Zone2",
-        relay_pin: 6,
+        relay_pin: 1,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 2],
         default_target_c: 21.1,
     },
     ZoneConfigData {
         name: "Zone3",
-        relay_pin: 7,
+        relay_pin: 2,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 3],
         default_target_c: 21.1,
     },
     ZoneConfigData {
         name: "Zone4",
-        relay_pin: 15,
+        relay_pin: 3,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 4],
         default_target_c: 21.1,
     },
     ZoneConfigData {
         name: "Zone5",
-        relay_pin: 16,
+        relay_pin: 10,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 5],
         default_target_c: 21.1,
     },
     ZoneConfigData {
         name: "Zone6",
-        relay_pin: 17,
+        relay_pin: 11,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 6],
         default_target_c: 21.1,
     },
     ZoneConfigData {
         name: "Zone7",
-        relay_pin: 18,
+        relay_pin: 22,
         sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 7],
         default_target_c: 21.1,
     },
@@ -132,7 +137,7 @@ pub const MQTT_CLIENT_ID: &str = "thermos-esp32";
 /// Use mock sensors instead of real hardware
 ///
 /// Set to `true` for testing without connected sensors.
-pub const USE_MOCK_SENSORS: bool = false;
+pub const USE_MOCK_SENSORS: bool = true;
 
 /// Temperature returned by mock sensors (in Celsius)
 ///

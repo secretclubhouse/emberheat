@@ -9,23 +9,21 @@ license = "MIT"
 thermos-core = { path = "../thermos-core", default-features = false }
 
 # ESP32-C6 HAL and platform support (with unstable feature for esp-radio)
-esp-hal = { version = "1.0", features = ["esp32c6", "unstable"] }
-esp-rtos = { version = "0.2", features = ["esp32c6", "embassy", "esp-radio", "esp-alloc"] }
+# Note: Feature order matters - chip features must be consistent across all esp-* crates
+esp-hal = { version = "1.0", features = ["esp32c6", "unstable", "log-04"] }
+esp-rtos = { version = "0.2", features = ["esp32c6", "embassy", "esp-radio", "esp-alloc", "log-04"] }
 esp-backtrace = { version = "0.18", features = ["esp32c6", "panic-handler", "println"] }
-esp-println = { version = "0.16", features = ["esp32c6"] }
-esp-alloc = { version = "0.9", features = ["esp32c6"] }
+esp-println = { version = "0.16", features = ["esp32c6", "log-04"] }
+esp-alloc = { version = "0.9" }
 esp-storage = { version = "0.8", features = ["esp32c6"] }
+
+# ESP-IDF bootloader provides linker scripts and boot sequence
+esp-bootloader-esp-idf = { version = "0.4", features = ["esp32c6"] }
 
 # Embassy dependencies (must match esp-rtos versions)
 embassy-executor = "0.9"
 embassy-sync = "0.7"
-embassy-time = "0.4"
-
-# Embassy async runtime - esp-rtos provides these, so don't use workspace versions
-# embassy-executor = { workspace = true }
-# embassy-time = { workspace = true }
-# embassy-sync = { workspace = true }
-# embassy-futures = { workspace = true }
+embassy-time = "0.5"
 
 # Embedded HAL traits
 embedded-hal = "1.0"
@@ -38,7 +36,7 @@ bme280 = { version = "0.5", default-features = false }
 embedded-storage = "0.3"
 
 # WiFi and networking (esp-radio replaces esp-wifi)
-esp-radio = { version = "0.17", features = ["esp32c6", "wifi", "esp-alloc"] }
+esp-radio = { version = "0.17", features = ["esp32c6", "wifi", "log-04"] }
 embassy-net = { version = "0.7", features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
 embedded-io-async = "0.6"
 

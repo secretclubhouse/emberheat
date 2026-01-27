@@ -23,6 +23,9 @@
 
 extern crate alloc;
 
+// ESP-IDF bootloader app descriptor - required for espflash
+esp_bootloader_esp_idf::esp_app_desc!();
+
 mod config;
 mod controller;
 mod gpio_impl;
@@ -38,6 +41,9 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::interrupt::software::SoftwareInterruptControl;
+use esp_hal::timer::timg::TimerGroup;
+use esp_println::println;
 use log::{debug, error, info, warn};
 use static_cell::StaticCell;
 
@@ -314,14 +320,21 @@ async fn zone7_task(
 
 #[esp_rtos::main]
 async fn main(spawner: Spawner) {
+    // Initialize logging first so we can see any errors
+    esp_println::logger::init_logger_from_env();
+
     // Initialize ESP32 peripherals with default configuration
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
     // Initialize heap allocator (72KB)
     esp_alloc::heap_allocator!(size: 73728);
 
-    // Initialize logging
-    log::set_max_level(log::LevelFilter::Info);
+    // Initialize esp-rtos scheduler with timer and software interrupt
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
+    let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+
+    println!("====================================");
     info!("====================================");
     info!("Thermos ESP32-C6 Thermostat v0.3.0");
     info!("7-Zone Multi-Zone Controller");
@@ -343,68 +356,82 @@ async fn main(spawner: Spawner) {
     // Initialize GPIO pins for relays (all start in OFF state = HIGH for active-low)
     info!("Initializing relay GPIO pins...");
 
-    // Zone 1: GPIO5
+    // Zone 1: GPIO0
+    info!("  Initializing Zone1 GPIO0...");
     let pin1 = PIN_1.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO5,
+        peripherals.GPIO0,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor1 = SENSOR_1.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[0].name));
     let state1 = STATE_1.init(ZoneState::with_target(ZONE_CONFIGS[0].default_target_c));
+    info!("  Zone1 initialized");
 
-    // Zone 2: GPIO6
+    // Zone 2: GPIO1
+    info!("  Initializing Zone2 GPIO1...");
     let pin2 = PIN_2.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO6,
+        peripherals.GPIO1,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor2 = SENSOR_2.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[1].name));
     let state2 = STATE_2.init(ZoneState::with_target(ZONE_CONFIGS[1].default_target_c));
+    info!("  Zone2 initialized");
 
-    // Zone 3: GPIO7
+    // Zone 3: GPIO2
+    info!("  Initializing Zone3 GPIO2...");
     let pin3 = PIN_3.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO7,
+        peripherals.GPIO2,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor3 = SENSOR_3.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[2].name));
     let state3 = STATE_3.init(ZoneState::with_target(ZONE_CONFIGS[2].default_target_c));
+    info!("  Zone3 initialized");
 
-    // Zone 4: GPIO15
+    // Zone 4: GPIO3
+    info!("  Initializing Zone4 GPIO3...");
     let pin4 = PIN_4.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO15,
+        peripherals.GPIO3,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor4 = SENSOR_4.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[3].name));
     let state4 = STATE_4.init(ZoneState::with_target(ZONE_CONFIGS[3].default_target_c));
+    info!("  Zone4 initialized");
 
-    // Zone 5: GPIO16
+    // Zone 5: GPIO10
+    info!("  Initializing Zone5 GPIO10...");
     let pin5 = PIN_5.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO16,
+        peripherals.GPIO10,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor5 = SENSOR_5.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[4].name));
     let state5 = STATE_5.init(ZoneState::with_target(ZONE_CONFIGS[4].default_target_c));
+    info!("  Zone5 initialized");
 
-    // Zone 6: GPIO17
+    // Zone 6: GPIO11
+    info!("  Initializing Zone6 GPIO11...");
     let pin6 = PIN_6.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO17,
+        peripherals.GPIO11,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor6 = SENSOR_6.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[5].name));
     let state6 = STATE_6.init(ZoneState::with_target(ZONE_CONFIGS[5].default_target_c));
+    info!("  Zone6 initialized");
 
-    // Zone 7: GPIO18
+    // Zone 7: GPIO22
+    info!("  Initializing Zone7 GPIO22...");
     let pin7 = PIN_7.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO18,
+        peripherals.GPIO22,
         Level::High,
         OutputConfig::default(),
     )));
     let sensor7 = SENSOR_7.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[6].name));
     let state7 = STATE_7.init(ZoneState::with_target(ZONE_CONFIGS[6].default_target_c));
+    info!("  Zone7 initialized");
 
     info!("All relay GPIO pins initialized (OFF state)");
     info!("Mock sensors initialized at {:.1}C", MOCK_TEMPERATURE_C);
