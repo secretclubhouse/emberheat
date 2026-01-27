@@ -1,71 +1,318 @@
 #![no_std]
 #![no_main]
 
-//! Thermos ESP32-C6 Thermostat with WiFi and MQTT
+//! Thermos ESP32-C6 Multi-Zone Thermostat
 //!
-//! Embedded thermostat controller using Embassy async runtime on ESP32-C6.
+//! Embedded 7-zone thermostat controller using Embassy async runtime on ESP32-C6.
 //! Implements the same control logic as the Raspberry Pi version but optimized
 //! for bare-metal embedded systems.
 //!
-//! Week 3: WiFi and MQTT integration for temperature history logging
+//! # Architecture
+//!
+//! - Each zone runs an independent control loop as an Embassy task
+//! - Mock sensors are used for testing without hardware
+//! - Real DS18B20 sensors share a single 1-Wire bus (future hardware support)
+//! - Each zone has its own relay GPIO pin
+//!
+//! # Configuration
+//!
+//! Zone configuration is defined in `config.rs`:
+//! - `ZONE_CONFIGS`: Array of 7 zone configurations
+//! - `USE_MOCK_SENSORS`: Toggle between mock and real sensors
+//! - `MOCK_TEMPERATURE_C`: Temperature returned by mock sensors
 
 extern crate alloc;
 
+mod config;
+mod controller;
 mod gpio_impl;
-mod mqtt;
+// TODO: Re-enable mqtt when WiFi support is added
+// mod mqtt;
 mod persistence_nvs;
 mod sensor_i2c;
+mod sensors;
 mod wifi;
-
-use core::str::FromStr;
+mod zone;
 
 use embassy_executor::Spawner;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
-use esp_hal::{
-    gpio::{Level, Output},
-    i2c::master::I2c,
-    rng::Rng,
-    time::Rate,
-};
-use log::{error, info, warn};
-use static_cell::make_static;
+use esp_hal::gpio::{Level, Output, OutputConfig};
+use log::{debug, error, info, warn};
+use static_cell::StaticCell;
 
+use config::{MOCK_TEMPERATURE_C, NUM_ZONES, USE_MOCK_SENSORS, ZONE_CONFIGS};
 use gpio_impl::Esp32GpioPin;
-use mqtt::{MqttConfig, MqttMessage, MqttPublisher};
-use persistence_nvs::NvsStorage;
-use sensor_i2c::{Bme280Sensor, MockSensor};
+use sensors::MockSensor;
 use thermos_core::{
-    apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState, StateStorage,
-    TemperatureSensor, ThermostatState, DEFAULT_TEMP_C,
+    apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState,
+    TemperatureSensor,
 };
-use wifi::WifiConfig;
-
-/// Zone configuration
-const ZONE_NAME: &str = "Zone1";
-const RELAY_PIN_NUM: u8 = 4; // GPIO4 for relay control
+use zone::ZoneState;
 
 /// Control loop interval (6 seconds, same as Raspberry Pi)
 const CONTROL_INTERVAL_SECS: u64 = 6;
 
-/// WiFi credentials (TODO: move to config file or NVS)
-const WIFI_SSID: &str = "YourSSID";
-const WIFI_PASSWORD: &str = "YourPassword";
+/// Maximum consecutive sensor errors before logging at error level
+const MAX_ERROR_LOG_COUNT: u32 = 10;
 
-/// MQTT broker configuration
-const MQTT_BROKER: &str = "192.168.1.100"; // Change to your broker IP
-const MQTT_PORT: u16 = 1883;
-const DEVICE_ID: &str = "esp32-zone1";
+// =============================================================================
+// Static Storage for Zone Components
+// =============================================================================
+//
+// Embassy tasks require 'static lifetimes. We use StaticCell to create
+// static storage for sensors, GPIO pins, and state that persists for the
+// program lifetime.
 
-/// Use mock sensor for testing without hardware
-const USE_MOCK_SENSOR: bool = true;
+// Individual static cells for each zone's components
+// Zone 1
+static SENSOR_1: StaticCell<MockSensor> = StaticCell::new();
+static PIN_1: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_1: StaticCell<ZoneState> = StaticCell::new();
 
-/// Enable WiFi and MQTT (set to false for offline testing)
-const ENABLE_WIFI: bool = true;
+// Zone 2
+static SENSOR_2: StaticCell<MockSensor> = StaticCell::new();
+static PIN_2: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_2: StaticCell<ZoneState> = StaticCell::new();
 
-#[esp_hal::main]
+// Zone 3
+static SENSOR_3: StaticCell<MockSensor> = StaticCell::new();
+static PIN_3: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_3: StaticCell<ZoneState> = StaticCell::new();
+
+// Zone 4
+static SENSOR_4: StaticCell<MockSensor> = StaticCell::new();
+static PIN_4: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_4: StaticCell<ZoneState> = StaticCell::new();
+
+// Zone 5
+static SENSOR_5: StaticCell<MockSensor> = StaticCell::new();
+static PIN_5: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_5: StaticCell<ZoneState> = StaticCell::new();
+
+// Zone 6
+static SENSOR_6: StaticCell<MockSensor> = StaticCell::new();
+static PIN_6: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_6: StaticCell<ZoneState> = StaticCell::new();
+
+// Zone 7
+static SENSOR_7: StaticCell<MockSensor> = StaticCell::new();
+static PIN_7: StaticCell<Esp32GpioPin> = StaticCell::new();
+static STATE_7: StaticCell<ZoneState> = StaticCell::new();
+
+// Shared hysteresis config
+static HYSTERESIS: StaticCell<HysteresisConfig> = StaticCell::new();
+
+// =============================================================================
+// Zone Control Loop Implementation
+// =============================================================================
+
+/// Run the control loop for a single zone
+///
+/// This function runs indefinitely, reading temperature from the sensor,
+/// applying hysteresis control, and controlling the relay.
+async fn zone_control_loop(
+    zone_name: &'static str,
+    sensor: &'static MockSensor,
+    relay_pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) -> ! {
+    info!(
+        "[{}] Starting control loop (interval: {}s, target: {:.1}C)",
+        zone_name, CONTROL_INTERVAL_SECS, state.target_temp_c
+    );
+
+    // Initialize relay to OFF state (HIGH = OFF for active-low)
+    if let Err(e) = relay_pin.set_high() {
+        error!("[{}] Failed to initialize relay to OFF: {:?}", zone_name, e);
+    }
+
+    // Track relay state
+    let mut current_relay_state = RelayState::Off;
+
+    // Control loop ticker
+    let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
+
+    loop {
+        ticker.next().await;
+
+        // Read temperature from sensor
+        match sensor.read_temperature().await {
+            Ok(reading) => {
+                // Clear errors on successful read
+                if state.error_count > 0 {
+                    info!(
+                        "[{}] Sensor recovered after {} errors",
+                        zone_name, state.error_count
+                    );
+                }
+                state.clear_errors();
+                state.current_temp_c = reading.celsius;
+
+                debug!(
+                    "[{}] Temp: {:.1}C, Target: {:.1}C, Heating: {}",
+                    zone_name,
+                    reading.celsius,
+                    state.target_temp_c,
+                    if state.heating_active { "ON" } else { "OFF" }
+                );
+
+                // Apply hysteresis control
+                let target_state = HeatingState::Heat;
+                let new_relay_state = apply_hysteresis_control(
+                    reading.celsius,
+                    state.target_temp_c,
+                    target_state,
+                    current_relay_state,
+                    hysteresis,
+                );
+
+                // Update relay if state changed
+                if new_relay_state != current_relay_state {
+                    let relay_result = match new_relay_state {
+                        RelayState::On => {
+                            info!(
+                                "[{}] Turning heating ON (temp: {:.1}C, target: {:.1}C)",
+                                zone_name, reading.celsius, state.target_temp_c
+                            );
+                            relay_pin.set_low() // Active-low: LOW = ON
+                        }
+                        RelayState::Off => {
+                            info!(
+                                "[{}] Turning heating OFF (temp: {:.1}C, target: {:.1}C)",
+                                zone_name, reading.celsius, state.target_temp_c
+                            );
+                            relay_pin.set_high() // Active-low: HIGH = OFF
+                        }
+                    };
+
+                    match relay_result {
+                        Ok(()) => {
+                            current_relay_state = new_relay_state;
+                            state.heating_active = new_relay_state == RelayState::On;
+                        }
+                        Err(e) => {
+                            error!("[{}] Failed to set relay state: {:?}", zone_name, e);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                // Sensor error handling
+                state.increment_errors();
+
+                if state.error_count <= MAX_ERROR_LOG_COUNT {
+                    warn!(
+                        "[{}] Sensor read failed (error #{}): {}",
+                        zone_name, state.error_count, e
+                    );
+                } else if state.error_count == MAX_ERROR_LOG_COUNT + 1 {
+                    error!(
+                        "[{}] Sensor errors exceeded threshold, suppressing warnings",
+                        zone_name
+                    );
+                }
+
+                // Safety: Turn off heating on sensor failure
+                if current_relay_state == RelayState::On {
+                    warn!(
+                        "[{}] Turning heating OFF due to sensor failure (safety)",
+                        zone_name
+                    );
+                    if let Err(e) = relay_pin.set_high() {
+                        error!("[{}] Failed to turn off relay (safety): {:?}", zone_name, e);
+                    } else {
+                        current_relay_state = RelayState::Off;
+                        state.heating_active = false;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =============================================================================
+// Zone Control Tasks
+// =============================================================================
+//
+// Embassy requires concrete task functions - we define one per zone.
+
+#[embassy_executor::task]
+async fn zone1_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[0].name, sensor, pin, state, hysteresis).await
+}
+
+#[embassy_executor::task]
+async fn zone2_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[1].name, sensor, pin, state, hysteresis).await
+}
+
+#[embassy_executor::task]
+async fn zone3_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[2].name, sensor, pin, state, hysteresis).await
+}
+
+#[embassy_executor::task]
+async fn zone4_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[3].name, sensor, pin, state, hysteresis).await
+}
+
+#[embassy_executor::task]
+async fn zone5_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[4].name, sensor, pin, state, hysteresis).await
+}
+
+#[embassy_executor::task]
+async fn zone6_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[5].name, sensor, pin, state, hysteresis).await
+}
+
+#[embassy_executor::task]
+async fn zone7_task(
+    sensor: &'static MockSensor,
+    pin: &'static mut Esp32GpioPin,
+    state: &'static mut ZoneState,
+    hysteresis: &'static HysteresisConfig,
+) {
+    zone_control_loop(ZONE_CONFIGS[6].name, sensor, pin, state, hysteresis).await
+}
+
+// =============================================================================
+// Main Entry Point
+// =============================================================================
+
+#[esp_rtos::main]
 async fn main(spawner: Spawner) {
     // Initialize ESP32 peripherals with default configuration
     let peripherals = esp_hal::init(esp_hal::Config::default());
@@ -76,445 +323,143 @@ async fn main(spawner: Spawner) {
     // Initialize logging
     log::set_max_level(log::LevelFilter::Info);
     info!("====================================");
-    info!("Thermos ESP32-C6 Thermostat v0.2.0");
-    info!("Week 3: WiFi + MQTT Integration");
+    info!("Thermos ESP32-C6 Thermostat v0.3.0");
+    info!("7-Zone Multi-Zone Controller");
     info!("====================================");
-    info!("WiFi: {}", if ENABLE_WIFI { "enabled" } else { "disabled" });
-    info!("MQTT: {}", if ENABLE_WIFI { "enabled" } else { "disabled" });
+    info!("Zones: {}", NUM_ZONES);
+    info!(
+        "Sensors: {}",
+        if USE_MOCK_SENSORS { "Mock" } else { "DS18B20" }
+    );
     info!("Control interval: {} seconds", CONTROL_INTERVAL_SECS);
 
-    // Create relay control pin (GPIO4)
-    let relay_pin = Output::new(peripherals.GPIO4, Level::High);
-    let gpio = Esp32GpioPin::new(relay_pin);
+    // Initialize shared hysteresis config
+    let hysteresis = HYSTERESIS.init(HysteresisConfig::default());
+    info!(
+        "Hysteresis config: +{:.1}C / -{:.1}C",
+        hysteresis.upper_threshold_c, hysteresis.lower_threshold_c
+    );
 
-    info!("Relay initialized to OFF state");
+    // Initialize GPIO pins for relays (all start in OFF state = HIGH for active-low)
+    info!("Initializing relay GPIO pins...");
 
-    // Initialize storage
-    let storage = NvsStorage::new();
-    info!("NVS storage initialized");
+    // Zone 1: GPIO5
+    let pin1 = PIN_1.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO5,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor1 = SENSOR_1.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[0].name));
+    let state1 = STATE_1.init(ZoneState::with_target(ZONE_CONFIGS[0].default_target_c));
 
-    // Create MQTT channel for message queueing
-    let mqtt_channel: &'static Channel<CriticalSectionRawMutex, MqttMessage, 16> =
-        make_static!(Channel::new());
+    // Zone 2: GPIO6
+    let pin2 = PIN_2.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO6,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor2 = SENSOR_2.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[1].name));
+    let state2 = STATE_2.init(ZoneState::with_target(ZONE_CONFIGS[1].default_target_c));
 
-    // Initialize WiFi and MQTT if enabled
-    let mqtt_publisher = if ENABLE_WIFI {
-        info!("Initializing WiFi...");
+    // Zone 3: GPIO7
+    let pin3 = PIN_3.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO7,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor3 = SENSOR_3.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[2].name));
+    let state3 = STATE_3.init(ZoneState::with_target(ZONE_CONFIGS[2].default_target_c));
 
-        // Create WiFi configuration
-        let wifi_config =
-            WifiConfig::new(WIFI_SSID, WIFI_PASSWORD).expect("Failed to create WiFi config");
+    // Zone 4: GPIO15
+    let pin4 = PIN_4.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO15,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor4 = SENSOR_4.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[3].name));
+    let state4 = STATE_4.init(ZoneState::with_target(ZONE_CONFIGS[3].default_target_c));
 
-        // Initialize WiFi and get network stack (esp-radio doesn't need RNG/RADIO_CLK)
-        let stack = wifi::init_wifi(spawner, wifi_config, peripherals.WIFI)
-            .await
-            .expect("Failed to initialize WiFi");
+    // Zone 5: GPIO16
+    let pin5 = PIN_5.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO16,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor5 = SENSOR_5.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[4].name));
+    let state5 = STATE_5.init(ZoneState::with_target(ZONE_CONFIGS[4].default_target_c));
 
-        info!("Waiting for network link...");
-        loop {
-            if stack.is_link_up() {
-                break;
-            }
-            embassy_time::Timer::after(Duration::from_millis(500)).await;
-        }
+    // Zone 6: GPIO17
+    let pin6 = PIN_6.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO17,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor6 = SENSOR_6.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[5].name));
+    let state6 = STATE_6.init(ZoneState::with_target(ZONE_CONFIGS[5].default_target_c));
 
-        info!("Waiting for DHCP...");
-        loop {
-            if let Some(config) = stack.config_v4() {
-                info!("IP address: {}", config.address);
-                break;
-            }
-            embassy_time::Timer::after(Duration::from_millis(500)).await;
-        }
+    // Zone 7: GPIO18
+    let pin7 = PIN_7.init(Esp32GpioPin::new(Output::new(
+        peripherals.GPIO18,
+        Level::High,
+        OutputConfig::default(),
+    )));
+    let sensor7 = SENSOR_7.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[6].name));
+    let state7 = STATE_7.init(ZoneState::with_target(ZONE_CONFIGS[6].default_target_c));
 
-        // Create MQTT configuration
-        let mqtt_config = MqttConfig::new(MQTT_BROKER, MQTT_PORT, DEVICE_ID)
-            .expect("Failed to create MQTT config");
+    info!("All relay GPIO pins initialized (OFF state)");
+    info!("Mock sensors initialized at {:.1}C", MOCK_TEMPERATURE_C);
 
-        // Spawn MQTT background task
-        spawner
-            .spawn(mqtt::mqtt_task(stack, mqtt_config.clone(), mqtt_channel))
-            .expect("Failed to spawn MQTT task");
-
-        // Create MQTT publisher
-        let publisher = MqttPublisher::new(mqtt_channel.sender(), mqtt_config);
-
-        // Publish startup event
-        publisher
-            .publish_status("online")
-            .await
-            .expect("Failed to publish startup");
-
-        Some(publisher)
-    } else {
-        info!("WiFi disabled, running offline");
-        None
-    };
-
-    // Initialize I2C for temperature sensor
-    if USE_MOCK_SENSOR {
-        info!("Using mock temperature sensor ({}°C)", DEFAULT_TEMP_C);
-        let sensor =
-            MockSensor::new("BME280-Mock", DEFAULT_TEMP_C).expect("Failed to create mock sensor");
-
-        // Spawn control loop with mock sensor
-        spawner
-            .spawn(control_loop_mock(sensor, gpio, storage, mqtt_publisher))
-            .expect("Failed to spawn control loop");
-    } else {
-        info!("Initializing BME280 sensor on I2C");
-
-        use esp_hal::i2c::master::Config;
-
-        let config = Config::default().with_frequency(Rate::from_hz(100_000));
-
-        let i2c = I2c::new(peripherals.I2C0, config)
-            .expect("Failed to create I2C")
-            .with_sda(peripherals.GPIO6)
-            .with_scl(peripherals.GPIO7);
-
-        let mut sensor = Bme280Sensor::new(i2c, Bme280Sensor::DEFAULT_ADDRESS, "BME280-Zone1")
-            .expect("Failed to create BME280 sensor");
-
-        // Initialize sensor
-        match sensor.init().await {
-            Ok(_) => info!("BME280 sensor initialized successfully"),
-            Err(e) => {
-                error!("Failed to initialize BME280: {:?}", e);
-                error!("Continuing with potentially invalid readings...");
-            }
-        }
-
-        // Spawn control loop with BME280 sensor
-        spawner
-            .spawn(control_loop_bme280(sensor, gpio, storage, mqtt_publisher))
-            .expect("Failed to spawn control loop");
+    // Log zone configuration
+    for config in ZONE_CONFIGS.iter() {
+        info!(
+            "  {}: relay=GPIO{}, target={:.1}C",
+            config.name, config.relay_pin, config.default_target_c
+        );
     }
 
-    info!("Control loop spawned, entering idle mode");
+    // Spawn control tasks for all 7 zones
+    info!("Spawning zone control tasks...");
 
-    // Keep main task alive
+    spawner
+        .spawn(zone1_task(sensor1, pin1, state1, hysteresis))
+        .expect("Failed to spawn Zone1 task");
+    info!("  Zone1 task spawned");
+
+    spawner
+        .spawn(zone2_task(sensor2, pin2, state2, hysteresis))
+        .expect("Failed to spawn Zone2 task");
+    info!("  Zone2 task spawned");
+
+    spawner
+        .spawn(zone3_task(sensor3, pin3, state3, hysteresis))
+        .expect("Failed to spawn Zone3 task");
+    info!("  Zone3 task spawned");
+
+    spawner
+        .spawn(zone4_task(sensor4, pin4, state4, hysteresis))
+        .expect("Failed to spawn Zone4 task");
+    info!("  Zone4 task spawned");
+
+    spawner
+        .spawn(zone5_task(sensor5, pin5, state5, hysteresis))
+        .expect("Failed to spawn Zone5 task");
+    info!("  Zone5 task spawned");
+
+    spawner
+        .spawn(zone6_task(sensor6, pin6, state6, hysteresis))
+        .expect("Failed to spawn Zone6 task");
+    info!("  Zone6 task spawned");
+
+    spawner
+        .spawn(zone7_task(sensor7, pin7, state7, hysteresis))
+        .expect("Failed to spawn Zone7 task");
+    info!("  Zone7 task spawned");
+
+    info!("All {} zone control tasks running", NUM_ZONES);
+    info!("====================================");
+
+    // Keep main task alive (zones run independently)
     loop {
         embassy_time::Timer::after(Duration::from_secs(60)).await;
-    }
-}
-
-/// Main thermostat control loop task with mock sensor
-#[embassy_executor::task]
-async fn control_loop_mock(
-    sensor: MockSensor,
-    mut gpio: Esp32GpioPin,
-    mut storage: NvsStorage,
-    mqtt: Option<MqttPublisher>,
-) {
-    info!("Control loop starting for zone: {}", ZONE_NAME);
-
-    // Load saved state or use defaults
-    let mut target_temp = DEFAULT_TEMP_C;
-
-    match storage.load_state(ZONE_NAME).await {
-        Ok(Some(saved_state)) => {
-            info!("Loaded saved state: target={}°C", saved_state.target_temp);
-            target_temp = saved_state.target_temp;
-        }
-        Ok(None) => {
-            info!("No saved state found, using defaults");
-        }
-        Err(e) => {
-            error!("Failed to load state: {:?}, using defaults", e);
-        }
-    }
-
-    // Runtime control state (not persisted every cycle)
-    let target_state = HeatingState::Heat;
-    let mut current_relay_state = RelayState::Off;
-
-    // Hysteresis configuration (±0.5°C, same as Raspberry Pi)
-    let hysteresis = HysteresisConfig::default();
-
-    // Control loop ticker (6 second interval)
-    let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
-
-    info!(
-        "Control loop running - target: {}°C, hysteresis: ±{}°C",
-        target_temp, hysteresis.upper_threshold_c
-    );
-
-    loop {
-        ticker.next().await;
-
-        // Read temperature from sensor
-        match sensor.read_temperature().await {
-            Ok(reading) => {
-                let temp_c = reading.celsius;
-
-                // Apply hysteresis control algorithm from thermos-core
-                let new_relay_state = apply_hysteresis_control(
-                    temp_c,
-                    target_temp,
-                    target_state,
-                    current_relay_state,
-                    &hysteresis,
-                );
-
-                // Update relay if state changed
-                if new_relay_state != current_relay_state {
-                    let heating = matches!(new_relay_state, RelayState::On);
-                    let heating_str = if heating { "ON" } else { "OFF" };
-
-                    info!(
-                        "Temp: {:.1}°C, Target: {:.1}°C → Heating: {}",
-                        temp_c, target_temp, heating_str
-                    );
-
-                    // Control GPIO (active-low: LOW = ON, HIGH = OFF)
-                    let gpio_result = match new_relay_state {
-                        RelayState::On => gpio.set_low(),
-                        RelayState::Off => gpio.set_high(),
-                    };
-
-                    if let Err(e) = gpio_result {
-                        error!("Failed to control relay: {:?}", e);
-                    } else {
-                        current_relay_state = new_relay_state;
-
-                        // Publish state change event to MQTT
-                        if let Some(ref mqtt) = mqtt {
-                            let msg = if heating { "Heating ON" } else { "Heating OFF" };
-                            if let Err(e) = mqtt.publish_event(ZONE_NAME, "state_change", msg).await
-                            {
-                                warn!("Failed to publish MQTT event: {}", e);
-                            }
-                        }
-                    }
-
-                    // Save state to NVS when relay state changes
-                    let state = ThermostatState {
-                        relay_pin: RELAY_PIN_NUM,
-                        temp_pin: 0,
-                        temp_id: heapless::String::from_str(sensor.id()).unwrap_or_default(),
-                        target_temp,
-                        target_state: target_state as u8,
-                        current_state: current_relay_state as u8,
-                        #[cfg(not(feature = "std"))]
-                        last_updated: 0,
-                        #[cfg(feature = "std")]
-                        last_updated: chrono::Utc::now(),
-                    };
-
-                    if let Err(e) = storage.save_state(ZONE_NAME, &state).await {
-                        warn!("Failed to save state: {:?}", e);
-                    }
-                }
-
-                // Publish temperature reading to MQTT every cycle
-                if let Some(ref mqtt) = mqtt {
-                    let heating = matches!(current_relay_state, RelayState::On);
-                    if let Err(e) = mqtt
-                        .publish_temperature(ZONE_NAME, temp_c, target_temp, heating)
-                        .await
-                    {
-                        warn!("Failed to publish MQTT temperature: {}", e);
-                    }
-                }
-
-                // Log current state every minute (every 10th iteration)
-                static mut LOG_COUNTER: u32 = 0;
-                unsafe {
-                    LOG_COUNTER += 1;
-                    if LOG_COUNTER >= 10 {
-                        LOG_COUNTER = 0;
-                        let heating_str = match current_relay_state {
-                            RelayState::On => "ON",
-                            RelayState::Off => "OFF",
-                        };
-                        info!(
-                            "Temp: {:.1}°C, Target: {:.1}°C, Heating: {}",
-                            temp_c, target_temp, heating_str
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Sensor read error: {:?}", e);
-
-                // On sensor error, turn heating OFF for safety
-                if current_relay_state != RelayState::Off {
-                    warn!("Sensor error: turning heating OFF for safety");
-                    if let Err(gpio_err) = gpio.set_high() {
-                        error!("CRITICAL: Failed to turn off relay: {:?}", gpio_err);
-                    } else {
-                        current_relay_state = RelayState::Off;
-
-                        // Publish error event
-                        if let Some(ref mqtt) = mqtt {
-                            let _ = mqtt
-                                .publish_event(ZONE_NAME, "error", "Sensor read failed")
-                                .await;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Main thermostat control loop task with BME280 sensor
-#[embassy_executor::task]
-async fn control_loop_bme280(
-    sensor: Bme280Sensor,
-    mut gpio: Esp32GpioPin,
-    mut storage: NvsStorage,
-    mqtt: Option<MqttPublisher>,
-) {
-    info!("Control loop starting for zone: {}", ZONE_NAME);
-
-    // Load saved state or use defaults
-    let mut target_temp = DEFAULT_TEMP_C;
-
-    match storage.load_state(ZONE_NAME).await {
-        Ok(Some(saved_state)) => {
-            info!("Loaded saved state: target={}°C", saved_state.target_temp);
-            target_temp = saved_state.target_temp;
-        }
-        Ok(None) => {
-            info!("No saved state found, using defaults");
-        }
-        Err(e) => {
-            error!("Failed to load state: {:?}, using defaults", e);
-        }
-    }
-
-    // Runtime control state (not persisted every cycle)
-    let target_state = HeatingState::Heat;
-    let mut current_relay_state = RelayState::Off;
-
-    // Hysteresis configuration (±0.5°C, same as Raspberry Pi)
-    let hysteresis = HysteresisConfig::default();
-
-    // Control loop ticker (6 second interval)
-    let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
-
-    info!(
-        "Control loop running - target: {}°C, hysteresis: ±{}°C",
-        target_temp, hysteresis.upper_threshold_c
-    );
-
-    loop {
-        ticker.next().await;
-
-        // Read temperature from sensor
-        match sensor.read_temperature().await {
-            Ok(reading) => {
-                let temp_c = reading.celsius;
-
-                // Apply hysteresis control algorithm from thermos-core
-                let new_relay_state = apply_hysteresis_control(
-                    temp_c,
-                    target_temp,
-                    target_state,
-                    current_relay_state,
-                    &hysteresis,
-                );
-
-                // Update relay if state changed
-                if new_relay_state != current_relay_state {
-                    let heating = matches!(new_relay_state, RelayState::On);
-                    let heating_str = if heating { "ON" } else { "OFF" };
-
-                    info!(
-                        "Temp: {:.1}°C, Target: {:.1}°C → Heating: {}",
-                        temp_c, target_temp, heating_str
-                    );
-
-                    // Control GPIO (active-low: LOW = ON, HIGH = OFF)
-                    let gpio_result = match new_relay_state {
-                        RelayState::On => gpio.set_low(),
-                        RelayState::Off => gpio.set_high(),
-                    };
-
-                    if let Err(e) = gpio_result {
-                        error!("Failed to control relay: {:?}", e);
-                    } else {
-                        current_relay_state = new_relay_state;
-
-                        // Publish state change event to MQTT
-                        if let Some(ref mqtt) = mqtt {
-                            let msg = if heating { "Heating ON" } else { "Heating OFF" };
-                            if let Err(e) = mqtt.publish_event(ZONE_NAME, "state_change", msg).await
-                            {
-                                warn!("Failed to publish MQTT event: {}", e);
-                            }
-                        }
-                    }
-
-                    // Save state to NVS when relay state changes
-                    let state = ThermostatState {
-                        relay_pin: RELAY_PIN_NUM,
-                        temp_pin: 0,
-                        temp_id: heapless::String::from_str(sensor.id()).unwrap_or_default(),
-                        target_temp,
-                        target_state: target_state as u8,
-                        current_state: current_relay_state as u8,
-                        #[cfg(not(feature = "std"))]
-                        last_updated: 0,
-                        #[cfg(feature = "std")]
-                        last_updated: chrono::Utc::now(),
-                    };
-
-                    if let Err(e) = storage.save_state(ZONE_NAME, &state).await {
-                        warn!("Failed to save state: {:?}", e);
-                    }
-                }
-
-                // Publish temperature reading to MQTT every cycle
-                if let Some(ref mqtt) = mqtt {
-                    let heating = matches!(current_relay_state, RelayState::On);
-                    if let Err(e) = mqtt
-                        .publish_temperature(ZONE_NAME, temp_c, target_temp, heating)
-                        .await
-                    {
-                        warn!("Failed to publish MQTT temperature: {}", e);
-                    }
-                }
-
-                // Log current state every minute (every 10th iteration)
-                static mut LOG_COUNTER: u32 = 0;
-                unsafe {
-                    LOG_COUNTER += 1;
-                    if LOG_COUNTER >= 10 {
-                        LOG_COUNTER = 0;
-                        let heating_str = match current_relay_state {
-                            RelayState::On => "ON",
-                            RelayState::Off => "OFF",
-                        };
-                        info!(
-                            "Temp: {:.1}°C, Target: {:.1}°C, Heating: {}",
-                            temp_c, target_temp, heating_str
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Sensor read error: {:?}", e);
-
-                // On sensor error, turn heating OFF for safety
-                if current_relay_state != RelayState::Off {
-                    warn!("Sensor error: turning heating OFF for safety");
-                    if let Err(gpio_err) = gpio.set_high() {
-                        error!("CRITICAL: Failed to turn off relay: {:?}", gpio_err);
-                    } else {
-                        current_relay_state = RelayState::Off;
-
-                        // Publish error event
-                        if let Some(ref mqtt) = mqtt {
-                            let _ = mqtt
-                                .publish_event(ZONE_NAME, "error", "Sensor read failed")
-                                .await;
-                        }
-                    }
-                }
-            }
-        }
     }
 }
