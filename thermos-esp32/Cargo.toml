@@ -74,6 +74,10 @@ lto = "fat"
 [profile.dev.package.esp-radio]
 opt-level = 3
 
+[[bin]]
+name = "scan_sensors"
+path = "src/bin/scan_sensors.rs"
+
 [profile.release]
 opt-level = "z"
 lto = "fat"
