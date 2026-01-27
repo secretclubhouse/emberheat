@@ -13,6 +13,7 @@
 
 extern crate alloc;
 
+pub mod config;
 pub mod controller;
 pub mod gpio_impl;
 pub mod persistence_nvs;

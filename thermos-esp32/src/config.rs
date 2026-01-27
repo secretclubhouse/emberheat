@@ -1,0 +1,244 @@
+//! 7-Zone Thermostat Configuration
+//!
+//! This module defines the compile-time configuration for the 7-zone
+//! thermostat system, including GPIO pins, sensor addresses, and
+//! network settings.
+//!
+//! # Sensor Addresses
+//!
+//! The `sensor_address` fields in `ZONE_CONFIGS` contain placeholder values.
+//! To get actual sensor addresses:
+//!
+//! 1. Connect DS18B20 sensors one at a time
+//! 2. Run the sensor scan utility to discover ROM addresses
+//! 3. Update the addresses in this file
+//!
+//! Each DS18B20 has a unique 64-bit ROM address starting with family code 0x28.
+
+/// GPIO pin for the shared 1-Wire bus (all DS18B20 sensors)
+pub const ONEWIRE_PIN: u8 = 4;
+
+/// Number of heating zones supported
+pub const NUM_ZONES: usize = 7;
+
+/// Compile-time zone configuration data
+///
+/// This struct is designed for static initialization and can be
+/// converted to runtime `ZoneConfig` as needed.
+#[derive(Debug, Clone, Copy)]
+pub struct ZoneConfigData {
+    /// Human-readable zone name
+    pub name: &'static str,
+
+    /// GPIO pin number for relay control
+    pub relay_pin: u8,
+
+    /// DS18B20 64-bit ROM address
+    ///
+    /// NOTE: These are placeholder addresses. Run sensor scan utility
+    /// to discover actual addresses for your sensors.
+    pub sensor_address: [u8; 8],
+
+    /// Default target temperature in Celsius
+    pub default_target_c: f32,
+}
+
+/// Configuration for all 7 heating zones
+///
+/// # Placeholder Addresses
+///
+/// The sensor addresses are placeholders (0x28, 0, 0, 0, 0, 0, 0, N).
+/// You must update these with actual DS18B20 ROM addresses discovered
+/// by running the sensor scan utility.
+///
+/// # GPIO Assignments
+///
+/// - Zone1: GPIO 5
+/// - Zone2: GPIO 6
+/// - Zone3: GPIO 7
+/// - Zone4: GPIO 15
+/// - Zone5: GPIO 16
+/// - Zone6: GPIO 17
+/// - Zone7: GPIO 18
+pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
+    ZoneConfigData {
+        name: "Zone1",
+        relay_pin: 5,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 1],
+        default_target_c: 21.1,
+    },
+    ZoneConfigData {
+        name: "Zone2",
+        relay_pin: 6,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 2],
+        default_target_c: 21.1,
+    },
+    ZoneConfigData {
+        name: "Zone3",
+        relay_pin: 7,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 3],
+        default_target_c: 21.1,
+    },
+    ZoneConfigData {
+        name: "Zone4",
+        relay_pin: 15,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 4],
+        default_target_c: 21.1,
+    },
+    ZoneConfigData {
+        name: "Zone5",
+        relay_pin: 16,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 5],
+        default_target_c: 21.1,
+    },
+    ZoneConfigData {
+        name: "Zone6",
+        relay_pin: 17,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 6],
+        default_target_c: 21.1,
+    },
+    ZoneConfigData {
+        name: "Zone7",
+        relay_pin: 18,
+        sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 7],
+        default_target_c: 21.1,
+    },
+];
+
+// =============================================================================
+// WiFi Configuration
+// =============================================================================
+
+/// WiFi SSID (set via WIFI_SSID environment variable at compile time)
+pub const WIFI_SSID: &str = env!("WIFI_SSID");
+
+/// WiFi password (set via WIFI_PASSWORD environment variable at compile time)
+pub const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
+
+// =============================================================================
+// MQTT Configuration
+// =============================================================================
+
+/// MQTT broker address
+pub const MQTT_BROKER: &str = "mqtt://localhost:1883";
+
+/// MQTT client identifier
+pub const MQTT_CLIENT_ID: &str = "thermos-esp32";
+
+// =============================================================================
+// Testing Configuration
+// =============================================================================
+
+/// Use mock sensors instead of real hardware
+///
+/// Set to `true` for testing without connected sensors.
+pub const USE_MOCK_SENSORS: bool = false;
+
+/// Temperature returned by mock sensors (in Celsius)
+///
+/// Only used when `USE_MOCK_SENSORS` is `true`.
+pub const MOCK_TEMPERATURE_C: f32 = 20.0;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_num_zones() {
+        assert_eq!(NUM_ZONES, 7);
+        assert_eq!(ZONE_CONFIGS.len(), NUM_ZONES);
+    }
+
+    #[test]
+    fn test_zone_configs_have_unique_relay_pins() {
+        let mut pins: [u8; NUM_ZONES] = [0; NUM_ZONES];
+        for (i, config) in ZONE_CONFIGS.iter().enumerate() {
+            pins[i] = config.relay_pin;
+        }
+
+        // Check for duplicates
+        for i in 0..NUM_ZONES {
+            for j in (i + 1)..NUM_ZONES {
+                assert_ne!(
+                    pins[i], pins[j],
+                    "Duplicate relay pin {} in zones {} and {}",
+                    pins[i], i, j
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_zone_configs_have_unique_sensor_addresses() {
+        for i in 0..NUM_ZONES {
+            for j in (i + 1)..NUM_ZONES {
+                assert_ne!(
+                    ZONE_CONFIGS[i].sensor_address, ZONE_CONFIGS[j].sensor_address,
+                    "Duplicate sensor address in zones {} and {}",
+                    i, j
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_sensors_are_ds18b20_family() {
+        for (i, config) in ZONE_CONFIGS.iter().enumerate() {
+            assert_eq!(
+                config.sensor_address[0], 0x28,
+                "Zone {} sensor should have DS18B20 family code 0x28",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_relay_pins_are_valid_gpio() {
+        // ESP32-C6 valid GPIO pins (0-21)
+        for config in ZONE_CONFIGS.iter() {
+            assert!(
+                config.relay_pin <= 21,
+                "Relay pin {} is not a valid ESP32-C6 GPIO",
+                config.relay_pin
+            );
+        }
+    }
+
+    #[test]
+    fn test_onewire_pin_is_valid() {
+        assert!(ONEWIRE_PIN <= 21, "1-Wire pin must be valid ESP32-C6 GPIO");
+    }
+
+    #[test]
+    fn test_default_targets_are_reasonable() {
+        for config in ZONE_CONFIGS.iter() {
+            assert!(
+                config.default_target_c >= 10.0 && config.default_target_c <= 30.0,
+                "Default target {} is outside reasonable range",
+                config.default_target_c
+            );
+        }
+    }
+
+    #[test]
+    fn test_zone_config_data_is_copy() {
+        let config = ZONE_CONFIGS[0];
+        let _copy = config; // Should compile - ZoneConfigData is Copy
+        let _ = config.name; // Original still usable
+    }
+
+    #[test]
+    fn test_mqtt_config() {
+        assert!(!MQTT_BROKER.is_empty());
+        assert!(!MQTT_CLIENT_ID.is_empty());
+    }
+
+    #[test]
+    fn test_mock_temperature_is_reasonable() {
+        assert!(
+            MOCK_TEMPERATURE_C >= 10.0 && MOCK_TEMPERATURE_C <= 30.0,
+            "Mock temperature {} is outside reasonable range",
+            MOCK_TEMPERATURE_C
+        );
+    }
+}
