@@ -24,6 +24,9 @@ config/accessory.state
 .env
 .env.local
 
+# Claude Code local settings (user-specific)
+.claude/settings.local.json
+
 # Docker volumes
 redis-data/
 prometheus-data/
