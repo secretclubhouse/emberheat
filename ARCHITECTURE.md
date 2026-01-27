@@ -5,6 +5,7 @@ This document describes the internal architecture and design decisions of Thermo
 ## Table of Contents
 
 - [Overview](#overview)
+- [Workspace Structure](#workspace-structure)
 - [Module Structure](#module-structure)
 - [Data Flow](#data-flow)
 - [Concurrency Model](#concurrency-model)
@@ -18,54 +19,161 @@ This document describes the internal architecture and design decisions of Thermo
 Thermos-Rust is a multi-zone thermostat control system built with Rust, designed for:
 
 - **Safety**: Memory safety and thread safety via Rust's type system
-- **Performance**: Low resource usage suitable for Raspberry Pi
+- **Performance**: Low resource usage suitable for Raspberry Pi and ESP32
 - **Reliability**: Robust error handling and automatic recovery
 - **Modularity**: Clean separation of concerns
+- **Portability**: Multi-platform support via trait-based abstraction
+
+## Workspace Structure
+
+The project is organized as a Cargo workspace with three crates:
+
+```
+thermos-rust/
+├── thermos-core/       # Platform-agnostic core library (no_std compatible)
+├── thermos-linux/      # Linux/Raspberry Pi implementation  
+├── thermos-esp32/      # ESP32-C6 bare-metal implementation
+└── src/                # Legacy single-crate (being migrated)
+```
+
+### thermos-core
+
+Platform-agnostic library containing shared types and control logic. Designed to be `no_std` compatible for embedded use.
+
+**Key exports:**
+- `HeatingState`, `RelayState`, `TemperatureReading` - Core types
+- `TemperatureSensor` trait - Sensor abstraction
+- `GpioManager` trait - GPIO abstraction
+- `StateStorage` trait - Persistence abstraction
+- `apply_hysteresis_control()` - Control algorithm
+- `HysteresisConfig` - Configuration types
+
+### thermos-linux
+
+Full-featured implementation for Raspberry Pi with:
+- Tokio async runtime
+- rppal GPIO library
+- 1-Wire via sysfs (`/sys/bus/w1/devices/`)
+- HTTP fallback sensors via reqwest
+- Redis state persistence
+- Prometheus metrics export
+
+### thermos-esp32
+
+Bare-metal `no_std` implementation for ESP32-C6 with:
+- Embassy async executor
+- esp-hal GPIO
+- 1-Wire via RMT peripheral (hardware-timed, more reliable)
+- I2C BME280 sensor support
+- NVS flash persistence
+- WiFi connectivity
+- MQTT temperature logging
 
 ## Module Structure
 
+### thermos-core (platform-agnostic)
+
+```
+thermos-core/src/
+├── lib.rs              # Library exports
+├── types.rs            # HeatingState, RelayState, TemperatureReading
+├── sensor.rs           # TemperatureSensor trait
+├── gpio.rs             # GpioManager trait  
+├── persistence.rs      # StateStorage trait
+├── control.rs          # Hysteresis control algorithm
+└── config.rs           # HysteresisConfig, ZoneConfig
+```
+
+### thermos-linux (Raspberry Pi)
+
+```
+thermos-linux/src/
+├── main.rs             # Tokio entry point, orchestration
+├── config/mod.rs       # JSON config loading, validation
+├── devices/mod.rs      # Thermostat bridge, control loops
+├── gpio/mod.rs         # rppal GPIO, relay management
+├── sensors/
+│   ├── mod.rs          # Composite sensor, HTTP sensor
+│   └── onewire.rs      # 1-Wire sysfs implementation
+├── persistence/mod.rs  # Redis integration
+├── metrics/mod.rs      # Prometheus metrics export
+└── mocks/              # Test infrastructure
+    ├── gpio_mock.rs
+    ├── sensor_mock.rs
+    └── state_mock.rs
+```
+
+### thermos-esp32 (bare-metal)
+
+```
+thermos-esp32/src/
+├── main.rs             # Embassy entry point
+├── lib.rs              # Library exports
+├── gpio_impl.rs        # esp-hal GPIO implementation
+├── sensor_onewire.rs   # 1-Wire via RMT peripheral
+├── sensor_i2c.rs       # BME280 I2C sensor
+├── persistence_nvs.rs  # NVS flash storage
+├── wifi.rs             # WiFi connectivity
+├── mqtt.rs             # MQTT temperature logging
+└── mocks.rs            # Test mocks
+```
+
+### Legacy src/ (being migrated)
+
 ```
 src/
-├── main.rs                 # Application entry point, orchestration
-├── config/                 # Configuration management
-│   └── mod.rs             # JSON config loading, validation
-├── devices/                # Thermostat control logic
-│   └── mod.rs             # Hysteresis control, state management
-├── gpio/                   # Hardware abstraction
-│   └── mod.rs             # GPIO control, relay management
-├── hal/                    # Hardware Abstraction Layer (ESP32 prep)
-│   ├── mod.rs             # HAL traits (OutputPin, Platform)
-│   ├── linux.rs           # Linux/rppal implementation
-│   └── stub.rs            # Stub for testing/development
-├── sensors/                # Temperature sensing
-│   ├── mod.rs             # Sensor trait, composite sensor
-│   └── onewire.rs         # 1-Wire DS18B20 implementation
-├── persistence/            # State persistence
-│   └── mod.rs             # Redis integration
-├── metrics/                # Observability
-│   └── mod.rs             # Prometheus metrics export
-├── matter/                 # Smart home integration
-│   └── mod.rs             # Matter protocol support via Connected Home IP
-└── mocks/                  # Test mocking infrastructure
-    ├── mod.rs             # Mock module exports
-    ├── gpio_mock.rs       # Mock GPIO controller
-    ├── sensor_mock.rs     # Mock temperature sensors
-    └── state_mock.rs      # Mock state manager
+├── main.rs             # Application entry point
+├── config/mod.rs       # Configuration management
+├── devices/mod.rs      # Hysteresis control, state management
+├── gpio/mod.rs         # GPIO control, relay management
+├── hal/                # Hardware Abstraction Layer
+│   ├── mod.rs          # HAL traits (OutputPin, Platform)
+│   ├── linux.rs        # Linux/rppal implementation
+│   └── stub.rs         # Stub for testing
+├── sensors/
+│   ├── mod.rs          # Sensor trait, composite sensor
+│   └── onewire.rs      # 1-Wire DS18B20 (sysfs)
+├── persistence/mod.rs  # Redis integration
+├── metrics/mod.rs      # Prometheus metrics export
+├── matter/mod.rs       # Matter protocol stub (not implemented)
+└── mocks/              # Test infrastructure
 ```
 
 ### Module Responsibilities
 
-| Module | Responsibility | External Dependencies |
-|--------|----------------|----------------------|
-| `config` | Configuration loading and validation | `serde`, `serde_json` |
-| `devices` | Thermostat control logic | `embassy_time`, `embassy_sync`, `tracing` |
-| `gpio` | GPIO hardware interface | `rppal`, `embassy_time` |
-| `hal` | Platform abstraction (ESP32 prep) | `rppal` (Linux) |
-| `sensors` | Temperature reading | `reqwest`, `embassy_time` |
-| `persistence` | State storage | `redis`, `tokio` |
-| `metrics` | Metrics export | `prometheus`, `embassy_sync` |
-| `matter` | Matter protocol | Connected Home IP (C++ FFI) |
-| `mocks` | Test infrastructure | `mockall`, `embassy_time` |
+#### thermos-core
+
+| Module | Responsibility | Dependencies |
+|--------|----------------|--------------|
+| `types` | Core data types | `serde` (no_std) |
+| `sensor` | Sensor trait definition | `async-trait` |
+| `gpio` | GPIO trait definition | None |
+| `persistence` | Storage trait definition | `async-trait` |
+| `control` | Hysteresis algorithm | None |
+| `config` | Configuration types | `serde` |
+
+#### thermos-linux
+
+| Module | Responsibility | Dependencies |
+|--------|----------------|--------------|
+| `config` | JSON config loading/validation | `serde`, `serde_json` |
+| `devices` | Thermostat control loops | `embassy_time`, `embassy_sync`, `tracing` |
+| `gpio` | Raspberry Pi GPIO | `rppal` |
+| `sensors` | 1-Wire sysfs, HTTP fallback | `reqwest`, `embassy_time` |
+| `persistence` | Redis state storage | `redis`, `tokio` |
+| `metrics` | Prometheus export | `prometheus` |
+| `mocks` | Test infrastructure | `embassy_time` |
+
+#### thermos-esp32
+
+| Module | Responsibility | Dependencies |
+|--------|----------------|--------------|
+| `gpio_impl` | ESP32 GPIO control | `esp-hal` |
+| `sensor_onewire` | 1-Wire via RMT | `esp-hal-rmt-onewire` |
+| `sensor_i2c` | BME280 I2C sensor | `bme280` |
+| `persistence_nvs` | NVS flash storage | `esp-hal` |
+| `wifi` | WiFi connectivity | `esp-wifi` |
+| `mqtt` | MQTT logging | `rust-mqtt` |
 
 ## Data Flow
 
@@ -268,9 +376,11 @@ pub enum GpioError {
 
 ## Matter Integration
 
-### Cluster Implementation
+**Current Status:** Matter support is a **stub implementation** that is not functional. The `src/matter/mod.rs` file logs warnings and waits indefinitely without providing actual Matter protocol support.
 
-Thermos-Rust implements the Thermostat cluster (0x0201):
+**Future Plan:** Matter integration is planned for ESP32-C6 using the `rs-matter` pure Rust library. See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for implementation details.
+
+### Planned Cluster Implementation (Thermostat 0x0201)
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
@@ -281,7 +391,7 @@ Thermos-Rust implements the Thermostat cluster (0x0201):
 | ControlSequenceOfOperation | enum8 | Heating only (0x00) |
 | TemperatureDisplayMode | enum8 | Celsius (0x00) |
 
-### Commissioning Flow
+### Planned Commissioning Flow (not yet implemented)
 
 ```
 1. App starts Matter server
@@ -392,28 +502,28 @@ from Embassy-based code.
 
 ## Future Improvements
 
-### Short Term
+### Completed
 
-- [ ] Complete rs-matter integration
 - [x] Hardware abstraction layer (HAL) for ESP32 portability
 - [x] Embassy primitives for bare-metal compatibility
+- [x] ESP32-C6 bare-metal implementation
+- [x] 1-Wire via RMT peripheral on ESP32
+- [x] I2C BME280 sensor support on ESP32
+- [x] WiFi and MQTT integration on ESP32
+- [x] NVS flash persistence on ESP32
+
+### Short Term
+
+- [ ] Complete rs-matter integration (ESP32)
 - [ ] Web configuration UI
 - [ ] More comprehensive tests
-
-### Medium Term (ESP32-C6 Port)
-
-- [ ] Implement ESP32 HAL (`src/hal/esp32.rs`)
-- [ ] Replace `rppal` with `embassy-esp` GPIO
-- [ ] Implement 1-Wire via bit-banging on ESP32
-- [ ] Replace HTTP sensors with local I2C/SPI sensors
-- [ ] Thread networking for Matter on ESP32
+- [ ] Migrate legacy `src/` to workspace crates
 
 ### Long Term
 
-- [ ] Machine learning for occupancy detection
 - [ ] Weather integration for predictive heating
 - [ ] Energy usage optimization
-- [ ] Multi-protocol support (Zigbee, Z-Wave)
+- [ ] Home Assistant integration
 
 ## References
 

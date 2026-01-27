@@ -8,9 +8,11 @@ Matter (formerly Project CHIP) is an open-source connectivity standard for smart
 
 ## Current Status
 
-**Raspberry Pi (`thermos-linux`):** Matter support is **not currently implemented**. The `src/matter/mod.rs` contains a stub implementation that allows the application to compile and run without Matter functionality.
+> ⚠️ **Matter is NOT functional.** The current codebase contains only a stub implementation.
 
-**ESP32 (`thermos-esp32`):** Matter integration is **planned** using the `rs-matter` pure Rust library, which provides native support for Embassy async executor and bare-metal ESP32 hardware.
+**Raspberry Pi (`thermos-linux` / legacy `src/`):** The `src/matter/mod.rs` contains a **stub implementation** that logs warnings and waits indefinitely. It does not provide any actual Matter functionality.
+
+**ESP32 (`thermos-esp32`):** Matter integration is **planned** using the `rs-matter` pure Rust library, which provides native support for Embassy async executor and bare-metal ESP32 hardware. This is not yet implemented.
 
 ## Recommended Approach: rs-matter
 

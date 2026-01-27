@@ -16,7 +16,8 @@
 //! Each DS18B20 has a unique 64-bit ROM address starting with family code 0x28.
 
 /// GPIO pin for the shared 1-Wire bus (all DS18B20 sensors)
-pub const ONEWIRE_PIN: u8 = 4;
+/// Note: Avoid strapping pins (4, 5, 8, 9, 15) and USB pins (12, 13, 16, 17)
+pub const ONEWIRE_PIN: u8 = 21;
 
 /// Number of heating zones supported
 pub const NUM_ZONES: usize = 7;

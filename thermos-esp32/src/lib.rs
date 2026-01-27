@@ -16,6 +16,8 @@ extern crate alloc;
 pub mod config;
 pub mod controller;
 pub mod gpio_impl;
+pub mod onewire_gpio;
+pub mod onewire_rmt;
 pub mod persistence_nvs;
 pub mod sensor_i2c;
 pub mod sensors;
@@ -33,6 +35,7 @@ mod mocks;
 // Re-export commonly used items
 pub use controller::run_zone_control_loop;
 pub use gpio_impl::Esp32GpioPin;
+pub use onewire_gpio::{Ds18b20Gpio, OneWireGpio};
 pub use persistence_nvs::NvsStorage;
 pub use sensor_i2c::Bme280Sensor;
 pub use sensors::{MockSensor, SharedDs18b20Sensor, SharedOneWireBus};

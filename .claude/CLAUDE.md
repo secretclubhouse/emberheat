@@ -2,15 +2,26 @@
 
 This document provides guidance for Claude (AI assistant) when working with the Thermos-Rust project.
 
+## Skills
+**Read and follow these skills before writing any code:**
+- `.claude/skills/base.md` - Core development principles, atomic todos, test-driven development
+- `.claude/skills/security.md` - Security best practices, secret management, vulnerability prevention
+- `.claude/skills/session-management.md` - Context preservation, decision logging, state tracking
+
+**Project-specific instructions below supplement the skills with Rust/embedded systems guidance.**
+
 ## Project Overview
 
-Thermos-Rust is a multi-zone thermostat system for hydronic heating, written in Rust. It's a Rust reimplementation of a Python project, targeting Raspberry Pi with GPIO control.
+Thermos-Rust is a multi-zone thermostat system for hydronic heating, written in Rust. It's a Rust reimplementation of a Python project with multi-platform support.
 
-**Platform:** Linux (Raspberry Pi recommended)
+**Supported Platforms:**
+- **Linux (Raspberry Pi)** - Full implementation with Redis persistence, Prometheus metrics
+- **ESP32-C6 (bare-metal)** - Embedded no_std implementation with WiFi, MQTT, NVS flash
+
 **Language:** Rust (2021 edition)
-**Hardware:** GPIO-based relay control, 1-Wire temperature sensors
+**Architecture:** Cargo workspace with `thermos-core`, `thermos-linux`, `thermos-esp32`
 
-> **Note:** Matter/HomeKit integration has been removed. See `MATTER_INTEGRATION.md` for re-integration instructions.
+> **Note:** Matter/HomeKit integration is a stub (not functional). See `MATTER_INTEGRATION.md` for planned rs-matter integration on ESP32.
 
 ## Key Project Characteristics
 
@@ -22,29 +33,42 @@ Thermos-Rust is a multi-zone thermostat system for hydronic heating, written in 
 - **Observable**: Prometheus metrics and extensive logging
 
 ### Critical Constraints
-1. **Hardware dependency**: GPIO operations require Linux (rppal crate)
+1. **Platform-specific GPIO**: rppal on Linux, esp-hal on ESP32
 2. **Real-time control**: 6-second control loop must be reliable
-3. **State persistence**: Redis required for production use
+3. **State persistence**: Redis (Linux) or NVS flash (ESP32)
 4. **Safety critical**: Controls physical heating systems
 
 ## Project Structure
 
+The project uses a Cargo workspace with three crates:
+
 ```
-src/
-├── main.rs              - Entry point, orchestration, signal handling
-├── config/mod.rs        - Configuration loading, validation
-├── devices/mod.rs       - Thermostat logic, hysteresis control
-├── gpio/mod.rs          - Hardware abstraction, relay control
-├── sensors/             - Temperature sensor implementations
-│   ├── mod.rs          - Sensor traits, composite sensors
-│   └── onewire.rs      - DS18B20 1-Wire implementation
-├── persistence/mod.rs   - Redis state management
-├── metrics/mod.rs       - Prometheus metrics export
-├── matter/mod.rs        - Matter protocol stub (disabled)
-└── mocks/               - Test infrastructure
-    ├── gpio_mock.rs    - Mock GPIO for testing
-    ├── sensor_mock.rs  - Mock sensors
-    └── state_mock.rs   - Mock state manager
+thermos-rust/
+├── thermos-core/           - Platform-agnostic core library (no_std)
+│   └── src/
+│       ├── types.rs       - HeatingState, TemperatureReading, etc.
+│       ├── sensor.rs      - TemperatureSensor trait
+│       ├── gpio.rs        - GpioManager trait
+│       ├── persistence.rs - StateStorage trait
+│       └── control.rs     - Hysteresis control algorithm
+├── thermos-linux/          - Linux/Raspberry Pi implementation
+│   └── src/
+│       ├── main.rs        - Tokio entry point
+│       ├── config/        - JSON config loading
+│       ├── devices/       - Thermostat bridge
+│       ├── gpio/          - rppal GPIO
+│       ├── sensors/       - 1-Wire sysfs, HTTP sensors
+│       ├── persistence/   - Redis integration
+│       └── metrics/       - Prometheus export
+├── thermos-esp32/          - ESP32-C6 bare-metal implementation
+│   └── src/
+│       ├── main.rs        - Embassy entry point
+│       ├── gpio_impl.rs   - esp-hal GPIO
+│       ├── sensor_*.rs    - 1-Wire RMT, I2C BME280
+│       ├── persistence_nvs.rs - NVS flash storage
+│       ├── wifi.rs        - WiFi connectivity
+│       └── mqtt.rs        - MQTT logging
+└── src/                    - Legacy single-crate (being migrated)
 ```
 
 ## Working with This Project
@@ -69,15 +93,23 @@ src/
 
 ### Testing Strategy
 
-**Hardware-dependent code:**
+**thermos-linux (Raspberry Pi):**
 ```bash
 # Full tests (requires Raspberry Pi)
-cargo test
+cargo test -p thermos-linux
 
 # Cross-platform mock tests (works anywhere)
 cargo test --test mock_integration_tests
 # OR
 make test-mock
+```
+
+**thermos-esp32 (bare-metal):**
+```bash
+# Build and flash
+cd thermos-esp32
+cargo build --release
+espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
 ```
 
 **When to use mocks:**
@@ -89,7 +121,7 @@ make test-mock
 **Critical test areas:**
 - Hysteresis logic (prevent relay chatter)
 - Sensor error handling (power cycling)
-- State persistence (Redis round-trips)
+- State persistence (Redis/NVS round-trips)
 - GPIO safety (no concurrent access)
 
 ### Code Style Guidelines
@@ -122,12 +154,18 @@ make test-mock
 
 #### Adding a New Sensor Type
 
-1. Implement `TemperatureSensor` trait in `src/sensors/`
+For thermos-linux:
+1. Implement `TemperatureSensor` trait in `thermos-linux/src/sensors/`
 2. Update `CompositeSensor` to include new type
 3. Add configuration field in `ZoneConfig`
 4. Write unit tests for sensor
 5. Update `config.example.json` with example
 6. Document in README.md
+
+For thermos-esp32:
+1. Implement sensor in `thermos-esp32/src/sensor_*.rs`
+2. Use Embassy async and embedded-hal-async traits
+3. Add to main control loop in `main.rs`
 
 #### Modifying Hysteresis Logic
 
@@ -202,17 +240,29 @@ make clean          # Clean build artifacts
 1. Justify the need (avoid dependency bloat)
 2. Check license compatibility (MIT preferred)
 3. Verify maintenance status (active development)
-4. Consider platform compatibility (Linux focus)
-5. Update `Cargo.toml` with version constraints
+4. Consider platform compatibility (check no_std for thermos-core/esp32)
+5. Update appropriate `Cargo.toml` with version constraints
 6. Run `cargo update` to update lockfile
-7. Test build on Raspberry Pi architecture
+7. Test build on target architecture
 
-**Current critical dependencies:**
-- `tokio` - Async runtime (pinned to 1.48)
+**thermos-linux dependencies:**
+- `tokio` - Async runtime (1.48)
 - `rppal` - GPIO library (Linux-only, 0.22)
 - `redis` - State persistence (0.27)
 - `prometheus` - Metrics (0.14)
-- `serde/serde_json` - Serialization (1.0)
+- `reqwest` - HTTP client (0.12)
+
+**thermos-esp32 dependencies:**
+- `esp-hal` - ESP32 HAL (1.0)
+- `embassy-executor` - Async runtime (0.9)
+- `esp-hal-rmt-onewire` - 1-Wire via RMT (0.4)
+- `bme280` - I2C sensor (0.5)
+- `rust-mqtt` - MQTT client (0.3)
+- `esp-wifi` - WiFi (0.11)
+
+**thermos-core dependencies:**
+- `serde` - Serialization (no_std, 1.0)
+- `heapless` - No-std collections (0.9)
 
 ### Configuration Format
 
@@ -366,6 +416,31 @@ cargo test --test mock_integration_tests  # Cross-platform tests
 - Power cycle: 3s off, 5s recovery
 - Redis writes: async, non-blocking
 - Metrics update: per control loop iteration
+
+## Documentation and Specs
+
+### Project Specifications
+- `_project_specs/overview.md` - Project vision, goals, success metrics
+- `_project_specs/todos/active.md` - Current work items (atomic todo format)
+- `_project_specs/todos/backlog.md` - Future work, prioritized
+- `_project_specs/todos/completed.md` - Done items for reference
+
+### Session Management
+- `_project_specs/session/current-state.md` - Live session state (update after todos, decisions, or ~20 tool calls)
+- `_project_specs/session/decisions.md` - Architectural/implementation decisions (append-only)
+- `_project_specs/session/code-landmarks.md` - Important code locations for quick navigation
+
+**When to update session files:**
+- Update `current-state.md` after completing any todo, making decisions, or every 15-20 tool calls
+- Log to `decisions.md` when choosing between approaches or making significant technical choices
+- Update `code-landmarks.md` when adding new entry points or discovering non-obvious behavior
+
+### Technical Documentation
+- `README.md` - User-facing documentation, features, setup
+- `ARCHITECTURE.md` - Technical design, concurrency model, data flow
+- `TESTING.md` - Test infrastructure, mock implementations
+- `CONTRIBUTING.md` - Development guidelines
+- `MATTER_INTEGRATION.md` - Instructions for re-adding Matter support
 
 ## Quick Reference
 

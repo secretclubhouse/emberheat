@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CLAUDE_CODE_TASK_LIST_ID": "thermos-rust-tasks"
+  },
   "permissions": {
     "allow": [
       "Bash(cargo search:*)",
@@ -30,7 +33,16 @@
       "Bash(timeout 300 make:*)",
       "Bash(docker --version:*)",
       "Bash(docker info:*)",
-      "Bash(/dev/null)"
+      "Bash(/dev/null)",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:brainstorming:*)",
+      "mcp__acp__Bash",
+      "mcp__acp__Edit",
+      "mcp__acp__Write",
+      "Skill(superpowers:writing-plans)",
+      "Skill(superpowers:writing-plans:*)",
+      "Skill(superpowers:subagent-driven-development)",
+      "Skill(superpowers:subagent-driven-development:*)"
     ],
     "deny": [],
     "ask": []

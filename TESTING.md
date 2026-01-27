@@ -1,10 +1,15 @@
 # Testing Guide for Thermos-Rust
 
-This document explains how to run tests on non-Raspberry Pi hardware using mocks.
+This document explains how to run tests for the multi-platform thermos-rust project.
 
 ## Overview
 
-The Thermos-Rust project includes comprehensive mocking infrastructure that allows tests to run on any platform without requiring actual Raspberry Pi GPIO hardware, temperature sensors, or Redis.
+The Thermos-Rust project is organized as a workspace with three crates:
+- **thermos-core** - Platform-agnostic core library (unit tests only)
+- **thermos-linux** - Linux/Raspberry Pi implementation (mock and hardware tests)
+- **thermos-esp32** - ESP32-C6 bare-metal implementation (on-device testing)
+
+The project includes comprehensive mocking infrastructure that allows tests to run on any platform without requiring actual Raspberry Pi GPIO hardware, temperature sensors, or Redis.
 
 The project uses `serial_test` for Matter device tests to prevent global state leakage, ensuring proper test isolation while maintaining parallelism for other tests.
 
@@ -84,19 +89,23 @@ assert_eq!(manager.get_load_count(), 1);
 
 ## Running Tests
 
-### Run All Tests (Requires Linux/Raspberry Pi)
+### thermos-core (cross-platform)
 
 ```bash
-cargo test
+# Run core library tests (works anywhere)
+cargo test -p thermos-core
 ```
 
-### Run Mock-Only Tests (Works on any platform)
-
-The mock modules have their own tests that don't require hardware:
+### thermos-linux (Raspberry Pi)
 
 ```bash
-# Run tests in the mocks modules
+# Full tests (requires Raspberry Pi)
+cargo test -p thermos-linux
+
+# Mock-only tests (works on any platform)
 cargo test --test mock_integration_tests
+# Or via Makefile:
+make test-mock
 
 # Run specific mock tests
 cargo test mock_gpio
@@ -104,14 +113,29 @@ cargo test mock_sensor
 cargo test mock_state
 ```
 
+### thermos-esp32 (bare-metal)
+
+ESP32 tests run on-device since it's a no_std environment:
+
+```bash
+cd thermos-esp32
+
+# Build and flash with monitoring
+cargo build --release
+espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Use defmt for embedded logging/assertions
+```
+
 ### Run on macOS/Windows
 
 On non-Linux platforms, the `rppal` crate won't compile. To run tests:
 
-1. **Comment out hardware-dependent code** in `main.rs` or use feature flags
-2. **Run mock tests only:**
-
 ```bash
+# Core library tests work everywhere
+cargo test -p thermos-core
+
+# Mock integration tests work everywhere
 cargo test --test mock_integration_tests
 ```
 
@@ -148,6 +172,8 @@ cargo test --test mock_integration_tests
 
 ## Test Coverage by Component
 
+### thermos-linux
+
 | Component | Unit Tests | Mock Tests | Integration Tests | Hardware Tests |
 |-----------|------------|------------|-------------------|----------------|
 | GPIO | ✓ | ✓ | ✓ | Requires RPi |
@@ -156,6 +182,25 @@ cargo test --test mock_integration_tests
 | Devices | ✓ | ✓ | ✓ | Requires all |
 | Config | ✓ | N/A | ✓ | N/A |
 | Metrics | ✓ | N/A | ✓ | N/A |
+
+### thermos-core
+
+| Component | Unit Tests |
+|-----------|------------|
+| types | ✓ |
+| control | ✓ |
+| config | ✓ |
+
+### thermos-esp32
+
+| Component | On-Device Tests |
+|-----------|-----------------|
+| GPIO | ✓ (manual verification) |
+| 1-Wire (RMT) | ✓ |
+| I2C (BME280) | ✓ |
+| WiFi | ✓ |
+| MQTT | ✓ |
+| NVS | ✓ |
 
 ## Writing Tests with Mocks
 

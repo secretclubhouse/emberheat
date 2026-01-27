@@ -2,21 +2,24 @@
 
 A multi-zone thermostat system for hydronic heating, written in Rust.
 
-**Platform Requirements:** Linux (Raspberry Pi recommended)
+**Supported Platforms:**
+- **Linux (Raspberry Pi)** - Full-featured implementation with Redis persistence and Prometheus metrics
+- **ESP32-C6 (bare-metal)** - Embedded no_std implementation with WiFi, MQTT, and NVS flash storage
 
-This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and a foundation for smart home integration.
+This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and multi-platform support.
 
-> **Note:** Matter/HomeKit integration has been removed from this version. See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for re-integration instructions.
+> **Note:** Matter/HomeKit integration is currently a stub (not functional). See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for planned rs-matter integration on ESP32.
 
 ## Features
 
 - **Multi-Zone Control**: Independent temperature control for multiple heating zones
 - **Hysteresis Control**: Intelligent heating control with configurable dead band to prevent rapid cycling
 - **Multiple Sensor Types**:
-  - 1-Wire DS18B20 temperature sensors (primary)
-  - HTTP endpoints for remote sensors (fallback)
-- **State Persistence**: Redis-based state management for recovery after restarts
-- **Metrics Export**: Prometheus metrics for monitoring and alerting
+  - 1-Wire DS18B20 temperature sensors (sysfs on Linux, RMT peripheral on ESP32)
+  - HTTP endpoints for remote sensors (fallback, Linux only)
+  - I2C BME280 sensor support (ESP32 only)
+- **State Persistence**: Redis (Linux) or NVS flash (ESP32) for recovery after restarts
+- **Metrics Export**: Prometheus metrics (Linux) and MQTT logging (ESP32)
 - **Robust Error Handling**: Automatic sensor power cycling on failures
 - **Graceful Shutdown**: Proper cleanup of GPIO and network resources
 
@@ -60,11 +63,20 @@ Side Services:
 
 ## Hardware Requirements
 
+### Linux (Raspberry Pi)
+
 - Raspberry Pi (any model with GPIO)
 - DS18B20 1-Wire temperature sensors
 - Solid-state relays for heating control
 - 4.7kΩ pull-up resistor for 1-Wire bus
 - Redis server (can run on same Pi or remote)
+
+### ESP32-C6
+
+- ESP32-C6 development board (recommended for Thread radio support)
+- DS18B20 1-Wire temperature sensor OR BME280 I2C sensor
+- Relay module for heating control
+- WiFi network for MQTT connectivity
 
 ### GPIO Pin Configuration
 
@@ -382,32 +394,43 @@ GPIO errors are critical and logged as errors. The application attempts to conti
 
 ### Project Structure
 
+The project uses a Cargo workspace with three crates:
+
 ```
 thermos-rust/
-├── Cargo.toml              # Dependencies and build config
-├── src/
-│   ├── main.rs             # Application entry point
-│   ├── config/             # Configuration management
-│   │   └── mod.rs
-│   ├── devices/            # Thermostat logic
-│   │   └── mod.rs
-│   ├── gpio/               # GPIO abstraction
-│   │   └── mod.rs
-│   ├── sensors/            # Temperature sensors
-│   │   ├── mod.rs
-│   │   └── onewire.rs
-│   ├── persistence/        # Redis state management
-│   │   └── mod.rs
-│   ├── metrics/            # Prometheus metrics
-│   │   └── mod.rs
-│   ├── matter/             # Matter protocol
-│   │   └── mod.rs
-│   └── mocks/              # Mock implementations for testing
-│       ├── mod.rs
-│       ├── gpio_mock.rs
-│       ├── sensor_mock.rs
-│       └── state_mock.rs
-└── tests/                  # Integration tests
+├── Cargo.toml                  # Workspace definition
+├── thermos-core/               # Platform-agnostic core library (no_std)
+│   └── src/
+│       ├── lib.rs              # Core exports
+│       ├── types.rs            # HeatingState, TemperatureReading, etc.
+│       ├── sensor.rs           # TemperatureSensor trait
+│       ├── gpio.rs             # GpioManager trait
+│       ├── persistence.rs      # StateStorage trait
+│       ├── control.rs          # Hysteresis control algorithm
+│       └── config.rs           # Configuration types
+├── thermos-linux/              # Linux/Raspberry Pi implementation
+│   └── src/
+│       ├── main.rs             # Entry point
+│       ├── config/             # JSON config loading
+│       ├── devices/            # Thermostat bridge
+│       ├── gpio/               # rppal-based GPIO
+│       ├── sensors/            # 1-Wire sysfs, HTTP sensors
+│       ├── persistence/        # Redis integration
+│       ├── metrics/            # Prometheus export
+│       └── mocks/              # Test infrastructure
+├── thermos-esp32/              # ESP32-C6 bare-metal implementation
+│   └── src/
+│       ├── main.rs             # Embassy entry point
+│       ├── lib.rs              # Library exports
+│       ├── gpio_impl.rs        # esp-hal GPIO
+│       ├── sensor_onewire.rs   # 1-Wire via RMT peripheral
+│       ├── sensor_i2c.rs       # BME280 I2C sensor
+│       ├── persistence_nvs.rs  # NVS flash storage
+│       ├── wifi.rs             # WiFi connectivity
+│       └── mqtt.rs             # MQTT temperature logging
+├── src/                        # Legacy single-crate structure
+│   └── ...                     # (being migrated to workspace)
+└── tests/                      # Integration tests
     ├── integration_test.rs
     └── mock_integration_tests.rs
 ```
@@ -613,11 +636,14 @@ For issues and questions:
 
 ## Roadmap
 
-- [ ] Re-add Matter/HomeKit integration (see [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md))
-- [ ] Web UI for configuration and monitoring
-- [ ] Mobile app for direct control
+- [x] ESP32-C6 bare-metal support with Embassy
+- [x] WiFi and MQTT integration (ESP32)
+- [x] NVS flash persistence (ESP32)
+- [x] I2C BME280 sensor support (ESP32)
+- [x] 1-Wire via RMT peripheral (ESP32)
 - [x] Grafana dashboard templates
+- [ ] Matter integration via rs-matter (ESP32, see [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md))
+- [ ] Web UI for configuration and monitoring
 - [ ] Docker multi-arch images
 - [ ] Home Assistant integration
 - [ ] Energy usage tracking
-- [ ] Smart scheduling and automation

@@ -22,6 +22,7 @@ esp-bootloader-esp-idf = { version = "0.4", features = ["esp32c6"] }
 
 # Embassy dependencies (must match esp-rtos versions)
 embassy-executor = "0.9"
+embassy-futures = "0.1"
 embassy-sync = "0.7"
 embassy-time = "0.5"
 
