@@ -231,14 +231,14 @@ mod linux_impl {
 }
 
 // ============================================================================
-// Stub implementation for non-Linux platforms (macOS, Windows, etc.)
+// Stub implementation for non-Linux platforms and testing
 // ============================================================================
-#[cfg(not(target_os = "linux"))]
-mod stub_impl {
+// Always compile stub_impl so tests can use it on any platform (including Linux CI)
+pub mod stub_impl {
     use super::*;
     use tracing::{debug, warn};
 
-    /// Stub GPIO controller for non-Linux platforms
+    /// Stub GPIO controller for non-Linux platforms and testing
     pub struct GpioController {
         relays: Arc<Mutex<HashMap<u8, RelayState>>>,
         vcc_on: Arc<Mutex<bool>>,
@@ -316,12 +316,14 @@ mod stub_impl {
     }
 }
 
-// Re-export the appropriate implementation
+// Re-export the appropriate implementation as the default GpioController
 #[cfg(target_os = "linux")]
 pub use linux_impl::GpioController;
 
 #[cfg(not(target_os = "linux"))]
 pub use stub_impl::GpioController;
+
+// stub_impl is always available for testing (see pub mod stub_impl above)
 
 #[cfg(test)]
 mod tests {
