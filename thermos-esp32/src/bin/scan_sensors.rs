@@ -34,12 +34,12 @@ use log::info;
 esp_bootloader_esp_idf::esp_app_desc!();
 
 use thermos_esp32::config::ONEWIRE_PIN;
-use thermos_esp32::onewire_rmt::{OneWire, Search};
+use thermos_esp32::onewire_rmt::{Address, OneWire, Search, SearchError};
 
 /// Main entry point for the sensor scanner
 #[esp_rtos::main]
 async fn main(_spawner: Spawner) {
-    // Initialize logging first
+    // Initialize logging
     esp_println::logger::init_logger_from_env();
 
     // Initialize ESP32 peripherals with default configuration
@@ -102,131 +102,108 @@ async fn main(_spawner: Spawner) {
             info!("Device presence detected!");
             info!("");
 
-            // Try reading a single ROM (works if only one device on bus)
-            info!("Attempting to read single device ROM...");
-            match onewire.read_rom().await {
-                Ok(address) => {
-                    info!("Single device found!");
+            // Always use search algorithm - it works correctly with any number of devices
+            // (READ ROM command only works with exactly one device on the bus)
+            info!("Searching for all DS18B20 devices on bus...");
+            info!("");
+
+            let mut search = Search::new();
+            let mut sensors: heapless::Vec<Address, 10> = heapless::Vec::new();
+
+            loop {
+                // Small delay between search iterations to let bus settle
+                Timer::after(Duration::from_millis(10)).await;
+
+                match search.next(&mut onewire).await {
+                    Ok(address) => {
+                        if address.is_ds18b20() {
+                            info!("Found DS18B20: {}", address.to_id_string());
+                            let _ = sensors.push(address);
+                        } else {
+                            info!(
+                                "Found non-DS18B20 device (family 0x{:02X}): {}",
+                                address.family_code(),
+                                address
+                            );
+                        }
+                    }
+                    Err(SearchError::SearchComplete) => {
+                        break;
+                    }
+                    Err(SearchError::NoDevicesPresent) => {
+                        info!("No devices responded during search.");
+                        break;
+                    }
+                    Err(SearchError::BusError(e)) => {
+                        info!("Bus error during search: {:?}", e);
+                        break;
+                    }
+                }
+
+                // Safety limit to prevent infinite loops
+                if sensors.len() >= 10 {
+                    info!("Reached sensor limit (10), stopping search.");
+                    break;
+                }
+            }
+
+            info!("");
+
+            if sensors.is_empty() {
+                info!("No DS18B20 sensors found.");
+                info!("");
+                info!("Troubleshooting tips:");
+                info!("  1. Check wiring: DQ to GPIO21, VCC to 3.3V, GND to GND");
+                info!("  2. Ensure 4.7kΩ pull-up resistor between DQ and VCC");
+                info!("  3. DS18B20 family code is 0x28 - other 1-Wire devices won't be listed");
+            } else {
+                info!("========================================");
+                info!("Found {} DS18B20 sensor(s)", sensors.len());
+                info!("========================================");
+                info!("");
+
+                for (i, address) in sensors.iter().enumerate() {
+                    info!("Sensor #{}:", i + 1);
                     info!("  Address: {}", address);
                     info!("  ID:      {}", address.to_id_string());
 
-                    if address.is_ds18b20() {
-                        info!("  Type:    DS18B20 (confirmed by family code 0x28)");
-
-                        // Try to read temperature
-                        info!("");
-                        info!("Reading temperature...");
-                        match onewire.read_temperature(address).await {
-                            Ok(temp) => {
-                                info!(
-                                    "  Temperature: {:.2}°C ({:.2}°F)",
-                                    temp,
-                                    temp * 9.0 / 5.0 + 32.0
-                                );
-                            }
-                            Err(e) => {
-                                info!("  Failed to read temperature: {:?}", e);
-                            }
+                    // Try to read temperature using MATCH ROM (works with multiple devices)
+                    match onewire.read_temperature(*address).await {
+                        Ok(temp) => {
+                            info!(
+                                "  Temperature: {:.2}°C ({:.2}°F)",
+                                temp,
+                                temp * 9.0 / 5.0 + 32.0
+                            );
                         }
-                    } else {
-                        info!(
-                            "  Type:    Unknown (family code 0x{:02X})",
-                            address.family_code()
-                        );
+                        Err(e) => {
+                            info!("  Failed to read temperature: {:?}", e);
+                        }
                     }
                     info!("");
+                }
 
-                    // Print ready-to-use config
-                    info!("========================================");
-                    info!("Copy-paste config for config.rs:");
-                    info!("========================================");
+                // Print ready-to-use config
+                info!("========================================");
+                info!("Copy-paste config for config.rs:");
+                info!("========================================");
+                info!("");
+
+                for (i, address) in sensors.iter().enumerate() {
                     let bytes = address.0.to_le_bytes();
+                    info!("// Zone {} sensor", i + 1);
                     info!("sensor_id: \"{}\",", address.to_id_string());
                     info!(
-                        "// Or raw bytes: [0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}]",
+                        "// Raw bytes: [0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}]",
                         bytes[0], bytes[1], bytes[2], bytes[3],
                         bytes[4], bytes[5], bytes[6], bytes[7]
                     );
-                }
-                Err(_) => {
-                    info!("Could not read single ROM (maybe multiple devices on bus)");
                     info!("");
-
-                    // Search for all devices
-                    info!("Searching for all devices on bus...");
-                    let mut search = Search::new();
-                    let mut sensors: heapless::Vec<thermos_esp32::onewire_rmt::Address, 10> =
-                        heapless::Vec::new();
-
-                    loop {
-                        match search.next(&mut onewire).await {
-                            Ok(address) => {
-                                if address.is_ds18b20() {
-                                    let _ = sensors.push(address);
-                                    info!("Found DS18B20: {}", address.to_id_string());
-                                }
-                            }
-                            Err(thermos_esp32::onewire_rmt::SearchError::SearchComplete) => {
-                                info!("Search complete.");
-                                break;
-                            }
-                            Err(thermos_esp32::onewire_rmt::SearchError::NoDevicesPresent) => {
-                                info!("No more devices found.");
-                                break;
-                            }
-                            Err(thermos_esp32::onewire_rmt::SearchError::BusError(e)) => {
-                                info!("Bus error during search: {:?}", e);
-                                break;
-                            }
-                        }
-                    }
-
-                    if sensors.is_empty() {
-                        info!("No DS18B20 sensors found via search.");
-                    } else {
-                        info!("");
-                        info!("Found {} DS18B20 sensor(s):", sensors.len());
-                        info!("");
-
-                        for (i, address) in sensors.iter().enumerate() {
-                            info!("Sensor #{}:", i + 1);
-                            info!("  Address: {}", address);
-                            info!("  ID:      {}", address.to_id_string());
-
-                            // Try to read temperature
-                            match onewire.read_temperature(*address).await {
-                                Ok(temp) => {
-                                    info!("  Temperature: {:.2}°C", temp);
-                                }
-                                Err(e) => {
-                                    info!("  Failed to read temperature: {:?}", e);
-                                }
-                            }
-                            info!("");
-                        }
-
-                        // Print ready-to-use config
-                        info!("========================================");
-                        info!("Copy-paste config for config.rs:");
-                        info!("========================================");
-                        for (i, address) in sensors.iter().enumerate() {
-                            let bytes = address.0.to_le_bytes();
-                            info!("// Zone {}", i + 1);
-                            info!("sensor_id: \"{}\",", address.to_id_string());
-                            info!(
-                                "// Raw: [0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}]",
-                                bytes[0], bytes[1], bytes[2], bytes[3],
-                                bytes[4], bytes[5], bytes[6], bytes[7]
-                            );
-                            info!("");
-                        }
-                    }
                 }
             }
         }
     }
 
-    info!("");
     info!("========================================");
     info!("Scan complete.");
     info!("========================================");

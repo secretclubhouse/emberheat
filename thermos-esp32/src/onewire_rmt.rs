@@ -373,45 +373,97 @@ impl Search {
         }
     }
 
+    /// Check if the search has completed (all devices found)
+    pub fn is_complete(&self) -> bool {
+        self.complete
+    }
+
     pub async fn next<'d>(&mut self, ow: &mut OneWire<'d>) -> Result<Address, SearchError> {
         if self.complete {
             return Err(SearchError::SearchComplete);
         }
+
         let have_devices = ow.reset().await?;
-        let mut last_zero = None;
-        ow.send_byte(self.command).await?;
-        if have_devices {
-            for id_bit_number in 0..64 {
-                let id_bits = ow.exchange_bits([true, true]).await?;
-                let search_direction = match id_bits {
-                    [false, true] => false,
-                    [true, false] => true,
-                    [true, true] => {
-                        return Err(SearchError::NoDevicesPresent);
-                    }
-                    [false, false] => {
-                        if self.last_discrepancy == Some(id_bit_number) {
-                            true
-                        } else if Some(id_bit_number) > self.last_discrepancy {
-                            last_zero = Some(id_bit_number);
-                            false
-                        } else {
-                            self.address & (1 << id_bit_number) != 0
-                        }
-                    }
-                };
-                if search_direction {
-                    self.address |= 1 << id_bit_number;
-                } else {
-                    self.address &= !(1 << id_bit_number);
-                }
-                ow.exchange_bits([search_direction]).await?;
-            }
-            self.last_discrepancy = last_zero;
-            self.complete = last_zero.is_none();
-            Ok(Address(self.address))
-        } else {
-            Err(SearchError::NoDevicesPresent)
+        if !have_devices {
+            return Err(SearchError::NoDevicesPresent);
         }
+
+        // Small delay after reset to ensure all devices are ready
+        embassy_time::Timer::after(embassy_time::Duration::from_micros(100)).await;
+
+        // Track the last position where we took the 0 path when there was a discrepancy
+        // This is where we'll backtrack on the next search iteration
+        let mut last_zero_discrepancy: Option<usize> = None;
+
+        ow.send_byte(self.command).await?;
+
+        for id_bit_number in 0..64 {
+            // Read two bits: the actual bit value and its complement
+            // [0,1] = all devices have 0 at this position
+            // [1,0] = all devices have 1 at this position
+            // [0,0] = discrepancy - some devices have 0, some have 1
+            // [1,1] = no devices responding (error)
+            let id_bits = ow.exchange_bits([true, true]).await?;
+
+            let search_direction = match id_bits {
+                // All devices have 0 at this bit
+                [false, true] => false,
+
+                // All devices have 1 at this bit
+                [true, false] => true,
+
+                // No devices responding
+                [true, true] => {
+                    return Err(SearchError::NoDevicesPresent);
+                }
+
+                // Discrepancy: some devices have 0, some have 1
+                [false, false] => {
+                    if self.last_discrepancy == Some(id_bit_number) {
+                        // This is where we backtracked to - now take the 1 path
+                        // Don't record as last_zero since we're taking 1
+                        true
+                    } else if let Some(ld) = self.last_discrepancy {
+                        if id_bit_number < ld {
+                            // Before our backtrack point - follow previous path
+                            let prev_bit = (self.address & (1 << id_bit_number)) != 0;
+                            if !prev_bit {
+                                // We took 0 path before, record for potential backtrack
+                                last_zero_discrepancy = Some(id_bit_number);
+                            }
+                            prev_bit
+                        } else {
+                            // After our backtrack point - take 0 path, remember for next time
+                            last_zero_discrepancy = Some(id_bit_number);
+                            false
+                        }
+                    } else {
+                        // First search, no backtrack point yet - take 0 path
+                        log::trace!(
+                            "Bit {}: discrepancy, first search, going 0, saving as last_zero",
+                            id_bit_number
+                        );
+                        last_zero_discrepancy = Some(id_bit_number);
+                        false
+                    }
+                }
+            };
+
+            // Update the address with this bit
+            if search_direction {
+                self.address |= 1 << id_bit_number;
+            } else {
+                self.address &= !(1 << id_bit_number);
+            }
+
+            // Tell devices which path we're taking
+            ow.exchange_bits([search_direction]).await?;
+        }
+
+        // Update state for next iteration
+        self.last_discrepancy = last_zero_discrepancy;
+        self.complete = last_zero_discrepancy.is_none();
+
+        Ok(Address(self.address))
     }
 }

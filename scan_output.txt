@@ -1,0 +1,116 @@
+[2026-01-27T07:04:08Z INFO ] Serial port: '/dev/cu.usbserial-130'
+[2026-01-27T07:04:08Z INFO ] Connecting...
+[2026-01-27T07:04:08Z INFO ] Using flash stub
+Chip type:         esp32c6 (revision v0.0)
+Crystal frequency: 40 MHz
+Flash size:        8MB
+Features:          WiFi 6, BT 5
+MAC address:       40:4c:ca:51:44:48
+App/part. size:    198,656/8,323,072 bytes, 2.39%
+[2026-01-27T07:04:20Z INFO ] Flashing has completed!
+Commands:
+    CTRL+R    Reset chip
+    CTRL+C    Exit
+
+ESP-ROM:esp32c6-20220919
+Build:Sep 19 2022
+rst:0x1 (POWERON),boot:0xc (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:2
+load:0x40875730,len:0x175c
+load:0x4086b910,len:0xec8
+load:0x4086e610,len:0x31c4
+entry 0x4086b91a
+I (23) boot: ESP-IDF v5.5.1-838-gd66ebb86d2e 2nd stage bootloader
+I (24) boot: compile time Nov 27 2025 09:46:10
+I (24) boot: chip revision: v0.0
+I (25) boot: efuse block revision: v0.1
+I (29) boot.esp32c6: SPI Speed      : 80MHz
+I (32) boot.esp32c6: SPI Mode       : DIO
+I (36) boot.esp32c6: SPI Flash Size : 8MB
+I (40) boot: Enabling RNG early entropy source...
+I (44) boot: Partition Table:
+I (47) boot: ## Label            Usage          Type ST Offset   Length
+I (53) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (60) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (66) boot:  2 factory          factory app      00 00 00010000 007f0000
+I (73) boot: End of partition table
+I (76) esp_image: segment 0: paddr=00010020 vaddr=42000020 size=0840ch ( 33804) map
+I (90) esp_image: segment 1: paddr=00018434 vaddr=40800000 size=00014h (    20) load
+I (91) esp_image: segment 2: paddr=00018450 vaddr=42008450 size=23ae4h (146148) map
+I (126) esp_image: segment 3: paddr=0003bf3c vaddr=40800014 size=048a0h ( 18592) load
+I (132) boot: Loaded app from partition at offset 0x10000
+I (132) boot: Disabling RNG early entropy source...
+========================================
+DS18B20 Sensor Scanner Utility
+========================================
+[32mINFO - ========================================[0m
+[32mINFO - DS18B20 Sensor Scanner Utility (RMT-based)[0m
+[32mINFO - ========================================[0m
+[32mINFO - [0m
+[32mINFO - 1-Wire bus GPIO: 21[0m
+[32mINFO - Scanning for DS18B20 temperature sensors...[0m
+[32mINFO - [0m
+[32mINFO - Sending reset pulse...[0m
+[32mINFO - Device presence detected![0m
+[32mINFO - [0m
+[32mINFO - Searching for all DS18B20 devices on bus...[0m
+[32mINFO - [0m
+[32mINFO - Search iteration 1...[0m
+[32mINFO - Bit 8: DISCREPANCY (both 0 and 1 present)[0m
+[32mINFO - Bit 9: DISCREPANCY (both 0 and 1 present)[0m
+[32mINFO - Search done: addr=24240100008FD428, last_zero=Some(9), prev_ld=None[0m
+[32mINFO -   Found DS18B20: 28-240100008fd4[0m
+[32mINFO -   Search state: complete=false[0m
+[32mINFO - Search iteration 2...[0m
+[32mINFO - Bit 8: DISCREPANCY (both 0 and 1 present)[0m
+[32mINFO - Bit 9: DISCREPANCY (both 0 and 1 present)[0m
+[32mINFO - Search done: addr=55240100007B6E28, last_zero=Some(8), prev_ld=Some(9)[0m
+[32mINFO -   Found DS18B20: 28-240100007b6e[0m
+[32mINFO -   Search state: complete=false[0m
+[32mINFO - Search iteration 3...[0m
+[32mINFO - Bit 8: DISCREPANCY (both 0 and 1 present)[0m
+[32mINFO - Search done: addr=5A240100006F7F28, last_zero=None, prev_ld=Some(8)[0m
+[32mINFO -   Found DS18B20: 28-240100006f7f[0m
+[32mINFO -   Search state: complete=true[0m
+[32mINFO - Search iteration 4...[0m
+[32mINFO -   Search complete (no more devices)[0m
+[32mINFO - [0m
+[32mINFO - ========================================[0m
+[32mINFO - Found 3 DS18B20 sensor(s)[0m
+[32mINFO - ========================================[0m
+[32mINFO - [0m
+[32mINFO - Sensor #1:[0m
+[32mINFO -   Address: 28D48F0000012424[0m
+[32mINFO -   ID:      28-240100008fd4[0m
+[32mINFO -   Temperature: 19.94°C (67.89°F)[0m
+[32mINFO - [0m
+[32mINFO - Sensor #2:[0m
+[32mINFO -   Address: 286E7B0000012455[0m
+[32mINFO -   ID:      28-240100007b6e[0m
+[32mINFO -   Temperature: 20.12°C (68.22°F)[0m
+[32mINFO - [0m
+[32mINFO - Sensor #3:[0m
+[32mINFO -   Address: 287F6F000001245A[0m
+[32mINFO -   ID:      28-240100006f7f[0m
+[32mINFO -   Temperature: 20.19°C (68.34°F)[0m
+[32mINFO - [0m
+[32mINFO - ========================================[0m
+[32mINFO - Copy-paste config for config.rs:[0m
+[32mINFO - ========================================[0m
+[32mINFO - [0m
+[32mINFO - // Zone 1 sensor[0m
+[32mINFO - sensor_id: "28-240100008fd4",[0m
+[32mINFO - // Raw bytes: [0x28, 0xD4, 0x8F, 0x00, 0x00, 0x01, 0x24, 0x24][0m
+[32mINFO - [0m
+[32mINFO - // Zone 2 sensor[0m
+[32mINFO - sensor_id: "28-240100007b6e",[0m
+[32mINFO - // Raw bytes: [0x28, 0x6E, 0x7B, 0x00, 0x00, 0x01, 0x24, 0x55][0m
+[32mINFO - [0m
+[32mINFO - // Zone 3 sensor[0m
+[32mINFO - sensor_id: "28-240100006f7f",[0m
+[32mINFO - // Raw bytes: [0x28, 0x7F, 0x6F, 0x00, 0x00, 0x01, 0x24, 0x5A][0m
+[32mINFO - [0m
+[32mINFO - ========================================[0m
+[32mINFO - Scan complete.[0m
+[32mINFO - ========================================[0m
