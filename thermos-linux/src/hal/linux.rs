@@ -50,7 +50,7 @@ impl Platform for LinuxPlatform {
         let pin = self
             .gpio
             .get(pin_number)
-            .map_err(|e| HalError::PinUnavailable(pin_number))?
+            .map_err(|_| HalError::PinUnavailable(pin_number))?
             .into_output();
 
         Ok(LinuxOutputPin { pin })

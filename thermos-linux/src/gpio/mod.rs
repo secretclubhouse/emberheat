@@ -52,21 +52,19 @@ mod linux_impl {
     use rppal::gpio::{Gpio, Level, OutputPin};
     use tracing::debug;
 
-    impl From<RelayState> for Level {
-        fn from(state: RelayState) -> Self {
-            match state {
-                RelayState::On => Level::Low, // Active-LOW
-                RelayState::Off => Level::High,
-            }
+    /// Convert RelayState to rppal Level (Active-LOW logic)
+    fn relay_state_to_level(state: RelayState) -> Level {
+        match state {
+            RelayState::On => Level::Low, // Active-LOW
+            RelayState::Off => Level::High,
         }
     }
 
-    impl From<Level> for RelayState {
-        fn from(level: Level) -> Self {
-            match level {
-                Level::Low => RelayState::On, // Active-LOW
-                Level::High => RelayState::Off,
-            }
+    /// Convert rppal Level to RelayState (Active-LOW logic)
+    fn level_to_relay_state(level: Level) -> RelayState {
+        match level {
+            Level::Low => RelayState::On, // Active-LOW
+            Level::High => RelayState::Off,
         }
     }
 
@@ -111,7 +109,7 @@ mod linux_impl {
             info!(
                 "Relay controller initialized on GPIO {} (current state: {:?})",
                 pin_number,
-                RelayState::from(current_level)
+                level_to_relay_state(current_level)
             );
 
             Ok(Self {
@@ -121,7 +119,7 @@ mod linux_impl {
         }
 
         pub fn set_state(&mut self, state: RelayState) -> Result<()> {
-            let level = Level::from(state);
+            let level = relay_state_to_level(state);
             self.output_pin.write(level);
             debug!(
                 "Relay GPIO {} set to {:?} (level: {:?})",
