@@ -44,6 +44,12 @@ embedded-io-async = "0.6"
 # MQTT client (no_std compatible)
 rust-mqtt = { version = "0.3", default-features = false }
 
+# Matter protocol support
+# Note: rs-matter-stack has embassy-time version conflicts with esp-rtos.
+# Using rs-matter directly - we'll implement the stack integration manually.
+# TODO: Re-evaluate when rs-matter ecosystem updates to embassy-time 0.5+
+rs-matter = { git = "https://github.com/project-chip/rs-matter", default-features = false, features = ["rustcrypto"] }
+
 # 1-Wire DS18B20 temperature sensor (using RMT peripheral)
 # Note: esp-hal-rmt-onewire 0.4 has compatibility issues with esp-hal 1.0
 # Enable via `onewire-rmt` feature when dependency is updated
