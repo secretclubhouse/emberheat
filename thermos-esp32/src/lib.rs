@@ -12,6 +12,7 @@ pub mod persistence_nvs;
 pub mod sensor_i2c;
 pub mod sensor_onewire;
 pub mod wifi;
+pub mod zone;
 
 #[cfg(test)]
 mod mocks;
@@ -22,3 +23,4 @@ pub use persistence_nvs::NvsStorage;
 pub use sensor_i2c::{Bme280Sensor, MockSensor};
 pub use sensor_onewire::Ds18b20Sensor;
 pub use wifi::WifiConfig;
+pub use zone::{SensorType, ZoneConfig, ZoneState, MAX_ZONES};
