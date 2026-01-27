@@ -15,4 +15,7 @@
 //! - [`device`]: Multi-zone device configuration
 //! - [`bridge`]: Bidirectional sync with thermos-core control loop
 
+pub mod state;
 pub mod types;
+
+pub use state::{SetpointError, ZoneThermostatState};
