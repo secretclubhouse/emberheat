@@ -4,6 +4,11 @@ members = [
     "thermos-linux",
     "thermos-esp32",
 ]
+# Default to ESP32 development - thermos-linux is kept but not actively developed
+default-members = [
+    "thermos-core",
+    "thermos-esp32",
+]
 resolver = "2"
 
 [workspace.dependencies]

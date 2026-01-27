@@ -1,242 +1,100 @@
-# Makefile for Thermos-Rust
+# Makefile for Thermos-Rust (ESP32-focused)
 
-.PHONY: help build build-release test clean run docker-build docker-run fmt lint check install install-hooks
-
-# Detect operating system
-UNAME_S := $(shell uname -s)
+.PHONY: help build build-release test clean fmt lint check flash monitor install-hooks
 
 # Default target
 help:
-	@echo "Thermos-Rust Build System"
+	@echo "Thermos-Rust Build System (ESP32)"
 	@echo ""
-	@echo "Detected OS: $(UNAME_S)"
-ifeq ($(UNAME_S),Linux)
-	@echo "Platform: Linux (full hardware support available)"
-else
-	@echo "Platform: $(UNAME_S) (mock tests only)"
-endif
-	@echo ""
-	@echo "Available targets:"
-	@echo "  build          - Build debug binary"
-	@echo "  build-release  - Build optimized release binary"
-	@echo "  test           - Run tests (auto-detects platform)"
-	@echo "  test-mock      - Run mock tests only (works on all platforms)"
-	@echo "  test-all       - Run all tests (requires Linux/Raspberry Pi)"
-	@echo "  test-verbose   - Run tests with output"
-	@echo "  status         - Show platform and test capabilities"
+	@echo "Build targets:"
+	@echo "  build          - Build debug (thermos-core only, ESP32 requires special toolchain)"
+	@echo "  build-esp32    - Build ESP32 firmware (release)"
+	@echo "  test           - Run tests (thermos-core)"
 	@echo "  clean          - Remove build artifacts"
-	@echo "  run            - Run the application (debug)"
-	@echo "  run-release    - Run the application (release)"
-	@echo "  docker-build   - Build Docker image"
-	@echo "  docker-run     - Run Docker Compose stack"
+	@echo ""
+	@echo "ESP32 targets:"
+	@echo "  flash          - Build and flash ESP32 firmware"
+	@echo "  monitor        - Open serial monitor"
+	@echo "  flash-monitor  - Flash and open monitor"
+	@echo ""
+	@echo "Code quality:"
 	@echo "  fmt            - Format code"
-	@echo "  lint           - Run clippy linter"
+	@echo "  lint           - Run clippy linter (thermos-core)"
 	@echo "  check          - Check code without building"
-	@echo "  install        - Install to system"
-	@echo "  install-hooks  - Install git pre-commit hooks"
-	@echo "  docs           - Generate documentation"
-	@echo ""
-	@echo "Workflows:"
 	@echo "  dev            - Format, lint, and test"
-	@echo "  ci             - CI checks with mock tests"
-	@echo "  ci-full        - CI checks with all tests (Linux only)"
-	@echo "  release        - Full release build"
 	@echo ""
-	@echo "Note: Matter/HomeKit integration has been removed."
-	@echo "      See MATTER_INTEGRATION.md for re-integration instructions."
+	@echo "Setup:"
+	@echo "  setup          - Install development dependencies"
+	@echo "  install-hooks  - Install git pre-commit hooks"
+	@echo ""
+	@echo "Note: thermos-linux is preserved but not in active development."
+	@echo "      Use 'cargo build -p thermos-linux' to build it explicitly."
 
-status:
-	@echo "Platform Status"
-	@echo "==============="
-	@echo ""
-	@echo "Operating System: $(UNAME_S)"
-ifeq ($(UNAME_S),Linux)
-	@echo "Hardware Support: FULL (Raspberry Pi GPIO, real sensors)"
-	@echo "Test Mode: All tests will run (including hardware)"
-	@echo ""
-	@echo "Available:"
-	@echo "  ✓ Mock tests"
-	@echo "  ✓ Hardware GPIO tests"
-	@echo "  ✓ Real sensor tests"
-	@echo "  ✓ Full integration tests"
-else
-	@echo "Hardware Support: MOCK ONLY (cross-platform development)"
-	@echo "Test Mode: Mock tests only (hardware tests skipped)"
-	@echo ""
-	@echo "Available:"
-	@echo "  ✓ Mock tests"
-	@echo "  ✗ Hardware GPIO tests (requires Linux)"
-	@echo "  ✗ Real sensor tests (requires Linux)"
-	@echo "  ⚠ Integration tests (using mocks)"
-	@echo ""
-	@echo "To run hardware tests, use Linux/Raspberry Pi or Docker"
-endif
-	@echo ""
-	@echo "Matter Integration: DISABLED (see MATTER_INTEGRATION.md)"
-	@echo ""
-	@echo "Recommended commands:"
-	@echo "  make test      - Auto-detect and run appropriate tests"
-	@echo "  make test-mock - Always run mock tests (cross-platform)"
-	@echo "  make dev       - Run development checks"
-
-# Build targets
+# Build targets (thermos-core only by default, ESP32 needs cross-compilation)
 build:
-	cargo build
+	cargo build -p thermos-core
 
 build-release:
-	cargo build --release
+	cargo build --release -p thermos-core
 
-# Build for Raspberry Pi (ARM)
-build-arm:
-	cargo build --release --target armv7-unknown-linux-gnueabihf
+# ESP32 build and flash
+build-esp32:
+	cd thermos-esp32 && cargo build --release
 
-build-arm64:
-	cargo build --target aarch64-unknown-linux-gnu
+flash:
+	cd thermos-esp32 && cargo build --release && espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
-build-release-arm64:
-	cargo build --release --target aarch64-unknown-linux-gnu
+monitor:
+	espflash monitor
 
-# Test targets
+flash-monitor:
+	cd thermos-esp32 && cargo build --release && espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Test targets (thermos-core only)
 test:
-ifeq ($(UNAME_S),Linux)
-	@echo "Linux detected - running all tests"
-	cargo test
-else
-	@echo "Non-Linux platform ($(UNAME_S)) detected - running mock tests only"
-	@echo "Note: Full hardware tests require Linux/Raspberry Pi"
-	cargo test --test mock_integration_tests
-endif
-
-test-mock:
-	@echo "Running mock tests (cross-platform)"
-	cargo test --test mock_integration_tests
-
-test-all:
-	@echo "Running all tests (requires Linux/Raspberry Pi hardware)"
-	cargo test
+	cargo test -p thermos-core
 
 test-verbose:
-ifeq ($(UNAME_S),Linux)
-	@echo "Running all tests with output"
-	cargo test -- --nocapture
-else
-	@echo "Running mock tests with output"
-	cargo test --test mock_integration_tests -- --nocapture
-endif
+	cargo test -p thermos-core -- --nocapture
 
-test-coverage:
-	@echo "Generating code coverage report..."
-	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
-		echo "cargo-llvm-cov not found. Installing..."; \
-		cargo install cargo-llvm-cov; \
-	}
-	cargo llvm-cov --all-features --workspace --html --output-dir coverage
-	@echo "Coverage report generated in coverage/index.html"
-
-# Run targets
-run:
-	cargo run
-
-run-release:
-	cargo run --release
-
-# Docker targets
-docker-build:
-	docker build -t thermos-rust:latest .
-
-docker-build-arm:
-	docker build -f Dockerfile.armv7 -t thermos-rust:armv7 .
-
-docker-run:
-	docker-compose up -d
-
-docker-stop:
-	docker-compose down
-
-docker-logs:
-	docker-compose logs -f thermostat
-
-# Code quality targets
+# Code quality targets (thermos-core only - ESP32 clippy requires cross-compilation)
 fmt:
 	cargo fmt
 
 lint:
-	cargo clippy -- -D warnings
+	cargo clippy -p thermos-core -- -D warnings
 
 check:
-	cargo check
+	cargo check -p thermos-core
 
 # Documentation
 docs:
-	cargo doc --no-deps --open
-
-# Install
-install:
-	cargo install --path .
+	cargo doc --no-deps -p thermos-core --open
 
 # Clean
 clean:
 	cargo clean
-	rm -rf coverage/
-	docker-compose down -v
 
 # Setup development environment
 setup:
-	rustup component add rustfmt clippy llvm-tools-preview
-	cargo install cargo-llvm-cov
-	@echo "Creating config from example..."
-	@if [ ! -f config/config.json ]; then \
-		cp config/config.example.json config/config.json; \
-		echo "Created config/config.json - please edit with your settings"; \
-	fi
+	rustup component add rustfmt clippy
+	@echo ""
+	@echo "For ESP32 development, also install:"
+	@echo "  rustup target add riscv32imac-unknown-none-elf"
+	@echo "  cargo install espflash"
 
 # Install git hooks
 install-hooks:
 	@echo "Installing git pre-commit hook..."
 	@if [ ! -f scripts/pre-commit ]; then \
-		echo "❌ Error: scripts/pre-commit not found"; \
+		echo "Error: scripts/pre-commit not found"; \
 		exit 1; \
 	fi
 	@cp scripts/pre-commit .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
-	@echo "✅ Git pre-commit hook installed successfully!"
-	@echo ""
-	@echo "The hook will automatically run before each commit:"
-	@echo "  • cargo fmt (format check)"
-	@echo "  • cargo clippy (lint check)"
-	@echo "  • cargo test (run tests)"
-	@echo ""
-	@echo "To bypass the hook (emergency only): git commit --no-verify"
-
-# Create systemd service
-install-service:
-	@echo "Installing systemd service..."
-	sudo cp thermos-rust.service /etc/systemd/system/
-	sudo systemctl daemon-reload
-	sudo systemctl enable thermos-rust
-	@echo "Service installed. Start with: sudo systemctl start thermos-rust"
+	@echo "Git pre-commit hook installed successfully!"
 
 # Development workflow
 dev: fmt lint test
 	@echo ""
-	@echo "✓ Development checks complete!"
-	@echo "  Platform: $(UNAME_S)"
-
-# Release workflow
-release: clean fmt lint test build-release
-	@echo ""
-	@echo "✓ Release build complete!"
-	@echo "  Platform: $(UNAME_S)"
-	@echo "  Binary at: target/release/thermos-rust"
-
-# CI workflow (uses mock tests for cross-platform CI)
-ci: fmt check lint test-mock
-	@echo ""
-	@echo "✓ CI checks complete!"
-	@echo "  Platform: $(UNAME_S)"
-
-# CI workflow for Linux/Raspberry Pi (runs all tests)
-ci-full: fmt check lint test-all
-	@echo ""
-	@echo "✓ Full CI checks complete (with hardware tests)!"
-	@echo "  Platform: $(UNAME_S)"
+	@echo "Development checks complete!"

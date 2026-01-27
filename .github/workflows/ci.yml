@@ -38,23 +38,16 @@ jobs:
       - name: Check formatting
         run: cargo fmt -- --check
 
-      - name: Run Clippy (excluding ESP32 - requires cross-compilation)
-        run: cargo clippy --all-targets --all-features -p thermos-core -p thermos-linux -- -D warnings
+      - name: Run Clippy (thermos-core only - ESP32 requires cross-compilation)
+        run: cargo clippy --all-targets --all-features -p thermos-core -- -D warnings
 
-  # Run tests on Debian Trixie
+  # Run tests
   test:
     name: Test
     runs-on: ubuntu-latest
     needs: fmt-and-clippy
-    container:
-      image: debian:trixie
 
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y curl build-essential pkg-config libssl-dev git
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -68,15 +61,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: debian-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            debian-cargo-
+            ${{ runner.os }}-cargo-
 
-      - name: Build (excluding ESP32)
-        run: cargo build --verbose -p thermos-core -p thermos-linux
+      - name: Build thermos-core
+        run: cargo build --verbose -p thermos-core
 
-      - name: Run tests (excluding ESP32)
-        run: cargo test -p thermos-core -p thermos-linux
+      - name: Run tests
+        run: cargo test -p thermos-core
 
   # Security audit
   security-audit:
@@ -119,8 +112,8 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage (excluding ESP32)
-        run: cargo llvm-cov --all-features -p thermos-core -p thermos-linux --lcov --output-path lcov.info
+      - name: Generate coverage
+        run: cargo llvm-cov --all-features -p thermos-core --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

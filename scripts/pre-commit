@@ -31,9 +31,9 @@ fi
 echo "✅ Formatting check passed"
 echo ""
 
-# 2. Run Clippy
+# 2. Run Clippy (thermos-core only - ESP32 requires cross-compilation)
 echo "🔎 Running Clippy (linter)..."
-if ! cargo clippy --all-targets --all-features -- -D warnings; then
+if ! cargo clippy --all-targets --all-features -p thermos-core -- -D warnings; then
     echo ""
     echo "❌ Clippy found issues!"
     echo "   Fix the warnings above and try again."
@@ -42,9 +42,9 @@ fi
 echo "✅ Clippy passed"
 echo ""
 
-# 3. Run tests
+# 3. Run tests (thermos-core only)
 echo "🧪 Running tests..."
-if ! cargo test --quiet; then
+if ! cargo test --quiet -p thermos-core; then
     echo ""
     echo "❌ Tests failed!"
     echo "   Fix the failing tests and try again."
