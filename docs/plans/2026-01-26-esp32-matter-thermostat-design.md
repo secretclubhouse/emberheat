@@ -290,6 +290,108 @@ thermos/zone1/heating      → on|off
 thermos/zone1/mode         → heat|off
 ```
 
+## Testing Instructions
+
+### Prerequisites
+
+1. Install Rust ESP32 toolchain:
+   ```bash
+   rustup target add riscv32imac-unknown-none-elf
+   cargo install espflash
+   ```
+
+2. Connect ESP32-C6 dev board via USB
+
+### Step 1: Test with Mock Sensors
+
+This validates the 7-zone control logic without requiring real sensors.
+
+1. Enable mock mode in `thermos-esp32/src/config.rs`:
+   ```rust
+   pub const USE_MOCK_SENSORS: bool = true;
+   ```
+
+2. Build and flash:
+   ```bash
+   cd thermos-esp32
+   WIFI_SSID="your_network" WIFI_PASSWORD="your_password" \
+     cargo build --release --target riscv32imac-unknown-none-elf
+   espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+   ```
+
+3. Expected serial output:
+   ```
+   [INFO] Thermos ESP32 Multi-Zone Thermostat starting...
+   [INFO] Initializing 7 zones with mock sensors
+   [INFO] [Zone1] Starting control loop
+   [INFO] [Zone2] Starting control loop
+   ...
+   [DEBUG] [Zone1] temp=20.0°C target=21.1°C heating=true
+   ```
+
+4. Verify:
+   - All 7 zones start
+   - Temperature readings appear (mock value 20.0°C)
+   - Heating state follows hysteresis logic (ON since 20.0 < 21.1 - 0.5)
+
+### Step 2: Discover Real Sensor Addresses
+
+1. Wire DS18B20 sensors to GPIO 4 (1-Wire bus) with 4.7kΩ pull-up
+
+2. Flash the sensor scan utility:
+   ```bash
+   WIFI_SSID="test" WIFI_PASSWORD="test" \
+     cargo build --release --bin scan_sensors --target riscv32imac-unknown-none-elf
+   espflash flash --monitor target/riscv32imac-unknown-none-elf/release/scan_sensors
+   ```
+
+3. Note the discovered addresses printed in the format:
+   ```
+   Found sensor: [0x28, 0xAB, 0xCD, 0xEF, 0x12, 0x34, 0x56, 0x78]
+   ```
+
+4. Update `ZONE_CONFIGS` in `config.rs` with real addresses
+
+### Step 3: Test with Real Sensors
+
+1. Disable mock mode:
+   ```rust
+   pub const USE_MOCK_SENSORS: bool = false;
+   ```
+
+2. Wire relays to GPIO pins 5, 6, 7, 15, 16, 17, 18
+
+3. Build and flash main application (same as Step 1)
+
+4. Verify:
+   - Real temperature readings appear
+   - Relays toggle based on temperature vs target
+   - System runs stable for extended period
+
+### Step 4: Parallel Testing with Pi
+
+1. Run ESP32 thermostat alongside existing Pi system
+2. Compare relay behavior between systems
+3. Verify temperatures match
+4. Run for 1-2 weeks before switching over
+
+### Troubleshooting
+
+**"No sensors found" during scan:**
+- Check wiring: GPIO 4 → Data, 3.3V → VCC, GND → GND
+- Verify 4.7kΩ pull-up resistor between Data and VCC
+- Try shorter wires
+
+**Build fails with esp-hal errors:**
+- The `esp-hal-rmt-onewire` crate has compatibility issues
+- Use mock sensors until dependency is updated
+- Check `thermos-esp32/Cargo.toml` for `onewire-rmt` feature
+
+**Relay not switching:**
+- Relays are active-low (GPIO LOW = relay ON)
+- Check relay module is 3.3V logic compatible
+- Verify GPIO pin matches config
+
 ## Success Criteria
 
 1. **Voice control works:** "Hey Siri, set the living room to 70 degrees"
