@@ -334,10 +334,10 @@ mod tests {
         assert_ne!(RelayState::On, RelayState::Off);
     }
 
+    // Tests using stub_impl directly - these work on all platforms including CI
     #[test]
     fn test_gpio_controller_stub() {
-        // This test works on all platforms
-        let gpio = GpioController::new().unwrap();
+        let gpio = stub_impl::GpioController::new().unwrap();
         gpio.init_relay(23).unwrap();
         gpio.set_relay(23, RelayState::On).unwrap();
         assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::On);
@@ -347,14 +347,14 @@ mod tests {
 
     #[test]
     fn test_gpio_pin_not_found() {
-        let gpio = GpioController::new().unwrap();
+        let gpio = stub_impl::GpioController::new().unwrap();
         assert!(gpio.get_relay_state(99).is_err());
         assert!(gpio.set_relay(99, RelayState::On).is_err());
     }
 
     #[test]
     fn test_gpio_pin_already_in_use() {
-        let gpio = GpioController::new().unwrap();
+        let gpio = stub_impl::GpioController::new().unwrap();
         gpio.init_relay(23).unwrap();
         assert!(gpio.init_relay(23).is_err());
     }
