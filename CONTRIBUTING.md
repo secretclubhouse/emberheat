@@ -1,10 +1,10 @@
 # Contributing to Thermos-Rust
 
-Thank you for your interest in contributing to Thermos-Rust! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Thermos-Rust! This document provides guidelines for contributing.
 
 ## Code of Conduct
 
-Please be respectful and constructive in all interactions. We aim to foster an inclusive and welcoming community.
+Please be respectful and constructive in all interactions.
 
 ## Getting Started
 
@@ -19,11 +19,24 @@ Please be respectful and constructive in all interactions. We aim to foster an i
    make setup
    ```
 
+## Project Structure
+
+The project is a Cargo workspace with three crates:
+
+- **thermos-core** - Platform-agnostic core library (no_std compatible)
+- **thermos-esp32** - ESP32-C6 implementation (active development)
+- **thermos-linux** - Linux/Raspberry Pi implementation (preserved, not active)
+
+Default build commands only include `thermos-core` and `thermos-esp32`. To work on `thermos-linux`, use explicit package flags:
+
+```bash
+cargo build -p thermos-linux
+cargo test -p thermos-linux
+```
+
 ## Development Workflow
 
 ### 1. Create a Branch
-
-Create a descriptive branch for your changes:
 
 ```bash
 git checkout -b feature/your-feature-name
@@ -41,11 +54,8 @@ git checkout -b fix/bug-description
 ### 3. Test Your Changes
 
 ```bash
-# Run all tests
+# Run tests (thermos-core)
 make test
-
-# Run with verbose output
-make test-verbose
 
 # Check code quality
 make dev
@@ -53,17 +63,23 @@ make dev
 
 ### 4. Commit Your Changes
 
-Write clear commit messages:
+The repository has a pre-commit hook that runs:
+- `cargo fmt` - formatting check
+- `cargo clippy` - linting
+- `cargo test` - tests
 
 ```bash
 git add .
-git commit -m "Add feature: description of your changes"
+git commit -m "feat: description of your changes"
 ```
 
-Good commit message format:
-- Use present tense ("Add feature" not "Added feature")
-- Keep first line under 72 characters
-- Add detailed description if needed
+Use conventional commit format:
+- `feat:` - new feature
+- `fix:` - bug fix
+- `docs:` - documentation
+- `refactor:` - code refactoring
+- `test:` - adding tests
+- `chore:` - maintenance
 
 ### 5. Push and Create Pull Request
 
@@ -71,43 +87,28 @@ Good commit message format:
 git push origin feature/your-feature-name
 ```
 
-Then create a Pull Request on GitHub with:
-- Clear title describing the change
-- Description of what was changed and why
-- Any relevant issue numbers
+Then create a Pull Request on GitHub.
 
 ## Code Style
 
 ### Formatting
 
-We use `rustfmt` for consistent formatting:
-
 ```bash
 cargo fmt
 ```
 
-All code must be formatted before submission.
-
 ### Linting
 
-We use `clippy` for linting:
-
 ```bash
-cargo clippy -- -D warnings
+cargo clippy -p thermos-core -- -D warnings
 ```
-
-Fix all clippy warnings before submitting.
 
 ### Documentation
 
-- Add doc comments (`///`) for all public items
-- Include examples in doc comments where helpful
-- Update README.md for user-facing changes
-
-Example:
+Add doc comments (`///`) for all public items:
 
 ```rust
-/// Calculate temperature in Fahrenheit from Celsius
+/// Calculate temperature in Fahrenheit from Celsius.
 ///
 /// # Arguments
 ///
@@ -116,13 +117,6 @@ Example:
 /// # Returns
 ///
 /// Temperature in degrees Fahrenheit
-///
-/// # Examples
-///
-/// ```
-/// let fahrenheit = celsius_to_fahrenheit(20.0);
-/// assert_eq!(fahrenheit, 68.0);
-/// ```
 pub fn celsius_to_fahrenheit(celsius: f32) -> f32 {
     celsius * 9.0 / 5.0 + 32.0
 }
@@ -132,7 +126,7 @@ pub fn celsius_to_fahrenheit(celsius: f32) -> f32 {
 
 ### Unit Tests
 
-Add unit tests in the same file as the code:
+Add unit tests in the same file:
 
 ```rust
 #[cfg(test)]
@@ -143,127 +137,70 @@ mod tests {
     fn test_something() {
         assert_eq!(2 + 2, 4);
     }
-
-    #[tokio::test]
-    async fn test_async_function() {
-        let result = async_function().await;
-        assert!(result.is_ok());
-    }
 }
 ```
 
-### Integration Tests
-
-Add integration tests in `tests/`:
-
-```rust
-// tests/my_integration_test.rs
-#[tokio::test]
-async fn test_end_to_end_flow() {
-    // Test complete workflow
-}
-```
-
-### Test Coverage
-
-Aim for high test coverage:
+### Running Tests
 
 ```bash
-make test-coverage
+# Run thermos-core tests
+make test
+
+# With verbose output
+make test-verbose
 ```
+
+## ESP32 Development
+
+### Building
+
+```bash
+make build-esp32
+```
+
+### Flashing
+
+```bash
+make flash          # Flash only
+make flash-monitor  # Flash and open serial monitor
+```
+
+### Requirements
+
+- ESP32-C6 development board
+- `espflash` tool installed
+- RISC-V target: `rustup target add riscv32imac-unknown-none-elf`
 
 ## Areas for Contribution
 
 ### High Priority
 
-- Complete Matter protocol integration with rs-matter
-- Improve error handling and recovery
-- Add more comprehensive tests
-- Performance optimizations
+- Matter protocol integration with rs-matter
+- Improved error handling
+- Additional sensor support
 - Documentation improvements
 
 ### Feature Ideas
 
-- Web UI for configuration and monitoring
-- Additional sensor types (DHT22, BME280, etc.)
-- Smart scheduling and automation
-- Energy usage tracking
-- Machine learning for predictive heating
+- Web UI for configuration
 - Home Assistant integration
-- Grafana dashboard templates
-
-### Bug Fixes
-
-Check the [Issues](https://github.com/josht/thermos-rust/issues) page for known bugs.
-
-## Specific Guidelines
-
-### GPIO Code
-
-- Always use `Arc<GpioController>` for shared access
-- Test on actual Raspberry Pi hardware when possible
-- Provide mock implementations for testing
-- Handle errors gracefully
-
-### Async Code
-
-- Use `tokio` for async runtime
-- Prefer `async/await` over manual futures
-- Use `Arc<RwLock<T>>` for shared state in async contexts
-- Avoid blocking operations in async code
-
-### Configuration
-
-- Validate all configuration inputs
-- Provide clear error messages for invalid configs
-- Maintain backward compatibility when possible
-- Document all configuration options
-
-### Dependencies
-
-- Minimize external dependencies
-- Prefer well-maintained crates
-- Keep dependencies up to date
-- Document why each dependency is needed
+- Smart scheduling
 
 ## Pull Request Checklist
 
-Before submitting a PR, ensure:
+Before submitting:
 
 - [ ] Code compiles without warnings
 - [ ] All tests pass (`make test`)
 - [ ] Code is formatted (`cargo fmt`)
-- [ ] No clippy warnings (`cargo clippy`)
-- [ ] Documentation is updated
-- [ ] New tests are added for new features
-- [ ] Commit messages are clear
-- [ ] PR description explains the changes
-
-## Review Process
-
-1. **Automated checks** run on all PRs (formatting, tests, clippy)
-2. **Code review** by maintainers
-3. **Testing** on actual hardware (for GPIO-related changes)
-4. **Merge** once approved
-
-## Release Process
-
-Releases follow semantic versioning (MAJOR.MINOR.PATCH):
-
-- **MAJOR**: Breaking changes
-- **MINOR**: New features (backward compatible)
-- **PATCH**: Bug fixes
+- [ ] No clippy warnings (`make lint`)
+- [ ] Documentation updated if needed
+- [ ] Commit messages follow conventional format
 
 ## Questions?
 
-- Open an [Issue](https://github.com/josht/thermos-rust/issues) for questions
-- Check existing issues and PRs first
-- Be patient - this is maintained by volunteers
+Open an [Issue](https://github.com/josht/thermos-rust/issues) for questions or discussion.
 
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
-
-## Thank You!
-
-Every contribution helps make Thermos-Rust better. Thank you for your time and effort!
