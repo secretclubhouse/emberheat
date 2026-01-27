@@ -3,6 +3,10 @@
 //! This module provides the core temperature sensor abstraction that can be
 //! implemented by different sensor backends (1-Wire, I2C, HTTP, etc.).
 
+// Allow async fn in traits - this crate is used internally and Send bounds are handled
+// at the implementation level by each platform
+#![allow(async_fn_in_trait)]
+
 use crate::types::TemperatureReading;
 use core::fmt;
 

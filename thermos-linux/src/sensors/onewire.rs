@@ -3,7 +3,7 @@
 //! This module provides support for reading DS18B20 temperature sensors
 //! via the 1-Wire protocol on Linux systems.
 
-use super::{SensorError, TemperatureReading, TemperatureSensor, SENSOR_READ_TIMEOUT};
+use super::{to_heapless, SensorError, TemperatureReading, TemperatureSensor, SENSOR_READ_TIMEOUT};
 use anyhow::Result;
 use std::path::PathBuf;
 use tokio::fs;
@@ -63,25 +63,26 @@ impl OneWireSensor {
     /// ```
     ///
     /// The temperature is in millidegrees Celsius (t=21875 means 21.875°C)
+    #[allow(clippy::result_large_err)]
     fn parse_temperature(content: &str) -> Result<f32, SensorError> {
         // Check CRC validity
         if !content.contains("YES") {
-            return Err(SensorError::InvalidData("CRC check failed".to_string()));
+            return Err(SensorError::InvalidData(to_heapless("CRC check failed")));
         }
 
         // Find temperature value
         let temp_pos = content
             .find("t=")
-            .ok_or_else(|| SensorError::InvalidData("Temperature value not found".to_string()))?;
+            .ok_or_else(|| SensorError::InvalidData(to_heapless("Temperature value not found")))?;
 
         let temp_str = &content[temp_pos + 2..];
         let temp_end = temp_str
             .find(|c: char| !c.is_numeric() && c != '-')
             .unwrap_or(temp_str.len());
 
-        let millidegrees: i32 = temp_str[..temp_end]
-            .parse()
-            .map_err(|e| SensorError::InvalidData(format!("Failed to parse temperature: {}", e)))?;
+        let millidegrees: i32 = temp_str[..temp_end].parse().map_err(|e| {
+            SensorError::InvalidData(to_heapless(&format!("Failed to parse temperature: {}", e)))
+        })?;
 
         let celsius = millidegrees as f32 / 1000.0;
 
@@ -133,7 +134,7 @@ impl TemperatureSensor for OneWireSensor {
         let content = timeout(SENSOR_READ_TIMEOUT, fs::read_to_string(&self.device_path))
             .await
             .map_err(|_| SensorError::Timeout)?
-            .map_err(|e| SensorError::IoError(e.to_string()))?;
+            .map_err(|e| SensorError::IoError(to_heapless(&e.to_string())))?;
 
         let celsius = Self::parse_temperature(&content)?;
         let reading = TemperatureReading::from_celsius(celsius);

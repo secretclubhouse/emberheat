@@ -45,12 +45,11 @@ use crate::metrics;
 use crate::persistence::StateManager;
 use crate::sensors::{CompositeSensor, TemperatureSensor};
 use anyhow::{Context, Result};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
-use embassy_time::{Duration as EmbassyDuration, Ticker, Timer};
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
+use tokio::time::{interval, sleep};
 use tracing::{debug, error, info, warn};
 
 // Import types from thermos-core
@@ -77,10 +76,6 @@ const POWER_CYCLE_RECOVERY_TIME_SECS: u64 = 5;
 /// VCC GPIO pin (shared across all sensors)
 const VCC_PIN: u8 = 0;
 
-/// Type alias for Embassy mutex used in this module
-/// Uses CriticalSectionRawMutex for Send + Sync compatibility with tokio::spawn
-type EmbassyMutex<T> = Mutex<CriticalSectionRawMutex, T>;
-
 /// Thermostat implementation
 pub struct Thermostat {
     /// Zone name
@@ -99,19 +94,19 @@ pub struct Thermostat {
     state_manager: Arc<StateManager>,
 
     /// Current temperature (Celsius)
-    current_temp: EmbassyMutex<f32>,
+    current_temp: Mutex<f32>,
 
     /// Target temperature (Celsius)
-    target_temp: EmbassyMutex<f32>,
+    target_temp: Mutex<f32>,
 
     /// Target heating state
-    target_state: EmbassyMutex<HeatingState>,
+    target_state: Mutex<HeatingState>,
 
     /// Current heating state
-    current_state: EmbassyMutex<HeatingState>,
+    current_state: Mutex<HeatingState>,
 
     /// Sensor reset tracking
-    sensor_being_reset: EmbassyMutex<HashMap<String, Instant>>,
+    sensor_being_reset: Mutex<HashMap<String, Instant>>,
 }
 
 impl Thermostat {
@@ -302,7 +297,7 @@ impl Thermostat {
         }
 
         // Wait for recovery
-        Timer::after(EmbassyDuration::from_secs(POWER_CYCLE_RECOVERY_TIME_SECS)).await;
+        sleep(Duration::from_secs(POWER_CYCLE_RECOVERY_TIME_SECS)).await;
 
         // Remove from reset tracking
         {
@@ -374,12 +369,12 @@ impl Thermostat {
     ///
     /// Runs continuously, reading temperature and applying control logic
     pub async fn run(&self) -> Result<()> {
-        let mut ticker = Ticker::every(EmbassyDuration::from_secs(CONTROL_LOOP_INTERVAL_SECS));
+        let mut ticker = interval(Duration::from_secs(CONTROL_LOOP_INTERVAL_SECS));
 
         info!("Zone {}: Starting control loop", self.name);
 
         loop {
-            ticker.next().await;
+            ticker.tick().await;
 
             // Read temperature
             match self.read_temperature().await {

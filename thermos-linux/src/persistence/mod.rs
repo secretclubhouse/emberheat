@@ -49,6 +49,15 @@ use tracing::{debug, info};
 // Import from thermos-core
 pub use thermos_core::{PersistenceError, ThermostatState};
 
+/// Convert a std::String to heapless::String, truncating if necessary
+fn to_heapless(s: &str) -> heapless::String<128> {
+    let mut hs = heapless::String::new();
+    for c in s.chars().take(127) {
+        let _ = hs.push(c);
+    }
+    hs
+}
+
 /// Redis-based state manager
 pub struct StateManager {
     /// Redis connection manager
@@ -111,13 +120,13 @@ impl StateManager {
         let key = self.zone_key(zone_name);
 
         let json = serde_json::to_string(state)
-            .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+            .map_err(|e| PersistenceError::SerializationError(to_heapless(&e.to_string())))?;
 
         let mut conn = self.connection.lock().await;
 
         conn.set::<_, _, ()>(&key, json)
             .await
-            .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
+            .map_err(|e| PersistenceError::ConnectionError(to_heapless(&e.to_string())))?;
 
         debug!("Saved state for zone: {}", zone_name);
 
@@ -141,11 +150,11 @@ impl StateManager {
         let json: Option<String> = conn
             .get(&key)
             .await
-            .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
+            .map_err(|e| PersistenceError::ConnectionError(to_heapless(&e.to_string())))?;
 
         if let Some(json) = json {
             let state: ThermostatState = serde_json::from_str(&json)
-                .map_err(|e| PersistenceError::SerializationError(e.to_string()))?;
+                .map_err(|e| PersistenceError::SerializationError(to_heapless(&e.to_string())))?;
 
             debug!("Loaded state for zone: {}", zone_name);
 
@@ -168,7 +177,7 @@ impl StateManager {
 
         conn.del::<_, ()>(&key)
             .await
-            .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
+            .map_err(|e| PersistenceError::ConnectionError(to_heapless(&e.to_string())))?;
 
         debug!("Deleted state for zone: {}", zone_name);
 
@@ -188,7 +197,7 @@ impl StateManager {
         let keys: Vec<String> = conn
             .keys(&pattern)
             .await
-            .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
+            .map_err(|e| PersistenceError::ConnectionError(to_heapless(&e.to_string())))?;
 
         let zones: Vec<String> = keys
             .into_iter()
@@ -205,7 +214,7 @@ impl StateManager {
         redis::cmd("PING")
             .query_async::<String>(&mut *conn)
             .await
-            .map_err(|e| PersistenceError::ConnectionError(e.to_string()))?;
+            .map_err(|e| PersistenceError::ConnectionError(to_heapless(&e.to_string())))?;
 
         Ok(())
     }

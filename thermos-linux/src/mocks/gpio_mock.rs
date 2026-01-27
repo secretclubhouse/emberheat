@@ -85,10 +85,7 @@ impl MockGpioController {
             *powered = false;
         }
 
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(
-            down_time.as_millis() as u64
-        ))
-        .await;
+        tokio::time::sleep(down_time).await;
 
         {
             let mut powered = self.vcc_powered.lock().unwrap();
@@ -181,7 +178,7 @@ mod tests {
             );
 
         // Wait a bit and check it's off
-        embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
         assert!(!gpio.is_vcc_powered());
 
         // Wait for cycle to complete

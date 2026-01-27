@@ -204,10 +204,7 @@ mod linux_impl {
                         controller.power_off();
                     }
                 }
-                embassy_time::Timer::after(embassy_time::Duration::from_millis(
-                    down_time.as_millis() as u64,
-                ))
-                .await;
+                tokio::time::sleep(down_time).await;
                 {
                     let mut vcc = self.vcc_controller.lock().unwrap();
                     if let Some(controller) = vcc.as_mut() {
@@ -298,10 +295,7 @@ mod stub_impl {
                 let mut vcc = self.vcc_on.lock().unwrap();
                 *vcc = false;
             }
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(
-                down_time.as_millis() as u64
-            ))
-            .await;
+            tokio::time::sleep(down_time).await;
             {
                 let mut vcc = self.vcc_on.lock().unwrap();
                 *vcc = true;

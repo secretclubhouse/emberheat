@@ -3,6 +3,10 @@
 //! This module contains the core hysteresis-based temperature control algorithm
 //! that works on any platform (Linux, ESP32, etc.).
 
+// Allow large error types - ControlError wraps other error types that use heapless::String<128>
+// for descriptive error messages in a no_std context
+#![allow(clippy::result_large_err)]
+
 use crate::config::HysteresisConfig;
 use crate::gpio::GpioError;
 use crate::persistence::PersistenceError;

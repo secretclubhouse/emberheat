@@ -28,15 +28,29 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use serde::Deserialize;
+use std::time::Duration;
 use tracing::{debug, warn};
 
 // Re-export from thermos-core
-pub use thermos_core::{SensorError, TemperatureReading, TemperatureSensor, SENSOR_READ_TIMEOUT};
+pub use thermos_core::{
+    SensorError, TemperatureReading, TemperatureSensor, SENSOR_READ_TIMEOUT_SECS,
+};
+
+/// Sensor read timeout as Duration
+const SENSOR_READ_TIMEOUT: Duration = Duration::from_secs(SENSOR_READ_TIMEOUT_SECS);
 
 mod onewire;
 pub use onewire::OneWireSensor;
+
+/// Convert a std::String to heapless::String, truncating if necessary
+fn to_heapless(s: &str) -> heapless::String<128> {
+    let mut hs = heapless::String::new();
+    for c in s.chars().take(127) {
+        let _ = hs.push(c);
+    }
+    hs
+}
 
 /// HTTP-based temperature sensor
 ///
@@ -79,17 +93,17 @@ impl TemperatureSensor for HttpSensor {
             .get(&self.url)
             .send()
             .await
-            .map_err(|e| SensorError::HttpError(e.to_string()))?;
+            .map_err(|e| SensorError::HttpError(to_heapless(&e.to_string())))?;
 
         let data: HttpTempResponse = response
             .json()
             .await
-            .map_err(|e| SensorError::InvalidData(e.to_string()))?;
+            .map_err(|e| SensorError::InvalidData(to_heapless(&e.to_string())))?;
 
         let reading = TemperatureReading::from_celsius(data.temp_c);
 
         if !reading.is_valid() {
-            return Err(SensorError::OutOfRange(reading.celsius).into());
+            return Err(SensorError::OutOfRange(reading.celsius));
         }
 
         debug!(
@@ -111,32 +125,20 @@ impl TemperatureSensor for HttpSensor {
 
 /// Composite sensor that tries multiple sources
 ///
-/// Attempts to read from primary sensor first, then falls back to secondary
+/// Attempts to read from primary 1-Wire sensor first, then falls back to HTTP sensor.
+/// Uses concrete types to avoid dyn-compatibility issues with async trait methods.
 pub struct CompositeSensor {
-    primary: Box<dyn TemperatureSensor>,
-    fallback: Option<Box<dyn TemperatureSensor>>,
+    primary: OneWireSensor,
+    fallback: Option<HttpSensor>,
 }
 
 impl CompositeSensor {
-    /// Create a new composite sensor
-    ///
-    /// # Arguments
-    ///
-    /// * `primary` - Primary temperature sensor
-    /// * `fallback` - Optional fallback sensor
-    pub fn new(
-        primary: Box<dyn TemperatureSensor>,
-        fallback: Option<Box<dyn TemperatureSensor>>,
-    ) -> Self {
-        Self { primary, fallback }
-    }
-
     /// Create from 1-Wire sensor with optional HTTP fallback
     pub fn from_onewire(sensor_id: &str, http_url: Option<String>) -> Result<Self> {
-        let primary = Box::new(OneWireSensor::new(sensor_id)?);
+        let primary = OneWireSensor::new(sensor_id)?;
 
         let fallback = if let Some(url) = http_url {
-            Some(Box::new(HttpSensor::new(url)?) as Box<dyn TemperatureSensor>)
+            Some(HttpSensor::new(url)?)
         } else {
             None
         };
@@ -182,8 +184,13 @@ impl TemperatureSensor for CompositeSensor {
     }
 
     async fn is_available(&self) -> bool {
-        self.primary.is_available().await
-            || self.fallback.as_ref().map(|f| f.is_available()).is_some()
+        if self.primary.is_available().await {
+            return true;
+        }
+        if let Some(fallback) = &self.fallback {
+            return fallback.is_available().await;
+        }
+        false
     }
 }
 

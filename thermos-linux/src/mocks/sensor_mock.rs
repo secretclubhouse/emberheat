@@ -2,8 +2,16 @@
 
 use crate::sensors::{SensorError, TemperatureReading, TemperatureSensor};
 use anyhow::Result;
-use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
+
+/// Convert a std::String to heapless::String, truncating if necessary
+fn to_heapless(s: &str) -> heapless::String<128> {
+    let mut hs = heapless::String::new();
+    for c in s.chars().take(127) {
+        let _ = hs.push(c);
+    }
+    hs
+}
 
 /// Mock temperature sensor that returns configurable values
 ///
@@ -98,7 +106,7 @@ impl TemperatureSensor for MockTemperatureSensor {
 
         // Check if sensor is available
         if !*self.available.lock().unwrap() {
-            return Err(SensorError::NotFound(self.id.clone()).into());
+            return Err(SensorError::NotFound(to_heapless(&self.id)));
         }
 
         // Get temperature
@@ -106,7 +114,7 @@ impl TemperatureSensor for MockTemperatureSensor {
 
         match *temp {
             Some(celsius) => Ok(TemperatureReading::from_celsius(celsius)),
-            None => Err(SensorError::IoError("Sensor read failed".to_string()).into()),
+            None => Err(SensorError::IoError(to_heapless("Sensor read failed"))),
         }
     }
 

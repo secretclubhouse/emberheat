@@ -39,8 +39,6 @@
 //! ```
 
 use anyhow::Result;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex as EmbassyMutex;
 use lazy_static::lazy_static;
 use prometheus::{
     register_counter_vec, register_gauge, register_gauge_vec, CounterVec, Encoder, Gauge, GaugeVec,
@@ -49,6 +47,7 @@ use prometheus::{
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 use tracing::{debug, error, info};
 
 lazy_static! {
@@ -119,9 +118,8 @@ pub struct MatterStatus {
 /// Metrics server for Prometheus export and Matter diagnostics
 pub struct MetricsServer {
     port: u16,
-    /// Uses CriticalSectionRawMutex for Send + Sync compatibility with tokio::spawn
-    matter_status: EmbassyMutex<CriticalSectionRawMutex, Option<MatterStatus>>,
-    qr_code_data: EmbassyMutex<CriticalSectionRawMutex, Option<String>>,
+    matter_status: Mutex<Option<MatterStatus>>,
+    qr_code_data: Mutex<Option<String>>,
 }
 
 impl MetricsServer {
@@ -134,8 +132,8 @@ impl MetricsServer {
         info!("Metrics server initialized on port {}", port);
         Ok(Self {
             port,
-            matter_status: EmbassyMutex::new(None),
-            qr_code_data: EmbassyMutex::new(None),
+            matter_status: Mutex::new(None),
+            qr_code_data: Mutex::new(None),
         })
     }
 

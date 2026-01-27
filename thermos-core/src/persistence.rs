@@ -3,6 +3,10 @@
 //! This module provides the storage abstraction for persisting thermostat state.
 //! Different backends can implement this trait (Redis for Linux, NVS for ESP32, etc.).
 
+// Allow async fn in traits - this crate is used internally and Send bounds are handled
+// at the implementation level by each platform
+#![allow(async_fn_in_trait)]
+
 use crate::types::ThermostatState;
 use core::fmt;
 

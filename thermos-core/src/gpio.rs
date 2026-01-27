@@ -3,6 +3,10 @@
 //! This module provides platform-agnostic GPIO traits that can be implemented
 //! by different hardware backends (rppal for Raspberry Pi, esp-hal for ESP32, etc.).
 
+// Allow large error types - we use heapless::String<128> for descriptive error messages
+// in a no_std context where boxing isn't always available
+#![allow(clippy::result_large_err)]
+
 use crate::types::RelayState;
 use core::fmt;
 

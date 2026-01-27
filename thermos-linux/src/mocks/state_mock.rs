@@ -5,6 +5,15 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Convert a std::String to heapless::String, truncating if necessary
+fn to_heapless(s: &str) -> heapless::String<128> {
+    let mut hs = heapless::String::new();
+    for c in s.chars().take(127) {
+        let _ = hs.push(c);
+    }
+    hs
+}
+
 /// Mock state manager that uses in-memory storage
 ///
 /// This mock allows tests to run without requiring a Redis instance.
@@ -52,7 +61,7 @@ impl MockStateManager {
 
         // Check if should fail
         if *self.should_fail.lock().unwrap() {
-            return Err(PersistenceError::ConnectionError("Mock failure".to_string()).into());
+            return Err(PersistenceError::ConnectionError(to_heapless("Mock failure")).into());
         }
 
         let mut states = self.states.lock().unwrap();
@@ -71,7 +80,7 @@ impl MockStateManager {
 
         // Check if should fail
         if *self.should_fail.lock().unwrap() {
-            return Err(PersistenceError::ConnectionError("Mock failure".to_string()).into());
+            return Err(PersistenceError::ConnectionError(to_heapless("Mock failure")).into());
         }
 
         let states = self.states.lock().unwrap();
@@ -82,7 +91,7 @@ impl MockStateManager {
     pub async fn delete_state(&self, zone_name: &str) -> Result<()> {
         // Check if should fail
         if *self.should_fail.lock().unwrap() {
-            return Err(PersistenceError::ConnectionError("Mock failure".to_string()).into());
+            return Err(PersistenceError::ConnectionError(to_heapless("Mock failure")).into());
         }
 
         let mut states = self.states.lock().unwrap();
@@ -95,7 +104,7 @@ impl MockStateManager {
     pub async fn list_zones(&self) -> Result<Vec<String>> {
         // Check if should fail
         if *self.should_fail.lock().unwrap() {
-            return Err(PersistenceError::ConnectionError("Mock failure".to_string()).into());
+            return Err(PersistenceError::ConnectionError(to_heapless("Mock failure")).into());
         }
 
         let states = self.states.lock().unwrap();
@@ -105,7 +114,7 @@ impl MockStateManager {
     /// Check connection health
     pub async fn ping(&self) -> Result<()> {
         if *self.should_fail.lock().unwrap() {
-            return Err(PersistenceError::ConnectionError("Mock failure".to_string()).into());
+            return Err(PersistenceError::ConnectionError(to_heapless("Mock failure")).into());
         }
 
         Ok(())
