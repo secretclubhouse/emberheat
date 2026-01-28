@@ -8,6 +8,9 @@ license = "MIT"
 # Platform-agnostic core library (without embassy - esp-rtos provides it)
 thermos-core = { path = "../thermos-core", default-features = false }
 
+# Matter thermostat cluster implementation
+thermos-matter = { path = "../thermos-matter" }
+
 # ESP32-C6 HAL and platform support (with unstable feature for esp-radio)
 # Note: Feature order matters - chip features must be consistent across all esp-* crates
 esp-hal = { version = "1.0", features = ["esp32c6", "unstable", "log-04"] }

@@ -1,0 +1,25 @@
+[package]
+name = "thermos-matter"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Matter Thermostat Cluster implementation for heating-only thermostats"
+
+[dependencies]
+# Matter protocol
+rs-matter = { git = "https://github.com/project-chip/rs-matter", default-features = false, features = ["rustcrypto"] }
+
+# Embassy async (for Signal, select, etc.)
+embassy-futures = "0.1"
+embassy-sync = "0.7"
+
+# Utilities
+log = { workspace = true }
+heapless = "0.9"
+
+[features]
+default = []
+std = []
+
+[dev-dependencies]
+tokio = { version = "1.48", features = ["rt", "macros", "sync", "time"] }

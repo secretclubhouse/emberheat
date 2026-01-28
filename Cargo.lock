@@ -3877,6 +3877,7 @@ dependencies = [
  "serde-json-core",
  "static_cell",
  "thermos-core",
+ "thermos-matter",
  "tokio",
 ]
 
@@ -3911,6 +3912,18 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "thermos-matter"
+version = "0.1.0"
+dependencies = [
+ "embassy-futures",
+ "embassy-sync 0.7.2",
+ "heapless 0.9.2",
+ "log",
+ "rs-matter",
+ "tokio",
 ]
 
 [[package]]

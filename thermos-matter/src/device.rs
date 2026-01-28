@@ -16,7 +16,7 @@
 //!   - Descriptor Cluster
 //! ```
 
-use crate::matter::state::ZoneThermostatState;
+use crate::state::ZoneThermostatState;
 
 /// Matter endpoint number for root node (device info, descriptors)
 pub const ROOT_ENDPOINT: u16 = 0;

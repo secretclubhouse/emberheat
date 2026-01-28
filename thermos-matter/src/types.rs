@@ -143,7 +143,7 @@ pub mod temperature {
     ///
     /// # Examples
     /// ```
-    /// use thermos_esp32::matter::types::temperature::celsius_to_matter;
+    /// use thermos_matter::types::temperature::celsius_to_matter;
     /// assert_eq!(celsius_to_matter(21.5), 2150);
     /// assert_eq!(celsius_to_matter(0.0), 0);
     /// assert_eq!(celsius_to_matter(-10.0), -1000);
@@ -156,7 +156,7 @@ pub mod temperature {
     ///
     /// # Examples
     /// ```
-    /// use thermos_esp32::matter::types::temperature::matter_to_celsius;
+    /// use thermos_matter::types::temperature::matter_to_celsius;
     /// assert_eq!(matter_to_celsius(2150), 21.5);
     /// assert_eq!(matter_to_celsius(0), 0.0);
     /// assert_eq!(matter_to_celsius(-1000), -10.0);

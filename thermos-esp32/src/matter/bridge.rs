@@ -43,8 +43,8 @@
 //! );
 //! ```
 
-use crate::matter::device::get_zone_state;
-use crate::matter::types::SystemMode;
+use thermos_matter::device::get_zone_state;
+use thermos_matter::types::SystemMode;
 
 /// Update Matter state from thermos-core control loop
 ///
@@ -176,7 +176,7 @@ pub fn sync_local_state_to_matter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matter::device::ZONE_STATES;
+    use thermos_matter::device::ZONE_STATES;
 
     #[test]
     fn test_update_matter_from_control_loop() {

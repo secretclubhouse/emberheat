@@ -29,7 +29,7 @@ use rs_matter::dm::{Cluster, Dataver, HandlerContext};
 use rs_matter::error::{Error, ErrorCode};
 use rs_matter::tlv::Nullable;
 
-use crate::matter::cluster::{
+use crate::cluster::{
     AttributeId, ControlSequenceOfOperationEnum, OutOfBandMessage, RelayStateBitmap,
     SystemModeEnum, ThermostatHooks,
 };

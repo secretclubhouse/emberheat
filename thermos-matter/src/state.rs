@@ -11,7 +11,7 @@
 
 use core::sync::atomic::{AtomicI16, AtomicU16, AtomicU8, Ordering};
 
-use crate::matter::types::{defaults, temperature, RunningState, SystemMode};
+use crate::types::{defaults, temperature, RunningState, SystemMode};
 
 /// Thread-safe thermostat state for a single zone
 ///
@@ -345,7 +345,7 @@ mod tests {
 // ThermostatHooks Implementation
 // -----------------------------------------------------------------------------
 
-use crate::matter::cluster::{
+use crate::cluster::{
     ControlSequenceOfOperationEnum, RelayStateBitmap, SystemModeEnum, ThermostatHooks,
     HEATING_ONLY_CLUSTER,
 };
