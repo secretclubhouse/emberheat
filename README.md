@@ -8,7 +8,7 @@ This is a Rust reimplementation of the [Thermos](https://github.com/truncj/therm
 
 ## Features
 
-- **Multi-Zone Control**: Independent temperature control for multiple heating zones
+- **Configurable Multi-Zone Control**: Independent temperature control for 1-7 heating zones
 - **Hysteresis Control**: Intelligent heating control with configurable dead band to prevent rapid cycling
 - **Multiple Sensor Types**:
   - 1-Wire DS18B20 temperature sensors via RMT peripheral
@@ -29,9 +29,16 @@ thermos-rust/
 │       ├── gpio.rs         # GpioManager trait
 │       ├── persistence.rs  # StateStorage trait
 │       └── control.rs      # Hysteresis control algorithm
+├── thermos-matter/         # Matter protocol types and cluster definitions (no_std)
+│   └── src/
+│       ├── types.rs        # Matter temperature/mode types
+│       ├── state.rs        # ZoneThermostatState with atomic operations
+│       ├── cluster.rs      # Thermostat cluster (0x0201) hooks
+│       └── device.rs       # Device info and endpoint mapping
 ├── thermos-esp32/          # ESP32-C6 bare-metal implementation
 │   └── src/
 │       ├── main.rs         # Embassy entry point
+│       ├── config.rs       # Zone configuration (NUM_ZONES, ZONE_CONFIGS)
 │       ├── gpio_impl.rs    # esp-hal GPIO
 │       ├── sensor_onewire.rs   # 1-Wire via RMT peripheral
 │       ├── sensor_i2c.rs   # BME280 I2C sensor
@@ -80,6 +87,8 @@ make flash-monitor
 
 ### Configuration
 
+#### WiFi and MQTT
+
 WiFi and MQTT settings are configured in `thermos-esp32/src/main.rs`. Update the constants for your network:
 
 ```rust
@@ -87,6 +96,14 @@ const WIFI_SSID: &str = "your-ssid";
 const WIFI_PASSWORD: &str = "your-password";
 const MQTT_BROKER: &str = "192.168.1.100";
 ```
+
+#### Zone Count
+
+The number of heating zones is configurable (1-7 supported). Edit `thermos-esp32/src/config.rs`:
+
+1. Set `NUM_ZONES` to desired value (1-7)
+2. Ensure `ZONE_CONFIGS` array has exactly `NUM_ZONES` entries
+3. Rebuild firmware
 
 ## Hysteresis Control Logic
 

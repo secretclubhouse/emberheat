@@ -6,7 +6,7 @@ Thermos-Rust is a multi-zone thermostat system for hydronic heating, written in 
 
 **Primary Platform:** ESP32-C6 (bare-metal, no_std)
 **Language:** Rust 2021 edition
-**Architecture:** Cargo workspace with `thermos-core` and `thermos-esp32`
+**Architecture:** Cargo workspace with `thermos-core`, `thermos-matter`, and `thermos-esp32`
 
 > **Note:** `thermos-linux` (Raspberry Pi implementation) is preserved but not actively developed.
 
@@ -21,15 +21,26 @@ thermos-rust/
 │       ├── gpio.rs         # GpioManager trait
 │       ├── persistence.rs  # StateStorage trait
 │       └── control.rs      # Hysteresis control algorithm
+├── thermos-matter/         # Matter protocol types and cluster definitions (no_std)
+│   └── src/
+│       ├── types.rs        # Matter temperature/mode types
+│       ├── state.rs        # ZoneThermostatState with atomic operations
+│       ├── cluster.rs      # Thermostat cluster (0x0201) hooks
+│       ├── handler.rs      # Matter handler traits
+│       └── device.rs       # Device info and endpoint mapping
 ├── thermos-esp32/          # ESP32-C6 implementation (active)
 │   └── src/
 │       ├── main.rs         # Embassy entry point
+│       ├── config.rs       # Zone configuration (NUM_ZONES, ZONE_CONFIGS)
 │       ├── gpio_impl.rs    # esp-hal GPIO
 │       ├── sensor_onewire.rs   # 1-Wire via RMT
 │       ├── sensor_i2c.rs   # BME280 I2C sensor
 │       ├── persistence_nvs.rs  # NVS flash storage
 │       ├── wifi.rs         # WiFi connectivity
-│       └── mqtt.rs         # MQTT logging
+│       ├── mqtt.rs         # MQTT logging
+│       └── matter/         # Matter integration
+│           ├── zones.rs    # Zone state storage
+│           └── bridge.rs   # Bridge between Matter and control loop
 └── thermos-linux/          # Linux implementation (preserved, not active)
 ```
 
@@ -50,7 +61,7 @@ make flash
 # Flash and monitor
 make flash-monitor
 
-# Run tests (thermos-core only)
+# Run tests (thermos-core and thermos-matter)
 make test
 
 # Format, lint, test
@@ -64,6 +75,17 @@ cargo test -p thermos-linux
 ```
 
 ## Critical Concepts
+
+### Zone Configuration
+
+The number of heating zones is configurable (1-7 supported). To change:
+
+1. Edit `thermos-esp32/src/config.rs`
+2. Set `NUM_ZONES` to desired value (1-7)
+3. Ensure `ZONE_CONFIGS` array has exactly `NUM_ZONES` entries
+4. Rebuild firmware
+
+Zone states are stored in `thermos-esp32/src/matter/zones.rs` and sized at compile time based on `NUM_ZONES`.
 
 ### Hysteresis Control
 
@@ -119,7 +141,7 @@ Temperature readings are validated:
 ## Testing
 
 ```bash
-# Run thermos-core tests
+# Run thermos-core and thermos-matter tests
 make test
 
 # Verbose output
@@ -167,6 +189,9 @@ Pre-commit hook runs automatically:
 **thermos-core (no_std):**
 - `serde` - Serialization
 - `heapless` - No-std collections
+
+**thermos-matter (no_std):**
+- `portable-atomic` - Cross-platform atomics for state management
 
 **thermos-esp32:**
 - `esp-hal` - ESP32 HAL
