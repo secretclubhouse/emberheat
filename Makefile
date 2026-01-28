@@ -16,6 +16,7 @@ help:
 	@echo "  flash          - Build and flash ESP32 firmware"
 	@echo "  monitor        - Open serial monitor"
 	@echo "  flash-monitor  - Flash and open monitor"
+	@echo "  scan-sensors   - Flash and run DS18B20 sensor scanner"
 	@echo ""
 	@echo "Code quality:"
 	@echo "  fmt            - Format code"
@@ -67,6 +68,11 @@ monitor:
 flash-monitor:
 	$(check_wifi_creds)
 	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Scan for DS18B20 sensors on the 1-Wire bus
+scan-sensors:
+	@cd thermos-esp32 && WIFI_SSID="unused" WIFI_PASSWORD="unused" cargo build --release --bin scan_sensors
+	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/scan_sensors
 
 # Test targets (thermos-core and thermos-matter)
 test:
