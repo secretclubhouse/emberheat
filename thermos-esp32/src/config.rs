@@ -1,8 +1,26 @@
-//! 7-Zone Thermostat Configuration
+//! Multi-Zone Thermostat Configuration
 //!
-//! This module defines the compile-time configuration for the 7-zone
-//! thermostat system, including GPIO pins, sensor addresses, and
-//! network settings.
+//! This module defines the compile-time configuration for the thermostat.
+//! The number of zones is configurable via `NUM_ZONES` (1-7 supported).
+//!
+//! # Configuring Zone Count
+//!
+//! To change the number of zones:
+//! 1. Set `NUM_ZONES` to desired value (1-7)
+//! 2. Ensure `ZONE_CONFIGS` has exactly `NUM_ZONES` entries
+//! 3. Rebuild the firmware
+//!
+//! # Example: 3-Zone Configuration
+//!
+//! ```ignore
+//! pub const NUM_ZONES: usize = 3;
+//!
+//! pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
+//!     ZoneConfigData { name: "Zone1", relay_pin: 0, sensor_address: [0x28, ...], default_target_c: 21.1 },
+//!     ZoneConfigData { name: "Zone2", relay_pin: 1, sensor_address: [0x28, ...], default_target_c: 21.1 },
+//!     ZoneConfigData { name: "Zone3", relay_pin: 2, sensor_address: [0x28, ...], default_target_c: 21.1 },
+//! ];
+//! ```
 //!
 //! # Sensor Addresses
 //!
@@ -151,8 +169,14 @@ mod tests {
 
     #[test]
     fn test_num_zones() {
-        assert_eq!(NUM_ZONES, 7);
+        // NUM_ZONES should match ZONE_CONFIGS length
         assert_eq!(ZONE_CONFIGS.len(), NUM_ZONES);
+        // NUM_ZONES should be in valid range (1-7)
+        assert!(
+            NUM_ZONES >= 1 && NUM_ZONES <= 7,
+            "NUM_ZONES must be between 1 and 7, got {}",
+            NUM_ZONES
+        );
     }
 
     #[test]
