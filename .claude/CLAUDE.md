@@ -78,12 +78,17 @@ cargo test -p thermos-linux
 
 ### Zone Configuration
 
-The number of heating zones is configurable (1-7 supported). To change:
+The number of heating zones is configurable (1-16 supported). To change:
 
 1. Edit `thermos-esp32/src/config.rs`
-2. Set `NUM_ZONES` to desired value (1-7)
+2. Set `NUM_ZONES` to desired value
 3. Ensure `ZONE_CONFIGS` array has exactly `NUM_ZONES` entries
 4. Rebuild firmware
+
+**Constraints for adding zones beyond 7:**
+- Add corresponding `zoneN_task` function and static cells in `main.rs` (Embassy requires concrete task functions)
+- Ensure sufficient GPIO pins available (~15-20 usable on ESP32-C6)
+- Memory overhead is ~1-2KB per zone (not typically a constraint)
 
 Zone states are stored in `thermos-esp32/src/matter/zones.rs` and sized at compile time based on `NUM_ZONES`.
 

@@ -6,7 +6,8 @@
 use heapless::String as HeaplessString;
 
 /// Maximum number of zones supported
-pub const MAX_ZONES: usize = 7;
+/// Maximum supported zones (must match thermos_matter::MAX_ZONES)
+pub const MAX_ZONES: usize = 16;
 
 /// Default target temperature in Celsius (70°F)
 const DEFAULT_TARGET_TEMP_C: f32 = 21.1;
@@ -125,7 +126,10 @@ mod tests {
 
     #[test]
     fn test_max_zones() {
-        assert_eq!(MAX_ZONES, 7);
+        // MAX_ZONES should match thermos_matter::MAX_ZONES
+        assert_eq!(MAX_ZONES, thermos_matter::MAX_ZONES);
+        // Should be a reasonable upper bound
+        assert!(MAX_ZONES >= 7 && MAX_ZONES <= 32);
     }
 
     #[test]

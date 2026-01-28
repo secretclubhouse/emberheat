@@ -10,7 +10,12 @@ pub const ROOT_ENDPOINT: u16 = 0;
 pub const FIRST_ZONE_ENDPOINT: u16 = 1;
 
 /// Maximum supported zones
-pub const MAX_ZONES: usize = 7;
+///
+/// This is a soft limit for validation. The actual limit depends on:
+/// - Available GPIO pins on your ESP32 variant (~15-20 usable on ESP32-C6)
+/// - Task functions defined in main.rs (must add zoneN_task for each zone)
+/// - Available memory (~1-2KB per zone, not typically a constraint)
+pub const MAX_ZONES: usize = 16;
 
 /// Convert zone index to Matter endpoint number
 ///
@@ -129,9 +134,14 @@ mod tests {
 
     #[test]
     fn test_max_zones_limit() {
-        // Can't exceed MAX_ZONES
-        assert_eq!(zone_index_to_endpoint(0, 8), None);
-        assert_eq!(endpoint_to_zone_index(1, 8), None);
+        // Can't exceed MAX_ZONES (16)
+        assert_eq!(zone_index_to_endpoint(0, 17), None);
+        assert_eq!(endpoint_to_zone_index(1, 17), None);
+        // 16 zones should work
+        assert_eq!(zone_index_to_endpoint(0, 16), Some(1));
+        assert_eq!(zone_index_to_endpoint(15, 16), Some(16));
+        assert_eq!(endpoint_to_zone_index(1, 16), Some(0));
+        assert_eq!(endpoint_to_zone_index(16, 16), Some(15));
     }
 
     #[test]

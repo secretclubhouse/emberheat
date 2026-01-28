@@ -1,14 +1,17 @@
 //! Multi-Zone Thermostat Configuration
 //!
 //! This module defines the compile-time configuration for the thermostat.
-//! The number of zones is configurable via `NUM_ZONES` (1-7 supported).
+//! The number of zones is configurable via `NUM_ZONES` (1-16 supported).
 //!
 //! # Configuring Zone Count
 //!
 //! To change the number of zones:
-//! 1. Set `NUM_ZONES` to desired value (1-7)
+//! 1. Set `NUM_ZONES` to desired value (1-16)
 //! 2. Ensure `ZONE_CONFIGS` has exactly `NUM_ZONES` entries
 //! 3. Rebuild the firmware
+//!
+//! **Note:** Adding zones beyond 7 requires adding corresponding `zoneN_task`
+//! functions and static cells in `main.rs` (Embassy requires concrete task functions).
 //!
 //! # Example: 3-Zone Configuration
 //!
@@ -171,10 +174,10 @@ mod tests {
     fn test_num_zones() {
         // NUM_ZONES should match ZONE_CONFIGS length
         assert_eq!(ZONE_CONFIGS.len(), NUM_ZONES);
-        // NUM_ZONES should be in valid range (1-7)
+        // NUM_ZONES should be in valid range (1-16)
         assert!(
-            NUM_ZONES >= 1 && NUM_ZONES <= 7,
-            "NUM_ZONES must be between 1 and 7, got {}",
+            NUM_ZONES >= 1 && NUM_ZONES <= 16,
+            "NUM_ZONES must be between 1 and 16, got {}",
             NUM_ZONES
         );
     }

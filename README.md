@@ -99,11 +99,13 @@ const MQTT_BROKER: &str = "192.168.1.100";
 
 #### Zone Count
 
-The number of heating zones is configurable (1-7 supported). Edit `thermos-esp32/src/config.rs`:
+The number of heating zones is configurable (1-16 supported). Edit `thermos-esp32/src/config.rs`:
 
-1. Set `NUM_ZONES` to desired value (1-7)
+1. Set `NUM_ZONES` to desired value
 2. Ensure `ZONE_CONFIGS` array has exactly `NUM_ZONES` entries
 3. Rebuild firmware
+
+> **Note:** Adding zones beyond 7 requires adding corresponding task functions in `main.rs`. See [CLAUDE.md](.claude/CLAUDE.md) for details.
 
 ## Hysteresis Control Logic
 
