@@ -15,6 +15,7 @@
 //! - [`zones`]: Zone state storage sized by config::NUM_ZONES
 
 pub mod bridge;
+pub mod stack;
 pub mod zones;
 
 // Re-export everything from thermos-matter
