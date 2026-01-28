@@ -16,6 +16,7 @@
 //! - [`device`]: Multi-zone device configuration
 //! - [`bridge`]: Bidirectional sync with thermos-core control loop
 
+pub mod bridge;
 pub mod cluster;
 pub mod device;
 pub mod handler;
@@ -39,4 +40,10 @@ pub use device::{
     endpoint_to_zone_index, get_zone_state, get_zone_state_by_endpoint, zone_index_to_endpoint,
     DeviceInfo, NUM_ZONES, ROOT_ENDPOINT, ZONE1_ENDPOINT, ZONE2_ENDPOINT, ZONE3_ENDPOINT,
     ZONE4_ENDPOINT, ZONE5_ENDPOINT, ZONE6_ENDPOINT, ZONE7_ENDPOINT, ZONE_STATES,
+};
+
+// Re-export bridge functions
+pub use bridge::{
+    get_matter_setpoint, is_zone_enabled_in_matter, set_matter_mode, set_matter_setpoint,
+    sync_local_state_to_matter, update_matter_from_control_loop,
 };
