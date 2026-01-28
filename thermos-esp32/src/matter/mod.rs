@@ -17,6 +17,7 @@
 //! - [`bridge`]: Bidirectional sync with thermos-core control loop
 
 pub mod cluster;
+pub mod handler;
 pub mod state;
 pub mod types;
 
@@ -25,6 +26,9 @@ pub use cluster::{
     AttributeId, ControlSequenceOfOperationEnum, Feature, OutOfBandMessage, RelayStateBitmap,
     SystemModeEnum, ThermostatHooks, HEATING_ONLY_CLUSTER,
 };
+
+// Re-export handler
+pub use handler::ThermostatHandler;
 
 // Re-export state types
 pub use state::{SetpointError, ZoneThermostatState};

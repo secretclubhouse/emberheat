@@ -340,3 +340,81 @@ mod tests {
         assert_eq!(state.get_setpoint_celsius(), 20.0);
     }
 }
+
+// -----------------------------------------------------------------------------
+// ThermostatHooks Implementation
+// -----------------------------------------------------------------------------
+
+use crate::matter::cluster::{
+    ControlSequenceOfOperationEnum, RelayStateBitmap, SystemModeEnum, ThermostatHooks,
+    HEATING_ONLY_CLUSTER,
+};
+use rs_matter::dm::Cluster;
+use rs_matter::error::{Error, ErrorCode};
+use rs_matter::tlv::Nullable;
+
+impl ThermostatHooks for ZoneThermostatState {
+    const CLUSTER: Cluster<'static> = HEATING_ONLY_CLUSTER;
+
+    fn local_temperature(&self) -> Nullable<i16> {
+        let temp = self.get_local_temperature();
+        if temp == temperature::NULL_TEMPERATURE {
+            Nullable::none()
+        } else {
+            Nullable::some(temp)
+        }
+    }
+
+    fn occupied_heating_setpoint(&self) -> i16 {
+        self.get_occupied_heating_setpoint()
+    }
+
+    fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error> {
+        ZoneThermostatState::set_occupied_heating_setpoint(self, value)
+            .map_err(|_| ErrorCode::ConstraintError.into())
+    }
+
+    fn min_heat_setpoint_limit(&self) -> i16 {
+        defaults::MIN_HEAT_SETPOINT
+    }
+
+    fn max_heat_setpoint_limit(&self) -> i16 {
+        defaults::MAX_HEAT_SETPOINT
+    }
+
+    fn system_mode(&self) -> SystemModeEnum {
+        match self.get_system_mode() {
+            SystemMode::Off => SystemModeEnum::Off,
+            SystemMode::Heat => SystemModeEnum::Heat,
+            // Map unsupported modes to Off for safety
+            _ => SystemModeEnum::Off,
+        }
+    }
+
+    fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error> {
+        let our_mode = match mode {
+            SystemModeEnum::Off => SystemMode::Off,
+            SystemModeEnum::Heat => SystemMode::Heat,
+            // Reject unsupported modes
+            _ => return Err(ErrorCode::ConstraintError.into()),
+        };
+        ZoneThermostatState::set_system_mode(self, our_mode);
+        Ok(())
+    }
+
+    fn thermostat_running_state(&self) -> RelayStateBitmap {
+        if self.is_heating() {
+            RelayStateBitmap::HEAT
+        } else {
+            RelayStateBitmap::empty()
+        }
+    }
+
+    fn control_sequence_of_operation(&self) -> ControlSequenceOfOperationEnum {
+        // Heating-only thermostat
+        ControlSequenceOfOperationEnum::HeatingOnly
+    }
+
+    // Use default run() implementation - pends forever
+    // The control loop will update state directly
+}
