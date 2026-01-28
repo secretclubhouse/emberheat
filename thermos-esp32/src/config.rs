@@ -146,25 +146,27 @@ pub const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 // MQTT Configuration
 // =============================================================================
 
-/// MQTT broker hostname or IP address
-pub const MQTT_BROKER_HOST: &str = "localhost";
+/// MQTT broker hostname or IP address (set via MQTT_BROKER_HOST env var, default: "localhost")
+pub const MQTT_BROKER_HOST: &str = match option_env!("MQTT_BROKER_HOST") {
+    Some(host) => host,
+    None => "localhost",
+};
 
 /// MQTT broker port (default: 1883)
+/// Note: Port cannot be easily set via env var due to const parsing limitations
 pub const MQTT_BROKER_PORT: u16 = 1883;
 
-/// MQTT client/device identifier
-pub const MQTT_DEVICE_ID: &str = "thermos-esp32";
+/// MQTT client/device identifier (set via MQTT_DEVICE_ID env var, default: "thermos-esp32")
+pub const MQTT_DEVICE_ID: &str = match option_env!("MQTT_DEVICE_ID") {
+    Some(id) => id,
+    None => "thermos-esp32",
+};
 
-/// MQTT username for authentication (None = no auth)
-///
-/// For Home Assistant Mosquitto broker, use your HA username
-/// or create a dedicated MQTT user in the Mosquitto add-on config.
-pub const MQTT_USERNAME: Option<&str> = None;
+/// MQTT username for authentication (set via MQTT_USERNAME env var, None = no auth)
+pub const MQTT_USERNAME: Option<&str> = option_env!("MQTT_USERNAME");
 
-/// MQTT password for authentication (None = no auth)
-///
-/// For Home Assistant Mosquitto broker, use the corresponding password.
-pub const MQTT_PASSWORD: Option<&str> = None;
+/// MQTT password for authentication (set via MQTT_PASSWORD env var, None = no auth)
+pub const MQTT_PASSWORD: Option<&str> = option_env!("MQTT_PASSWORD");
 
 // =============================================================================
 // Testing Configuration
