@@ -12,11 +12,16 @@
 //!
 //! - All types from `thermos-matter` (cluster, types, state, handler, device)
 //! - [`bridge`]: Bidirectional sync with thermos-core control loop
+//! - [`zones`]: Zone state storage sized by config::NUM_ZONES
 
 pub mod bridge;
+pub mod zones;
 
 // Re-export everything from thermos-matter
 pub use thermos_matter::*;
+
+// Re-export local zone state functions
+pub use zones::{get_zone_state, get_zone_state_by_endpoint, ZONE_STATES};
 
 // Re-export bridge functions
 pub use bridge::{

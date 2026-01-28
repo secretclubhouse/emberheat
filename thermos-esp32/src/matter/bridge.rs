@@ -43,7 +43,7 @@
 //! );
 //! ```
 
-use thermos_matter::device::get_zone_state;
+use crate::matter::zones::get_zone_state;
 use thermos_matter::types::SystemMode;
 
 /// Update Matter state from thermos-core control loop
@@ -53,7 +53,7 @@ use thermos_matter::types::SystemMode;
 ///
 /// # Arguments
 ///
-/// * `zone_index` - Zone index (0-6)
+/// * `zone_index` - Zero-based zone index (0 to NUM_ZONES-1)
 /// * `current_temp_c` - Current temperature in Celsius from sensor
 /// * `heating_active` - Whether heating relay is currently on
 pub fn update_matter_from_control_loop(
@@ -74,7 +74,7 @@ pub fn update_matter_from_control_loop(
 ///
 /// # Arguments
 ///
-/// * `zone_index` - Zone index (0-6)
+/// * `zone_index` - Zero-based zone index (0 to NUM_ZONES-1)
 ///
 /// # Returns
 ///
@@ -87,7 +87,7 @@ pub fn get_matter_setpoint(zone_index: usize) -> Option<f32> {
 ///
 /// # Arguments
 ///
-/// * `zone_index` - Zone index (0-6)
+/// * `zone_index` - Zero-based zone index (0 to NUM_ZONES-1)
 ///
 /// # Returns
 ///
@@ -105,7 +105,7 @@ pub fn is_zone_enabled_in_matter(zone_index: usize) -> bool {
 ///
 /// # Arguments
 ///
-/// * `zone_index` - Zone index (0-6)
+/// * `zone_index` - Zero-based zone index (0 to NUM_ZONES-1)
 /// * `setpoint_c` - New setpoint in Celsius
 ///
 /// # Returns
@@ -124,7 +124,7 @@ pub fn set_matter_setpoint(zone_index: usize, setpoint_c: f32) -> bool {
 ///
 /// # Arguments
 ///
-/// * `zone_index` - Zone index (0-6)
+/// * `zone_index` - Zero-based zone index (0 to NUM_ZONES-1)
 /// * `enabled` - `true` for Heat mode, `false` for Off
 pub fn set_matter_mode(zone_index: usize, enabled: bool) {
     if let Some(state) = get_zone_state(zone_index) {
@@ -144,7 +144,7 @@ pub fn set_matter_mode(zone_index: usize, enabled: bool) {
 ///
 /// # Arguments
 ///
-/// * `zone_index` - Zone index (0-6)
+/// * `zone_index` - Zero-based zone index (0 to NUM_ZONES-1)
 /// * `setpoint_c` - Target temperature in Celsius
 /// * `enabled` - Whether the zone is enabled (Heat mode)
 /// * `current_temp_c` - Optional current temperature (if sensor has been read)
@@ -176,7 +176,7 @@ pub fn sync_local_state_to_matter(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thermos_matter::device::ZONE_STATES;
+    use crate::matter::zones::ZONE_STATES;
 
     #[test]
     fn test_update_matter_from_control_loop() {
