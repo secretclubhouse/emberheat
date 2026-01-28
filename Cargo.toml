@@ -50,3 +50,5 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
 rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next" }
 rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
 openthread = { git = "https://github.com/sysgrok/openthread", branch = "next" }
+# Note: rs-matter-embassy uses secretclubhouse/rs-matter-embassy fork (stack-public branch)
+# in thermos-esp32/Cargo.toml to expose EnetNetif.stack for MQTT TCP support with Matter

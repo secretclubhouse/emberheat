@@ -1,6 +1,7 @@
 # Makefile for Thermos-Rust (ESP32-focused)
 
 .PHONY: help build build-release test clean fmt lint check flash monitor install-hooks
+.PHONY: build-esp32 build-matter flash-matter flash-monitor-matter
 
 # Load environment from .env.local or .env if they exist
 ifneq (,$(wildcard .env.local))
@@ -16,33 +17,44 @@ help:
 	@echo "Thermos-Rust Build System (ESP32)"
 	@echo ""
 	@echo "Build targets:"
-	@echo "  build          - Build debug (thermos-core only, ESP32 requires special toolchain)"
-	@echo "  build-esp32    - Build ESP32 firmware (release)"
-	@echo "  test           - Run tests (thermos-core)"
-	@echo "  clean          - Remove build artifacts"
+	@echo "  build            - Build debug (thermos-core only, ESP32 requires special toolchain)"
+	@echo "  build-esp32      - Build ESP32 firmware with MQTT (release)"
+	@echo "  build-matter     - Build ESP32 firmware with Matter + MQTT (release)"
+	@echo "  test             - Run tests (thermos-core and thermos-matter)"
+	@echo "  clean            - Remove build artifacts"
 	@echo ""
-	@echo "ESP32 targets:"
-	@echo "  flash          - Build and flash ESP32 firmware"
-	@echo "  monitor        - Open serial monitor"
-	@echo "  flash-monitor  - Flash and open monitor"
-	@echo "  scan-sensors   - Flash and run DS18B20 sensor scanner"
+	@echo "ESP32 MQTT mode (requires WIFI_SSID and WIFI_PASSWORD):"
+	@echo "  flash            - Build and flash ESP32 firmware (MQTT mode)"
+	@echo "  flash-monitor    - Flash and open monitor (MQTT mode)"
+	@echo ""
+	@echo "ESP32 Matter mode (WiFi handled by Matter commissioning):"
+	@echo "  flash-matter         - Build and flash Matter firmware"
+	@echo "  flash-monitor-matter - Flash Matter firmware and open monitor"
+	@echo ""
+	@echo "Other ESP32 targets:"
+	@echo "  monitor          - Open serial monitor"
+	@echo "  scan-sensors     - Flash and run DS18B20 sensor scanner"
 	@echo ""
 	@echo "Code quality:"
-	@echo "  fmt            - Format code"
-	@echo "  lint           - Run clippy linter (thermos-core)"
-	@echo "  check          - Check code without building"
-	@echo "  dev            - Format, lint, and test"
+	@echo "  fmt              - Format code"
+	@echo "  lint             - Run clippy linter (thermos-core)"
+	@echo "  check            - Check code without building"
+	@echo "  dev              - Format, lint, and test"
 	@echo ""
 	@echo "Setup:"
-	@echo "  setup          - Install development dependencies"
-	@echo "  install-hooks  - Install git pre-commit hooks"
+	@echo "  setup            - Install development dependencies"
+	@echo "  install-hooks    - Install git pre-commit hooks"
 	@echo ""
-	@echo "Environment:"
-	@echo "  Copy .env.example to .env.local and configure your settings."
-	@echo "  .env.local is gitignored and loaded automatically."
+	@echo "Environment variables (set in .env.local or export):"
+	@echo "  WIFI_SSID        - WiFi network name (required for MQTT mode)"
+	@echo "  WIFI_PASSWORD    - WiFi password (required for MQTT mode)"
+	@echo "  MQTT_BROKER_HOST - MQTT broker hostname (default: localhost)"
+	@echo "  MQTT_DEVICE_ID   - Device identifier (default: thermos-esp32)"
+	@echo "  MQTT_USERNAME    - MQTT auth username (optional)"
+	@echo "  MQTT_PASSWORD    - MQTT auth password (optional)"
 	@echo ""
-	@echo "Note: thermos-linux is preserved but not in active development."
-	@echo "      Use 'cargo build -p thermos-linux' to build it explicitly."
+	@echo "Note: Matter mode handles WiFi via BLE commissioning, so WIFI_SSID/PASSWORD"
+	@echo "      are not required. MQTT settings are used in both modes."
 
 # Build targets (thermos-core only by default, ESP32 needs cross-compilation)
 build:
@@ -64,23 +76,41 @@ define check_wifi_creds
 	if [ -z "$$WIFI_PASSWORD" ]; then \
 		read -p "Enter WIFI_PASSWORD: " pass; \
 		export WIFI_PASSWORD="$$pass"; \
-	fi; \
-	cd thermos-esp32 && WIFI_SSID="$$WIFI_SSID" WIFI_PASSWORD="$$WIFI_PASSWORD" cargo build --release
+	fi
 endef
 
+# Build ESP32 firmware (MQTT mode - requires WiFi credentials)
 build-esp32:
 	$(check_wifi_creds)
+	@cd thermos-esp32 && WIFI_SSID="$$WIFI_SSID" WIFI_PASSWORD="$$WIFI_PASSWORD" cargo build --release
 
+# Build ESP32 firmware with Matter + MQTT (WiFi via Matter commissioning)
+# Note: WiFi credentials not needed - Matter handles WiFi via BLE commissioning
+# MQTT broker settings are still used for telemetry
+build-matter:
+	@cd thermos-esp32 && cargo build --features matter --release
+
+# Flash targets (MQTT mode)
 flash:
 	$(check_wifi_creds)
+	@cd thermos-esp32 && WIFI_SSID="$$WIFI_SSID" WIFI_PASSWORD="$$WIFI_PASSWORD" cargo build --release
 	espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
-
-monitor:
-	espflash monitor
 
 flash-monitor:
 	$(check_wifi_creds)
+	@cd thermos-esp32 && WIFI_SSID="$$WIFI_SSID" WIFI_PASSWORD="$$WIFI_PASSWORD" cargo build --release
 	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Flash targets (Matter mode)
+flash-matter: build-matter
+	espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+flash-monitor-matter: build-matter
+	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Serial monitor
+monitor:
+	espflash monitor
 
 # Scan for DS18B20 sensors on the 1-Wire bus
 scan-sensors:

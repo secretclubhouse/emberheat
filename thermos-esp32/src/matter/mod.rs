@@ -15,6 +15,7 @@
 //! - [`zones`]: Zone state storage sized by config::NUM_ZONES
 
 pub mod bridge;
+pub mod mqtt_bridge;
 pub mod stack;
 pub mod zones;
 
@@ -29,3 +30,6 @@ pub use bridge::{
     get_matter_setpoint, is_zone_enabled_in_matter, set_matter_mode, set_matter_setpoint,
     sync_local_state_to_matter, update_matter_from_control_loop,
 };
+
+// Re-export MQTT bridge for Matter+MQTT mode
+pub use mqtt_bridge::MqttBridge;

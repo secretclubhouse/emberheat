@@ -375,8 +375,14 @@ const DEV_COMM: BasicCommData = BasicCommData {
 /// Bump allocator size for Matter stack futures
 ///
 /// This is the memory used by rs-matter-stack's internal bump allocator
-/// for its async futures. 16.5KB is sufficient for WiFi+BLE coexistence.
-const BUMP_SIZE: usize = 16500;
+/// for its async futures. Memory breakdown:
+/// - Base WiFi+BLE drivers: ~16.5KB
+/// - BLE commissioning mode: ~6KB additional
+/// - Matter responder handlers (4x): ~4.5KB
+/// - MQTT TCP sockets + client: ~10KB
+/// - Headroom: ~3KB
+/// Total: ~40KB
+const BUMP_SIZE: usize = 40000;
 
 /// Epoch function for Matter timestamps
 fn epoch() -> core::time::Duration {
@@ -403,12 +409,14 @@ macro_rules! mk_static {
 /// 1. Initializes the Matter stack with device credentials
 /// 2. Creates a handler chain with thermostat cluster for zone 0
 /// 3. Runs the Matter stack with WiFi and BLE commissioning
+/// 4. Runs MQTT client alongside Matter using the same WiFi connection
 ///
 /// # Arguments
 ///
+/// * `controller` - The esp-radio controller for WiFi+BLE
 /// * `wifi` - The WiFi peripheral
 /// * `bt` - The Bluetooth peripheral
-/// * `init` - The esp-radio initialization handle
+/// * `mqtt_bridge` - The MQTT bridge that runs alongside Matter
 ///
 /// # Note
 ///
@@ -418,6 +426,7 @@ pub async fn matter_task(
     controller: &'static EspRadioController<'static>,
     wifi: WIFI<'static>,
     bt: BT<'static>,
+    mqtt_bridge: super::mqtt_bridge::MqttBridge,
 ) {
     info!("Matter: Starting task...");
 
@@ -482,11 +491,12 @@ pub async fn matter_task(
     };
 
     // Run Matter stack with WiFi+BLE coexistence (required for Alexa)
+    // MqttBridge runs MQTT alongside Matter using the same WiFi connection
     let matter = pin!(stack.run_coex(
         EmbassyWifi::new(EspWifiDriver::new(controller, wifi, bt), stack),
         &persist,
         (NODE, handler),
-        (), // No user future
+        mqtt_bridge,
     ));
 
     info!("Matter: Running...");

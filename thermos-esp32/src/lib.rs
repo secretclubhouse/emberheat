@@ -17,6 +17,7 @@ pub mod config;
 pub mod controller;
 pub mod gpio_impl;
 pub mod matter;
+pub mod mqtt;
 pub mod onewire_gpio;
 pub mod onewire_rmt;
 pub mod persistence_nvs;
