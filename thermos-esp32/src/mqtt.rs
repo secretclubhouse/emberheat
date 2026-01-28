@@ -327,6 +327,7 @@ async fn mqtt_connect_and_publish(
     info!("Published online status, entering message loop");
 
     // Message publishing loop
+    let mut message_count: u32 = 0;
     loop {
         // Wait for message from queue
         let message = rx_channel.receive().await;
@@ -342,7 +343,12 @@ async fn mqtt_connect_and_publish(
             .await
         {
             Ok(_) => {
-                // Message published successfully (only log periodically to reduce noise)
+                message_count += 1;
+                // Log every message for debugging (can reduce later)
+                info!(
+                    "MQTT published #{}: {} -> {}",
+                    message_count, message.topic, message.payload
+                );
             }
             Err(e) => {
                 error!("Failed to publish MQTT message: {:?}", e);
@@ -350,9 +356,8 @@ async fn mqtt_connect_and_publish(
             }
         }
 
-        // Process any incoming packets (PINGRESP, etc.)
-        // Note: We're not subscribing to anything, so this is mainly for keepalive
-        let _ = client.receive_message().await;
+        // Small yield to allow other tasks to run and prevent overwhelming the network
+        Timer::after(Duration::from_millis(10)).await;
     }
 }
 

@@ -46,17 +46,28 @@ use esp_println::println;
 use log::{debug, error, info, warn};
 use static_cell::StaticCell;
 
-use config::{MOCK_TEMPERATURE_C, NUM_ZONES, USE_MOCK_SENSORS, ZONE_CONFIGS};
+use config::{
+    MOCK_TEMPERATURE_C, MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID, MQTT_PASSWORD,
+    MQTT_USERNAME, NUM_ZONES, USE_MOCK_SENSORS, WIFI_PASSWORD, WIFI_SSID, ZONE_CONFIGS,
+};
+use core::fmt::Write as FmtWrite;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use gpio_impl::Esp32GpioPin;
+use mqtt::{MqttConfig, MqttMessage};
 use sensors::MockSensor;
 use thermos_core::{
     apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState,
     TemperatureSensor,
 };
+use wifi::WifiConfig;
 use zone::ZoneState;
 
 /// Control loop interval (6 seconds, same as Raspberry Pi)
 const CONTROL_INTERVAL_SECS: u64 = 6;
+
+/// MQTT message queue size
+const MQTT_QUEUE_SIZE: usize = 16;
 
 /// Maximum consecutive sensor errors before logging at error level
 const MAX_ERROR_LOG_COUNT: u32 = 10;
@@ -108,6 +119,43 @@ static STATE_7: StaticCell<ZoneState> = StaticCell::new();
 // Shared hysteresis config
 static HYSTERESIS: StaticCell<HysteresisConfig> = StaticCell::new();
 
+// MQTT message channel for async communication
+static MQTT_CHANNEL: Channel<CriticalSectionRawMutex, MqttMessage, MQTT_QUEUE_SIZE> =
+    Channel::new();
+
+// =============================================================================
+// MQTT Message Helpers
+// =============================================================================
+
+/// Build an MQTT message for temperature reading
+fn build_temperature_message(
+    zone_name: &str,
+    temp_c: f32,
+    target_c: f32,
+    heating: bool,
+) -> Option<MqttMessage> {
+    // Build topic: thermostat/{device_id}/temp/{zone}
+    let mut topic: heapless::String<64> = heapless::String::new();
+    if write!(topic, "thermostat/{}/temp/{}", MQTT_DEVICE_ID, zone_name).is_err() {
+        return None;
+    }
+
+    // Build JSON payload
+    let mut payload: heapless::String<256> = heapless::String::new();
+    let temp_f = temp_c * 9.0 / 5.0 + 32.0;
+    if write!(
+        payload,
+        r#"{{"zone":"{}","temp_c":{:.1},"temp_f":{:.1},"target_c":{:.1},"heating":{}}}"#,
+        zone_name, temp_c, temp_f, target_c, heating
+    )
+    .is_err()
+    {
+        return None;
+    }
+
+    Some(MqttMessage { topic, payload })
+}
+
 // =============================================================================
 // Zone Control Loop Implementation
 // =============================================================================
@@ -115,13 +163,14 @@ static HYSTERESIS: StaticCell<HysteresisConfig> = StaticCell::new();
 /// Run the control loop for a single zone
 ///
 /// This function runs indefinitely, reading temperature from the sensor,
-/// applying hysteresis control, and controlling the relay.
+/// applying hysteresis control, controlling the relay, and publishing to MQTT.
 async fn zone_control_loop(
     zone_name: &'static str,
     sensor: &'static MockSensor,
     relay_pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
+    mqtt_channel: &'static Channel<CriticalSectionRawMutex, MqttMessage, MQTT_QUEUE_SIZE>,
 ) -> ! {
     info!(
         "[{}] Starting control loop (interval: {}s, target: {:.1}C)",
@@ -162,6 +211,17 @@ async fn zone_control_loop(
                     state.target_temp_c,
                     if state.heating_active { "ON" } else { "OFF" }
                 );
+
+                // Publish temperature to MQTT
+                let mqtt_msg = build_temperature_message(
+                    zone_name,
+                    reading.celsius,
+                    state.target_temp_c,
+                    state.heating_active,
+                );
+                if let Some(msg) = mqtt_msg {
+                    mqtt_channel.send(msg).await;
+                }
 
                 // Apply hysteresis control
                 let target_state = HeatingState::Heat;
@@ -238,6 +298,15 @@ async fn zone_control_loop(
 }
 
 // =============================================================================
+// MQTT Task
+// =============================================================================
+
+#[embassy_executor::task]
+async fn mqtt_task(stack: &'static embassy_net::Stack<'static>, config: MqttConfig) {
+    mqtt::mqtt_task(stack, config, &MQTT_CHANNEL).await
+}
+
+// =============================================================================
 // Zone Control Tasks
 // =============================================================================
 //
@@ -250,7 +319,15 @@ async fn zone1_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[0].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[0].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -260,7 +337,15 @@ async fn zone2_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[1].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[1].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -270,7 +355,15 @@ async fn zone3_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[2].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[2].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -280,7 +373,15 @@ async fn zone4_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[3].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[3].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -290,7 +391,15 @@ async fn zone5_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[4].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[4].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -300,7 +409,15 @@ async fn zone6_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[5].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[5].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 #[embassy_executor::task]
@@ -310,7 +427,15 @@ async fn zone7_task(
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
 ) {
-    zone_control_loop(ZONE_CONFIGS[6].name, sensor, pin, state, hysteresis).await
+    zone_control_loop(
+        ZONE_CONFIGS[6].name,
+        sensor,
+        pin,
+        state,
+        hysteresis,
+        &MQTT_CHANNEL,
+    )
+    .await
 }
 
 // =============================================================================
@@ -344,6 +469,65 @@ async fn main(spawner: Spawner) {
         if USE_MOCK_SENSORS { "Mock" } else { "DS18B20" }
     );
     info!("Control interval: {} seconds", CONTROL_INTERVAL_SECS);
+
+    // ==========================================================================
+    // WiFi and MQTT Initialization
+    // ==========================================================================
+
+    info!("------------------------------------");
+    info!("WiFi Configuration:");
+    info!("  SSID: {}", WIFI_SSID);
+    info!("Initializing WiFi...");
+
+    let wifi_config =
+        WifiConfig::new(WIFI_SSID, WIFI_PASSWORD).expect("Failed to create WiFi config");
+
+    let stack = wifi::init_wifi(spawner, wifi_config, peripherals.WIFI)
+        .await
+        .expect("Failed to initialize WiFi");
+
+    // Wait for IP address assignment
+    info!("Waiting for IP address...");
+    loop {
+        if let Some(config) = stack.config_v4() {
+            info!("WiFi connected!");
+            info!("  IP Address: {}", config.address.address());
+            info!("  Gateway: {:?}", config.gateway);
+            break;
+        }
+        embassy_time::Timer::after(Duration::from_millis(500)).await;
+    }
+
+    // Initialize MQTT
+    info!("------------------------------------");
+    info!("MQTT Configuration:");
+    info!("  Broker: {}:{}", MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+    info!("  Device ID: {}", MQTT_DEVICE_ID);
+    info!(
+        "  Auth: {}",
+        if MQTT_USERNAME.is_some() {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+
+    let mqtt_config = MqttConfig::with_auth(
+        MQTT_BROKER_HOST,
+        MQTT_BROKER_PORT,
+        MQTT_DEVICE_ID,
+        MQTT_USERNAME,
+        MQTT_PASSWORD,
+    )
+    .expect("Failed to create MQTT config");
+
+    // Spawn MQTT task
+    spawner
+        .spawn(mqtt_task(stack, mqtt_config))
+        .expect("Failed to spawn MQTT task");
+    info!("MQTT task spawned");
+
+    info!("------------------------------------");
 
     // Initialize shared hysteresis config
     let hysteresis = HYSTERESIS.init(HysteresisConfig::default());
