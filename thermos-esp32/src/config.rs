@@ -169,6 +169,37 @@ pub const MQTT_USERNAME: Option<&str> = option_env!("MQTT_USERNAME");
 pub const MQTT_PASSWORD: Option<&str> = option_env!("MQTT_PASSWORD");
 
 // =============================================================================
+// Matter Configuration
+// =============================================================================
+
+/// Matter discriminator for commissioning (12-bit value, 0-4095)
+///
+/// Used in QR code and DNS-SD advertisement to identify the device during pairing.
+/// Each device should have a unique discriminator for easy identification.
+pub const MATTER_DISCRIMINATOR: u16 = 3840;
+
+/// Matter setup passcode for commissioning (27-bit value, 1-99999998)
+///
+/// The passcode used during device pairing. This is the "PIN" shown on the device
+/// or encoded in the QR code. Default is the Matter test passcode.
+///
+/// **Security note:** For production devices, use a unique passcode per device
+/// and store it in secure flash.
+pub const MATTER_PASSCODE: u32 = 20202021;
+
+/// Matter vendor ID (0xFFF1-0xFFF4 are test vendor IDs)
+///
+/// Test vendor IDs are acceptable for development and personal use.
+/// Production devices sold commercially need a registered vendor ID.
+pub const MATTER_VENDOR_ID: u16 = 0xFFF1;
+
+/// Matter product ID (test product ID)
+pub const MATTER_PRODUCT_ID: u16 = 0x8001;
+
+/// Device name shown during commissioning and in controller apps
+pub const MATTER_DEVICE_NAME: &str = "Thermos Multi-Zone";
+
+// =============================================================================
 // Testing Configuration
 // =============================================================================
 
