@@ -13,13 +13,33 @@
 //! rs-matter-embassy uses handler chaining with `EmptyHandler.chain(...)`. Each zone
 //! gets its own `ZoneThermostatCluster` handler chained for its endpoint.
 
+use core::pin::pin;
+
+use rs_matter_embassy::matter::dm::clusters::basic_info::BasicInfoConfig;
+use rs_matter_embassy::matter::dm::clusters::desc::{self, ClusterHandler as _};
+use rs_matter_embassy::matter::dm::devices::test::TEST_DEV_ATT;
 use rs_matter_embassy::matter::dm::{
-    Dataver, Handler, NonBlockingHandler, ReadContext, ReadReply, Reply, WriteContext,
+    Access, Async, Attribute, Cluster, Dataver, DeviceType, EmptyHandler, Endpoint, EpClMatcher,
+    Handler, Node, NonBlockingHandler, Quality, ReadContext, ReadReply, Reply, WriteContext,
 };
 use rs_matter_embassy::matter::error::{Error, ErrorCode};
 use rs_matter_embassy::matter::tlv::Nullable;
+use rs_matter_embassy::matter::utils::init::InitMaybeUninit;
+use rs_matter_embassy::matter::{clusters, devices, BasicCommData};
+use rs_matter_embassy::rand::esp::{esp_init_rand, esp_rand};
+use rs_matter_embassy::stack::persist::DummyKvBlobStore;
+use rs_matter_embassy::wireless::esp::EspWifiDriver;
+use rs_matter_embassy::wireless::{EmbassyWifi, EmbassyWifiMatterStack};
 
-use crate::config::NUM_ZONES;
+use esp_hal::peripherals::{BT, WIFI};
+use esp_radio::Controller as EspRadioController;
+
+use log::info;
+
+use crate::config::{
+    MATTER_DEVICE_NAME, MATTER_DISCRIMINATOR, MATTER_PASSCODE, MATTER_PRODUCT_ID, MATTER_VENDOR_ID,
+    NUM_ZONES,
+};
 use crate::matter::zones::ZONE_STATES;
 
 use thermos_matter::cluster::{ControlSequenceOfOperationEnum, RelayStateBitmap, SystemModeEnum};
@@ -34,7 +54,10 @@ use thermos_matter::types::{defaults, SystemMode};
 pub const CLUSTER_THERMOSTAT: u32 = 0x0201;
 
 /// Matter device type for Thermostat (0x0301)
-pub const DEV_TYPE_THERMOSTAT: u32 = 0x0301;
+pub const DEV_TYPE_THERMOSTAT: DeviceType = DeviceType {
+    dtype: 0x0301,
+    drev: 2, // Device revision 2 per Matter 1.3 spec
+};
 
 /// First zone endpoint ID (endpoint 0 is root/system)
 pub const FIRST_ZONE_ENDPOINT: u16 = 1;
@@ -273,6 +296,203 @@ pub fn endpoint_to_zone(endpoint_id: u16) -> Option<usize> {
     None
 }
 
+// =============================================================================
+// Thermostat Cluster Definition
+// =============================================================================
+
+/// Thermostat cluster attributes for heating-only mode
+///
+/// Based on Matter spec section 4.3 (Thermostat Cluster)
+const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[
+    // LocalTemperature (0x0000) - nullable i16, read-only
+    Attribute::new(attr::LOCAL_TEMPERATURE as u32, Access::RV, Quality::X),
+    // OccupiedHeatingSetpoint (0x0012) - i16, read-write
+    Attribute::new(
+        attr::OCCUPIED_HEATING_SETPOINT as u32,
+        Access::RWVM,
+        Quality::SN,
+    ),
+    // MinHeatSetpointLimit (0x0015) - i16, read-only
+    Attribute::new(attr::MIN_HEAT_SETPOINT_LIMIT as u32, Access::RV, Quality::N),
+    // MaxHeatSetpointLimit (0x0016) - i16, read-only
+    Attribute::new(attr::MAX_HEAT_SETPOINT_LIMIT as u32, Access::RV, Quality::N),
+    // ControlSequenceOfOperation (0x001B) - enum8, read-only
+    Attribute::new(
+        attr::CONTROL_SEQUENCE_OF_OPERATION as u32,
+        Access::RV,
+        Quality::N,
+    ),
+    // SystemMode (0x001C) - enum8, read-write
+    Attribute::new(attr::SYSTEM_MODE as u32, Access::RWVM, Quality::SN),
+    // ThermostatRunningState (0x0029) - bitmap16, read-only
+    Attribute::new(
+        attr::THERMOSTAT_RUNNING_STATE as u32,
+        Access::RV,
+        Quality::NONE,
+    ),
+];
+
+/// Thermostat cluster metadata for Matter node definition
+pub const THERMOSTAT_CLUSTER: Cluster<'static> = Cluster::new(
+    CLUSTER_THERMOSTAT,    // cluster ID 0x0201
+    6,                     // revision (Matter 1.3 thermostat spec)
+    0x01,                  // feature map: Heating feature enabled
+    THERMOSTAT_ATTRIBUTES, // attributes
+    &[],                   // commands (none for heating-only)
+    |_, _, _| true,        // with_attrs: include all
+    |_, _, _| true,        // with_cmds: include all
+);
+
+// =============================================================================
+// Matter Device Configuration
+// =============================================================================
+
+/// Device details for Matter commissioning
+const DEV_DET: BasicInfoConfig = BasicInfoConfig {
+    vid: MATTER_VENDOR_ID,
+    pid: MATTER_PRODUCT_ID,
+    hw_ver: 1,
+    hw_ver_str: "1",
+    sw_ver: 1,
+    sw_ver_str: "1",
+    serial_no: "thermos-001",
+    product_name: MATTER_DEVICE_NAME,
+    vendor_name: "Thermos",
+    device_name: MATTER_DEVICE_NAME,
+    ..BasicInfoConfig::new()
+};
+
+/// Commissioning data for Matter pairing
+const DEV_COMM: BasicCommData = BasicCommData {
+    password: MATTER_PASSCODE,
+    discriminator: MATTER_DISCRIMINATOR,
+};
+
+// =============================================================================
+// Matter Stack Configuration
+// =============================================================================
+
+/// Bump allocator size for Matter stack futures
+///
+/// This is the memory used by rs-matter-stack's internal bump allocator
+/// for its async futures. 16.5KB is sufficient for WiFi+BLE coexistence.
+const BUMP_SIZE: usize = 16500;
+
+/// Epoch function for Matter timestamps
+fn epoch() -> core::time::Duration {
+    rs_matter_embassy::epoch::epoch()
+}
+
+/// Static allocation macro for Matter stack
+///
+/// Using StaticCell for no_std embedded systems.
+macro_rules! mk_static {
+    ($t:ty) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        STATIC_CELL.uninit()
+    }};
+}
+
+// =============================================================================
+// Matter Task Entry Point
+// =============================================================================
+
+/// Run the Matter stack with a single zone thermostat endpoint
+///
+/// This is the main entry point for Matter integration. It:
+/// 1. Initializes the Matter stack with device credentials
+/// 2. Creates a handler chain with thermostat cluster for zone 0
+/// 3. Runs the Matter stack with WiFi and BLE commissioning
+///
+/// # Arguments
+///
+/// * `wifi` - The WiFi peripheral
+/// * `bt` - The Bluetooth peripheral
+/// * `init` - The esp-radio initialization handle
+///
+/// # Note
+///
+/// This function never returns under normal operation. It runs the Matter
+/// stack indefinitely, handling commissioning and attribute read/write requests.
+pub async fn matter_task(
+    wifi: WIFI<'static>,
+    bt: BT<'static>,
+    radio: &'static EspRadioController<'static>,
+) {
+    info!("Matter: Starting task...");
+
+    // Initialize random number generator for Matter crypto
+    esp_init_rand(esp_hal::rng::Rng::new());
+
+    // Allocate Matter stack statically (~35-50KB)
+    let stack = mk_static!(EmbassyWifiMatterStack::<BUMP_SIZE, ()>).init_with(
+        EmbassyWifiMatterStack::init(&DEV_DET, DEV_COMM, &TEST_DEV_ATT, epoch, esp_rand),
+    );
+
+    info!("Matter: Stack initialized");
+    info!(
+        "Matter: Discriminator={}, Passcode={}",
+        MATTER_DISCRIMINATOR, MATTER_PASSCODE
+    );
+
+    // Create thermostat handler for zone 0 (endpoint 1)
+    let thermostat = ZoneThermostatCluster::new(
+        FIRST_ZONE_ENDPOINT,
+        Dataver::new_rand(stack.matter().rand()),
+    );
+
+    // Build handler chain: descriptor + thermostat clusters on endpoint 1
+    // Wrap with Async() to convert NonBlockingHandler to AsyncHandler
+    let handler = EmptyHandler
+        // Thermostat cluster on endpoint 1
+        .chain(
+            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_THERMOSTAT)),
+            Async(&thermostat),
+        )
+        // Descriptor cluster on endpoint 1 (required by Matter spec)
+        .chain(
+            EpClMatcher::new(
+                Some(FIRST_ZONE_ENDPOINT),
+                Some(desc::DescHandler::CLUSTER.id),
+            ),
+            Async(desc::DescHandler::new(Dataver::new_rand(stack.matter().rand())).adapt()),
+        );
+
+    info!("Matter: Handler chain created");
+
+    // Create persister (using dummy store for now - TODO: implement NVS persistence)
+    let persist = stack
+        .create_persist_with_comm_window(DummyKvBlobStore)
+        .await
+        .unwrap();
+
+    info!("Matter: Persist created, starting stack...");
+
+    // Define the Matter node with root endpoint + thermostat endpoint
+    const NODE: Node = Node {
+        id: 0,
+        endpoints: &[
+            EmbassyWifiMatterStack::<0, ()>::root_endpoint(),
+            Endpoint {
+                id: FIRST_ZONE_ENDPOINT,
+                device_types: devices!(DEV_TYPE_THERMOSTAT),
+                clusters: clusters!(desc::DescHandler::CLUSTER, THERMOSTAT_CLUSTER),
+            },
+        ],
+    };
+
+    // Run Matter stack with WiFi+BLE coexistence (required for Alexa)
+    let matter = pin!(stack.run_coex(
+        EmbassyWifi::new(EspWifiDriver::new(radio, wifi, bt), stack),
+        &persist,
+        (NODE, handler),
+        (), // No user future
+    ));
+
+    info!("Matter: Running...");
+    matter.await.unwrap();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -286,5 +506,13 @@ mod tests {
         assert_eq!(endpoint_to_zone(1), Some(0));
         assert_eq!(endpoint_to_zone(2), Some(1));
         assert_eq!(endpoint_to_zone(0), None); // Root endpoint
+    }
+
+    #[test]
+    fn test_thermostat_cluster_definition() {
+        assert_eq!(THERMOSTAT_CLUSTER.id, CLUSTER_THERMOSTAT);
+        assert_eq!(THERMOSTAT_CLUSTER.revision, 6);
+        assert_eq!(THERMOSTAT_CLUSTER.feature_map, 0x01); // Heating feature
+        assert!(!THERMOSTAT_ATTRIBUTES.is_empty());
     }
 }
