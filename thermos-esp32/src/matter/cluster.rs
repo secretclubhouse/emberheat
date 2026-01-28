@@ -1,0 +1,219 @@
+//! Thermostat cluster definition imported from Matter IDL
+//!
+//! Uses rs-matter's import! macro to generate cluster metadata and types
+//! from the official Matter specification.
+//!
+//! # Architecture
+//!
+//! This module provides:
+//! - `HEATING_ONLY_CLUSTER`: Cluster metadata for a heating-only thermostat
+//! - `ThermostatHooks`: Trait for device-specific thermostat logic
+//! - Re-exports of generated types (SystemModeEnum, RelayStateBitmap, etc.)
+
+use rs_matter::dm::Cluster;
+use rs_matter::error::Error;
+use rs_matter::tlv::Nullable;
+use rs_matter::with;
+
+// Import the Thermostat cluster from Matter IDL
+// This generates:
+// - thermostat::FULL_CLUSTER: Cluster<'static> with all attributes/commands
+// - thermostat::AttributeId, thermostat::CommandId enums
+// - thermostat::Feature bitmap
+// - All struct/enum types (SystemModeEnum, RelayStateBitmap, etc.)
+rs_matter::import!(Thermostat);
+
+/// Heating-only thermostat cluster configuration
+///
+/// Uses FULL_CLUSTER but restricts to heating-only features and required attributes.
+/// This matches the subset defined in the phase 2 plan.
+pub const HEATING_ONLY_CLUSTER: Cluster<'static> = thermostat::FULL_CLUSTER
+    .with_features(thermostat::Feature::HEATING.bits())
+    .with_attrs(with!(
+        required;
+        thermostat::AttributeId::LocalTemperature
+            | thermostat::AttributeId::OccupiedHeatingSetpoint
+            | thermostat::AttributeId::MinHeatSetpointLimit
+            | thermostat::AttributeId::MaxHeatSetpointLimit
+            | thermostat::AttributeId::ControlSequenceOfOperation
+            | thermostat::AttributeId::SystemMode
+            | thermostat::AttributeId::ThermostatRunningState
+    ));
+
+/// Re-export commonly used types from the generated thermostat module
+pub use thermostat::{
+    AttributeId, CommandId, ControlSequenceOfOperationEnum, Feature, RelayStateBitmap,
+    SystemModeEnum,
+};
+
+// -----------------------------------------------------------------------------
+// ThermostatHooks Trait
+// -----------------------------------------------------------------------------
+
+/// Messages for out-of-band state changes (physical button, timer, control loop, etc.)
+///
+/// These messages notify the Matter handler that state has changed externally
+/// and it should push updates to connected controllers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutOfBandMessage {
+    /// Temperature reading updated from control loop
+    TemperatureUpdate,
+    /// Setpoint changed externally (e.g., physical dial)
+    SetpointChanged,
+    /// Heating state changed (relay on/off)
+    HeatingStateChanged,
+    /// System mode changed (Off/Heat)
+    ModeChanged,
+}
+
+/// Trait for device-specific thermostat logic
+///
+/// Implement this trait to provide the actual thermostat behavior.
+/// The handler will call these methods to read/write state.
+///
+/// # Pattern
+///
+/// This follows rs-matter's `OnOffHooks` pattern where:
+/// - The trait defines device-specific callbacks
+/// - A handler struct wraps the hooks and implements ClusterAsyncHandler
+/// - The `CLUSTER` constant defines which attributes/commands are supported
+///
+/// # Example
+///
+/// ```ignore
+/// impl ThermostatHooks for MyThermostat {
+///     const CLUSTER: Cluster<'static> = HEATING_ONLY_CLUSTER;
+///
+///     fn local_temperature(&self) -> Nullable<i16> {
+///         Nullable::some(self.current_temp_centi_c)
+///     }
+///     // ... other methods
+/// }
+/// ```
+pub trait ThermostatHooks {
+    /// Cluster metadata for this thermostat implementation
+    const CLUSTER: Cluster<'static>;
+
+    // --- Temperature ---
+
+    /// Get current local temperature in Matter centi-degrees (0.01°C)
+    ///
+    /// Returns `Nullable::none()` if sensor is unavailable.
+    fn local_temperature(&self) -> Nullable<i16>;
+
+    // --- Setpoint ---
+
+    /// Get occupied heating setpoint in centi-degrees
+    fn occupied_heating_setpoint(&self) -> i16;
+
+    /// Set occupied heating setpoint in centi-degrees
+    ///
+    /// Returns error if out of valid range (typically 7-30°C / 700-3000 centi-degrees).
+    fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error>;
+
+    /// Get minimum heat setpoint limit in centi-degrees
+    fn min_heat_setpoint_limit(&self) -> i16;
+
+    /// Get maximum heat setpoint limit in centi-degrees
+    fn max_heat_setpoint_limit(&self) -> i16;
+
+    // --- System Mode ---
+
+    /// Get current system mode (Off, Heat, etc.)
+    fn system_mode(&self) -> SystemModeEnum;
+
+    /// Set system mode
+    ///
+    /// For heating-only, only Off and Heat are valid modes.
+    fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error>;
+
+    // --- Running State ---
+
+    /// Get thermostat running state bitmap
+    ///
+    /// For heating-only, only the HEAT bit (bit 0) is relevant.
+    fn thermostat_running_state(&self) -> RelayStateBitmap;
+
+    // --- Control Sequence ---
+
+    /// Get control sequence of operation
+    ///
+    /// For heating-only, always returns HeatingOnly.
+    fn control_sequence_of_operation(&self) -> ControlSequenceOfOperationEnum {
+        ControlSequenceOfOperationEnum::HeatingOnly
+    }
+
+    // --- Background Task ---
+
+    /// Background task for out-of-band notifications
+    ///
+    /// This future MUST NOT return. Implementations should loop forever
+    /// or await `core::future::pending::<()>()`.
+    ///
+    /// Call `notify(OutOfBandMessage::TemperatureUpdate)` when the temperature
+    /// changes from the control loop so Matter can push updates to controllers.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// async fn run<F: Fn(OutOfBandMessage)>(&self, notify: F) {
+    ///     loop {
+    ///         // Wait for temperature change signal
+    ///         self.temp_changed_signal.wait().await;
+    ///         notify(OutOfBandMessage::TemperatureUpdate);
+    ///     }
+    /// }
+    /// ```
+    async fn run<F: Fn(OutOfBandMessage)>(&self, _notify: F) {
+        // Default: pend forever (no out-of-band updates)
+        core::future::pending::<()>().await
+    }
+}
+
+// Implement ThermostatHooks for references (like OnOffHooks does)
+impl<T> ThermostatHooks for &T
+where
+    T: ThermostatHooks,
+{
+    const CLUSTER: Cluster<'static> = T::CLUSTER;
+
+    fn local_temperature(&self) -> Nullable<i16> {
+        (*self).local_temperature()
+    }
+
+    fn occupied_heating_setpoint(&self) -> i16 {
+        (*self).occupied_heating_setpoint()
+    }
+
+    fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error> {
+        (*self).set_occupied_heating_setpoint(value)
+    }
+
+    fn min_heat_setpoint_limit(&self) -> i16 {
+        (*self).min_heat_setpoint_limit()
+    }
+
+    fn max_heat_setpoint_limit(&self) -> i16 {
+        (*self).max_heat_setpoint_limit()
+    }
+
+    fn system_mode(&self) -> SystemModeEnum {
+        (*self).system_mode()
+    }
+
+    fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error> {
+        (*self).set_system_mode(mode)
+    }
+
+    fn thermostat_running_state(&self) -> RelayStateBitmap {
+        (*self).thermostat_running_state()
+    }
+
+    fn control_sequence_of_operation(&self) -> ControlSequenceOfOperationEnum {
+        (*self).control_sequence_of_operation()
+    }
+
+    async fn run<F: Fn(OutOfBandMessage)>(&self, notify: F) {
+        (*self).run(notify).await
+    }
+}
