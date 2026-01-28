@@ -38,24 +38,28 @@ build-release:
 	cargo build --release -p thermos-core
 
 # ESP32 build and flash
+# Note: Must cd into thermos-esp32 to pick up .cargo/config.toml (target, build-std, linker flags)
+# Output goes to workspace root target/ directory
 build-esp32:
 	cd thermos-esp32 && cargo build --release
 
 flash:
-	cd thermos-esp32 && cargo build --release && espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
+	cd thermos-esp32 && cargo build --release
+	espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
 monitor:
 	espflash monitor
 
 flash-monitor:
-	cd thermos-esp32 && cargo build --release && espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+	cd thermos-esp32 && cargo build --release
+	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
-# Test targets (thermos-core only)
+# Test targets (thermos-core and thermos-matter)
 test:
-	cargo test -p thermos-core
+	cargo test -p thermos-core -p thermos-matter
 
 test-verbose:
-	cargo test -p thermos-core -- --nocapture
+	cargo test -p thermos-core -p thermos-matter -- --nocapture
 
 # Code quality targets (thermos-core only - ESP32 clippy requires cross-compilation)
 fmt:
