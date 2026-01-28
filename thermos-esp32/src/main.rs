@@ -337,7 +337,7 @@ async fn main(spawner: Spawner) {
     println!("====================================");
     info!("====================================");
     info!("Thermos ESP32-C6 Thermostat v0.3.0");
-    info!("7-Zone Multi-Zone Controller");
+    info!("Multi-Zone Controller");
     info!("====================================");
     info!("Zones: {}", NUM_ZONES);
     info!(
