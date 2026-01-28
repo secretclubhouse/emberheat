@@ -40,18 +40,32 @@ build-release:
 # ESP32 build and flash
 # Note: Must cd into thermos-esp32 to pick up .cargo/config.toml (target, build-std, linker flags)
 # Output goes to workspace root target/ directory
+
+# Helper to ensure WiFi credentials are set
+define check_wifi_creds
+	@if [ -z "$$WIFI_SSID" ]; then \
+		read -p "Enter WIFI_SSID: " ssid; \
+		export WIFI_SSID="$$ssid"; \
+	fi; \
+	if [ -z "$$WIFI_PASSWORD" ]; then \
+		read -p "Enter WIFI_PASSWORD: " pass; \
+		export WIFI_PASSWORD="$$pass"; \
+	fi; \
+	cd thermos-esp32 && WIFI_SSID="$$WIFI_SSID" WIFI_PASSWORD="$$WIFI_PASSWORD" cargo build --release
+endef
+
 build-esp32:
-	cd thermos-esp32 && cargo build --release
+	$(check_wifi_creds)
 
 flash:
-	cd thermos-esp32 && cargo build --release
+	$(check_wifi_creds)
 	espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
 monitor:
 	espflash monitor
 
 flash-monitor:
-	cd thermos-esp32 && cargo build --release
+	$(check_wifi_creds)
 	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
 # Test targets (thermos-core and thermos-matter)
