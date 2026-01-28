@@ -29,8 +29,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 mod config;
 mod controller;
 mod gpio_impl;
-// TODO: Re-enable mqtt when WiFi support is added
-// mod mqtt;
+mod mqtt;
 mod persistence_nvs;
 mod sensor_i2c;
 mod sensors;

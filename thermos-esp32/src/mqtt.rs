@@ -4,6 +4,7 @@
 //! historical tracking and monitoring. Uses rust-mqtt for no_std compatibility.
 
 use core::fmt::Write as FmtWrite;
+use core::str::FromStr;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -66,7 +67,7 @@ impl MqttConfig {
             String::from_str(device_id).map_err(|_| "Device ID too long (max 32 chars)")?;
 
         // Generate client ID from device ID
-        let mut client_id = String::new();
+        let mut client_id: String<32> = String::new();
         let _ = write!(client_id, "thermos-{}", device_id);
 
         // Parse optional credentials
@@ -121,12 +122,12 @@ impl MqttPublisher {
         heating: bool,
     ) -> Result<(), &'static str> {
         // Build topic: thermostat/{device_id}/temp/{zone}
-        let mut topic = String::new();
+        let mut topic: String<MAX_TOPIC_LEN> = String::new();
         write!(topic, "thermostat/{}/temp/{}", self.config.device_id, zone)
             .map_err(|_| "Topic too long")?;
 
         // Build JSON payload with temperature data
-        let mut payload = String::new();
+        let mut payload: String<MAX_PAYLOAD_LEN> = String::new();
         write!(
             payload,
             r#"{{"zone":"{}","temp_c":{:.1},"temp_f":{:.1},"target_c":{:.1},"heating":{}}}"#,
@@ -153,7 +154,7 @@ impl MqttPublisher {
         message: &str,
     ) -> Result<(), &'static str> {
         // Build topic: thermostat/{device_id}/events/{zone}
-        let mut topic = String::new();
+        let mut topic: String<MAX_TOPIC_LEN> = String::new();
         write!(
             topic,
             "thermostat/{}/events/{}",
@@ -162,7 +163,7 @@ impl MqttPublisher {
         .map_err(|_| "Topic too long")?;
 
         // Build JSON payload with event data
-        let mut payload = String::new();
+        let mut payload: String<MAX_PAYLOAD_LEN> = String::new();
         write!(
             payload,
             r#"{{"zone":"{}","event":"{}","message":"{}"}}"#,
@@ -170,22 +171,22 @@ impl MqttPublisher {
         )
         .map_err(|_| "Payload too long")?;
 
-        let message = MqttMessage { topic, payload };
+        let msg = MqttMessage { topic, payload };
 
         // Send to background task (non-blocking)
-        self.sender.send(message).await;
+        self.sender.send(msg).await;
         Ok(())
     }
 
     /// Publish device status (health check)
     pub async fn publish_status(&self, status: &str) -> Result<(), &'static str> {
         // Build topic: thermostat/{device_id}/status
-        let mut topic = String::new();
+        let mut topic: String<MAX_TOPIC_LEN> = String::new();
         write!(topic, "thermostat/{}/status", self.config.device_id)
             .map_err(|_| "Topic too long")?;
 
         // Build JSON payload with status
-        let mut payload = String::new();
+        let mut payload: String<MAX_PAYLOAD_LEN> = String::new();
         write!(payload, r#"{{"status":"{}"}}"#, status).map_err(|_| "Payload too long")?;
 
         let message = MqttMessage { topic, payload };
@@ -198,7 +199,7 @@ impl MqttPublisher {
 
 /// Embassy task for MQTT connection and publishing
 pub async fn mqtt_task(
-    stack: &'static Stack<embassy_net::driver::Driver<'static>>,
+    stack: &'static Stack<'static>,
     config: MqttConfig,
     rx_channel: &'static Channel<CriticalSectionRawMutex, MqttMessage, MQTT_QUEUE_SIZE>,
 ) {
@@ -231,14 +232,14 @@ pub async fn mqtt_task(
 
 /// Connect to MQTT broker and publish messages from queue
 async fn mqtt_connect_and_publish(
-    stack: &'static Stack<embassy_net::driver::Driver<'static>>,
+    stack: &'static Stack<'static>,
     config: &MqttConfig,
     rx_channel: &'static Channel<CriticalSectionRawMutex, MqttMessage, MQTT_QUEUE_SIZE>,
 ) -> Result<(), &'static str> {
     // Create TCP socket for MQTT connection
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = TcpSocket::new(*stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     // Resolve broker hostname (DNS lookup)
@@ -283,7 +284,7 @@ async fn mqtt_connect_and_publish(
         info!("MQTT auth: using username '{}'", username);
     }
     if let Some(ref password) = config.password {
-        mqtt_config.add_password(password.as_bytes());
+        mqtt_config.add_password(password.as_str());
     }
 
     // Create MQTT client
@@ -309,7 +310,7 @@ async fn mqtt_connect_and_publish(
     info!("MQTT connected successfully");
 
     // Publish device online status
-    let mut status_topic = String::new();
+    let mut status_topic: String<MAX_TOPIC_LEN> = String::new();
     write!(status_topic, "thermostat/{}/status", config.device_id)
         .map_err(|_| "Status topic too long")?;
 
