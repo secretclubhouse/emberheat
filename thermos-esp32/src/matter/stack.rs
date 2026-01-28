@@ -13,18 +13,18 @@
 //! rs-matter-embassy uses handler chaining with `EmptyHandler.chain(...)`. Each zone
 //! gets its own `ZoneThermostatCluster` handler chained for its endpoint.
 
-use rs_matter_embassy::matter::dm::Dataver;
+use rs_matter_embassy::matter::dm::{
+    Dataver, Handler, NonBlockingHandler, ReadContext, ReadReply, Reply, WriteContext,
+};
+use rs_matter_embassy::matter::error::{Error, ErrorCode};
+use rs_matter_embassy::matter::tlv::Nullable;
 
 use crate::config::NUM_ZONES;
 use crate::matter::zones::ZONE_STATES;
 
-use thermos_matter::ZoneThermostatState;
-
-// These imports will be used when implementing the full handler in Task 4:
-// use rs_matter_embassy::matter::dm::clusters::desc::{self, ClusterHandler as _};
-// use rs_matter_embassy::matter::dm::{Async, EmptyHandler, Endpoint, EpClMatcher, Node};
-// use rs_matter_embassy::matter::{clusters, devices};
-// use crate::config::{MATTER_DEVICE_NAME, MATTER_DISCRIMINATOR, MATTER_PASSCODE, MATTER_PRODUCT_ID, MATTER_VENDOR_ID};
+use thermos_matter::cluster::{ControlSequenceOfOperationEnum, RelayStateBitmap, SystemModeEnum};
+use thermos_matter::state::ZoneThermostatState;
+use thermos_matter::types::{defaults, SystemMode};
 
 // =============================================================================
 // Constants
@@ -69,6 +69,9 @@ pub mod attr {
 ///
 /// This is a thin wrapper that reads/writes state from `ZoneThermostatState`.
 /// The actual hysteresis control logic runs in the control loop task.
+///
+/// Implements rs-matter's `Handler` trait to respond to Matter attribute
+/// read/write operations.
 pub struct ZoneThermostatCluster {
     /// Matter endpoint ID for this zone (1-based)
     endpoint_id: u16,
@@ -99,17 +102,156 @@ impl ZoneThermostatCluster {
     fn zone_state(&self) -> Option<&'static ZoneThermostatState> {
         ZONE_STATES.get(self.zone_index())
     }
+
+    /// Get current data version
+    pub fn dataver(&self) -> u32 {
+        self.dataver.get()
+    }
+
+    /// Mark data as changed (increments version)
+    pub fn dataver_changed(&self) {
+        self.dataver.changed();
+    }
 }
 
-// TODO: Implement the actual handler traits in Task 4
-// The exact traits depend on rs-matter-embassy's API:
-// - Need to implement attribute read/write
-// - Need to handle subscription notifications
-//
-// Based on the light_wifi.rs example, we need to:
-// 1. Define a CLUSTER constant with cluster metadata
-// 2. Implement hooks trait similar to OnOffHooks
-// 3. Wrap with HandlerAsyncAdaptor for the handler chain
+impl Handler for ZoneThermostatCluster {
+    fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
+        let attr = ctx.attr();
+        let attr_id = attr.attr_id;
+
+        // Get writer with dataver check
+        let Some(writer) = reply.with_dataver(self.dataver())? else {
+            // Dataver unchanged, no need to send data
+            return Ok(());
+        };
+
+        let zone = self.zone_state().ok_or(ErrorCode::InvalidAction)?;
+
+        match attr_id {
+            // LocalTemperature - nullable i16
+            x if x == attr::LOCAL_TEMPERATURE as u32 => {
+                let temp = zone.get_local_temperature();
+                if temp == thermos_matter::types::temperature::NULL_TEMPERATURE {
+                    Reply::set(writer, Nullable::<i16>::none())?;
+                } else {
+                    Reply::set(writer, Nullable::some(temp))?;
+                }
+            }
+
+            // OccupiedHeatingSetpoint - i16
+            x if x == attr::OCCUPIED_HEATING_SETPOINT as u32 => {
+                let setpoint = zone.get_occupied_heating_setpoint();
+                Reply::set(writer, setpoint)?;
+            }
+
+            // MinHeatSetpointLimit - i16
+            x if x == attr::MIN_HEAT_SETPOINT_LIMIT as u32 => {
+                Reply::set(writer, defaults::MIN_HEAT_SETPOINT)?;
+            }
+
+            // MaxHeatSetpointLimit - i16
+            x if x == attr::MAX_HEAT_SETPOINT_LIMIT as u32 => {
+                Reply::set(writer, defaults::MAX_HEAT_SETPOINT)?;
+            }
+
+            // ControlSequenceOfOperation - enum8 (always HeatingOnly = 0x02)
+            x if x == attr::CONTROL_SEQUENCE_OF_OPERATION as u32 => {
+                let val = ControlSequenceOfOperationEnum::HeatingOnly as u8;
+                Reply::set(writer, val)?;
+            }
+
+            // SystemMode - enum8
+            x if x == attr::SYSTEM_MODE as u32 => {
+                let mode = zone.get_system_mode();
+                let val = match mode {
+                    SystemMode::Off => SystemModeEnum::Off as u8,
+                    SystemMode::Heat => SystemModeEnum::Heat as u8,
+                    _ => SystemModeEnum::Off as u8, // Default to Off for unsupported
+                };
+                Reply::set(writer, val)?;
+            }
+
+            // ThermostatRunningState - bitmap16
+            x if x == attr::THERMOSTAT_RUNNING_STATE as u32 => {
+                let is_heating = zone.is_heating();
+                let bitmap: u16 = if is_heating {
+                    RelayStateBitmap::HEAT.bits()
+                } else {
+                    0
+                };
+                Reply::set(writer, bitmap)?;
+            }
+
+            _ => {
+                return Err(ErrorCode::AttributeNotFound.into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write(&self, ctx: impl WriteContext) -> Result<(), Error> {
+        let attr = ctx.attr();
+        let attr_id = attr.attr_id;
+
+        let zone = self.zone_state().ok_or(ErrorCode::InvalidAction)?;
+
+        match attr_id {
+            // OccupiedHeatingSetpoint - writable
+            x if x == attr::OCCUPIED_HEATING_SETPOINT as u32 => {
+                let value: i16 = ctx.data().i16()?;
+
+                // Validate range
+                if value < defaults::MIN_HEAT_SETPOINT || value > defaults::MAX_HEAT_SETPOINT {
+                    return Err(ErrorCode::ConstraintError.into());
+                }
+
+                zone.set_occupied_heating_setpoint(value)
+                    .map_err(|_| Error::from(ErrorCode::ConstraintError))?;
+
+                self.dataver_changed();
+                ctx.notify_changed();
+            }
+
+            // SystemMode - writable
+            x if x == attr::SYSTEM_MODE as u32 => {
+                let value: u8 = ctx.data().u8()?;
+
+                let mode = match value {
+                    x if x == SystemModeEnum::Off as u8 => SystemMode::Off,
+                    x if x == SystemModeEnum::Heat as u8 => SystemMode::Heat,
+                    _ => return Err(ErrorCode::ConstraintError.into()),
+                };
+
+                zone.set_system_mode(mode);
+                self.dataver_changed();
+                ctx.notify_changed();
+            }
+
+            // Read-only attributes
+            x if x == attr::LOCAL_TEMPERATURE as u32
+                || x == attr::MIN_HEAT_SETPOINT_LIMIT as u32
+                || x == attr::MAX_HEAT_SETPOINT_LIMIT as u32
+                || x == attr::CONTROL_SEQUENCE_OF_OPERATION as u32
+                || x == attr::THERMOSTAT_RUNNING_STATE as u32 =>
+            {
+                return Err(ErrorCode::UnsupportedAccess.into());
+            }
+
+            _ => {
+                return Err(ErrorCode::AttributeNotFound.into());
+            }
+        }
+
+        Ok(())
+    }
+
+    // No commands for heating-only thermostat (setpoint is via attribute write)
+    // The default invoke() returns CommandNotFound which is correct
+}
+
+// Mark as non-blocking since we only do atomic operations
+impl NonBlockingHandler for ZoneThermostatCluster {}
 
 // =============================================================================
 // Helper Functions
