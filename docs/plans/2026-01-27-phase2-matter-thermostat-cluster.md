@@ -4,9 +4,9 @@
 
 **Goal:** Build a heating-only thermostat cluster implementation for rs-matter that can be integrated with the ESP32 multi-zone thermostat from Phase 1.
 
-**Architecture:** Implement Matter Thermostat Cluster (0x0201) as a standalone Rust module with heating-only attributes, designed to integrate with rs-matter-embassy on ESP32-C6. The cluster will bridge Matter commands to thermos-core's hysteresis control.
+**Architecture:** Implement Matter Thermostat Cluster (0x0201) as a standalone Rust module with heating-only attributes, designed to integrate with rs-matter on ESP32-C6. The cluster will bridge Matter commands to thermos-core's hysteresis control.
 
-**Tech Stack:** rs-matter, rs-matter-embassy, esp-hal 1.0, Embassy async runtime
+**Tech Stack:** rs-matter, esp-hal 1.0, Embassy async runtime
 
 **Prerequisites:** 
 - Phase 1 complete (multi-zone thermostat with real DS18B20 sensors working)
@@ -20,17 +20,47 @@
 
 The Matter implementation in Rust consists of several crates:
 - **rs-matter** - Core Matter protocol library ([GitHub](https://github.com/project-chip/rs-matter))
+- **rs-matter-stack** - Stack assembly utilities (has embassy-time version conflicts with esp-rtos)
 - **rs-matter-embassy** - Embassy async integration for MCUs ([GitHub](https://github.com/sysgrok/rs-matter-embassy))
-- **rs-matter-stack** - Stack assembly utilities
 
 ### Thermostat Cluster Status
 
-**Important:** rs-matter does NOT have a built-in thermostat cluster implementation. The available clusters are:
-- OnOffHandler (lights)
+**Key Finding:** rs-matter DOES have the Thermostat cluster defined in its IDL files, but no built-in handler implementation. We can:
+1. Use `rs_matter::import!(Thermostat)` to get cluster definition and types
+2. Implement `ThermostatHooks` trait (similar to `OnOffHooks` pattern)
+3. Create `ThermostatHandler` struct that manages the state machine
+
+The available built-in handlers are:
+- OnOffHandler (lights) - good reference implementation
 - LevelControlHandler (dimmers)
 - DescHandler (descriptors)
 
-We must implement the Thermostat cluster (0x0201) ourselves using rs-matter's `ClusterAsyncHandler` trait.
+### Handler Pattern (from OnOff cluster analysis)
+
+rs-matter uses a "Hooks" pattern for device-specific logic:
+
+```rust
+// The Hooks trait defines device-specific callbacks
+pub trait ThermostatHooks {
+    const CLUSTER: Cluster<'static>;  // From import! macro
+    
+    fn local_temperature(&self) -> Option<i16>;
+    fn occupied_heating_setpoint(&self) -> i16;
+    fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error>;
+    fn system_mode(&self) -> SystemModeEnum;
+    fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error>;
+    fn thermostat_running_state(&self) -> RelayStateBitmap;
+    
+    async fn run<F: Fn(OutOfBandMessage)>(&self, notify: F);
+}
+
+// The Handler struct uses hooks and implements ClusterAsyncHandler
+pub struct ThermostatHandler<H: ThermostatHooks> {
+    hooks: H,
+    dataver: Dataver,
+    endpoint_id: EndptId,
+}
+```
 
 ### Memory Requirements
 
@@ -41,13 +71,17 @@ From rs-matter-embassy documentation:
 
 With Phase 1's thermostat using ~30KB, total should fit within ESP32-C6's 512KB SRAM.
 
+### Dependency Note
+
+**rs-matter-stack** has embassy-time version conflicts with esp-rtos (requires 0.1.x, we use 0.5.x). Using rs-matter directly without the stack utilities. Manual integration will be needed for Phase 3.
+
 ---
 
 ## Matter Thermostat Cluster Specification
 
-### Cluster ID: 0x0201
+### Cluster ID: 0x0201 (513)
 
-**Attributes (heating-only subset):**
+**Attributes (heating-only subset we'll implement):**
 
 | Attribute | ID | Type | Access | Default | Description |
 |-----------|----|------|--------|---------|-------------|
@@ -56,8 +90,8 @@ With Phase 1's thermostat using ~30KB, total should fit within ESP32-C6's 512KB 
 | MinHeatSetpointLimit | 0x0015 | int16 | Read | 700 (7°C) | Minimum allowed setpoint |
 | MaxHeatSetpointLimit | 0x0016 | int16 | Read | 3000 (30°C) | Maximum allowed setpoint |
 | ControlSequenceOfOperation | 0x001B | enum8 | Read | 0x02 | HeatingOnly |
-| SystemMode | 0x001C | enum8 | R/W | 0x01 | Off=0x00, Heat=0x04 |
-| ThermostatRunningState | 0x0029 | bitmap16 | Read | 0 | Bit0=Heat, Bit1=Cool, etc. |
+| SystemMode | 0x001C | enum8 | R/W | 0x04 | Off=0x00, Heat=0x04 |
+| ThermostatRunningState | 0x0029 | bitmap16 | Read | 0 | Bit0=Heat active |
 
 **Temperature Conversion:**
 ```rust
@@ -89,532 +123,521 @@ fn matter_to_celsius(centi_c: i16) -> f32 {
 - Bit 2: Fan (not used)
 - Bits 3-5: Second stage (not used)
 
+**Feature Flags (from IDL):**
+```rust
+bitmap Feature : bitmap32 {
+    kHeating = 0x1;        // We support this
+    kCooling = 0x2;        // Not supported
+    kOccupancy = 0x4;      // Not supported
+    kScheduleConfiguration = 0x8;  // Not supported
+    kSetback = 0x10;       // Not supported
+    kAutoMode = 0x20;      // Not supported
+    kLocalTemperatureNotExposed = 0x40;  // Not used
+    kMatterScheduleConfiguration = 0x80; // Not supported
+    kPresets = 0x100;      // Not supported
+}
+```
+
 ---
 
 ## Implementation Tasks
 
-### Task 1: Set Up rs-matter Development Environment
+### Task 1: Set Up rs-matter Development Environment ✅ COMPLETED
 
-**Files:**
-- Create: `thermos-esp32/Cargo.toml` (update dependencies)
-- Create: `thermos-esp32/src/matter/mod.rs`
+**Status:** Done - rs-matter dependency added, matter module created.
 
-**Step 1: Add rs-matter dependencies to Cargo.toml**
-
-Add to `[dependencies]`:
-```toml
-# Matter protocol support
-rs-matter = { git = "https://github.com/project-chip/rs-matter", features = ["embassy"] }
-rs-matter-embassy = { git = "https://github.com/sysgrok/rs-matter-embassy", features = ["esp32"] }
-```
-
-**Step 2: Create matter module structure**
-
-Create `thermos-esp32/src/matter/mod.rs`:
-```rust
-//! Matter protocol integration for thermos-esp32
-//!
-//! Implements Matter Thermostat Cluster (0x0201) for HomeKit/Google/Alexa control.
-
-pub mod cluster;
-pub mod handler;
-pub mod types;
-
-pub use cluster::ThermostatCluster;
-pub use handler::ThermostatHandler;
-```
-
-**Step 3: Verify compilation**
-
-Run: `cd thermos-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
-Expected: Compiles (may have warnings about unused modules)
-
-**Step 4: Commit**
-
-```bash
-git add thermos-esp32/Cargo.toml thermos-esp32/src/matter/
-git commit -m "feat(matter): add rs-matter dependencies and module structure"
-```
+**What was done:**
+- Added `rs-matter` with `rustcrypto` feature to Cargo.toml
+- Note: rs-matter-stack has embassy-time version conflicts, using rs-matter directly
+- Created `thermos-esp32/src/matter/mod.rs` module structure
 
 ---
 
-### Task 2: Implement Thermostat Type Definitions
+### Task 2: Implement Thermostat Type Definitions ✅ COMPLETED
 
-**Files:**
-- Create: `thermos-esp32/src/matter/types.rs`
+**Status:** Done - types.rs with all Matter thermostat types.
 
-**Step 1: Define thermostat attribute types**
-
-Create `thermos-esp32/src/matter/types.rs`:
-```rust
-//! Matter Thermostat Cluster type definitions
-//!
-//! Based on Matter Specification 1.2, Cluster 0x0201
-
-/// Thermostat Cluster ID
-pub const CLUSTER_ID: u32 = 0x0201;
-
-/// Thermostat Device Type ID
-pub const DEVICE_TYPE_ID: u32 = 0x0301;
-
-/// Attribute IDs for Thermostat Cluster
-pub mod attribute {
-    pub const LOCAL_TEMPERATURE: u16 = 0x0000;
-    pub const OCCUPIED_HEATING_SETPOINT: u16 = 0x0012;
-    pub const MIN_HEAT_SETPOINT_LIMIT: u16 = 0x0015;
-    pub const MAX_HEAT_SETPOINT_LIMIT: u16 = 0x0016;
-    pub const CONTROL_SEQUENCE_OF_OPERATION: u16 = 0x001B;
-    pub const SYSTEM_MODE: u16 = 0x001C;
-    pub const THERMOSTAT_RUNNING_STATE: u16 = 0x0029;
-}
-
-/// System Mode values (enum8)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SystemMode {
-    Off = 0x00,
-    Auto = 0x01,  // Not used for heating-only
-    Cool = 0x03,  // Not used
-    Heat = 0x04,
-    EmergencyHeat = 0x05,  // Not used
-}
-
-impl SystemMode {
-    pub fn from_u8(value: u8) -> Option<Self> {
-        match value {
-            0x00 => Some(Self::Off),
-            0x01 => Some(Self::Auto),
-            0x03 => Some(Self::Cool),
-            0x04 => Some(Self::Heat),
-            0x05 => Some(Self::EmergencyHeat),
-            _ => None,
-        }
-    }
-}
-
-impl From<SystemMode> for u8 {
-    fn from(mode: SystemMode) -> u8 {
-        mode as u8
-    }
-}
-
-/// Control Sequence of Operation values (enum8)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ControlSequence {
-    CoolingOnly = 0x00,
-    CoolingWithReheat = 0x01,
-    HeatingOnly = 0x02,
-    HeatingWithReheat = 0x03,
-    CoolingAndHeating = 0x04,
-    CoolingAndHeatingWithReheat = 0x05,
-}
-
-/// Thermostat Running State bitmap (bitmap16)
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RunningState(pub u16);
-
-impl RunningState {
-    pub const HEAT: u16 = 1 << 0;
-    pub const COOL: u16 = 1 << 1;
-    pub const FAN: u16 = 1 << 2;
-    pub const HEAT_STAGE_2: u16 = 1 << 3;
-    pub const COOL_STAGE_2: u16 = 1 << 4;
-    pub const FAN_STAGE_2: u16 = 1 << 5;
-    pub const FAN_STAGE_3: u16 = 1 << 6;
-
-    pub fn new() -> Self {
-        Self(0)
-    }
-
-    pub fn set_heating(&mut self, active: bool) {
-        if active {
-            self.0 |= Self::HEAT;
-        } else {
-            self.0 &= !Self::HEAT;
-        }
-    }
-
-    pub fn is_heating(&self) -> bool {
-        self.0 & Self::HEAT != 0
-    }
-}
-
-/// Temperature conversion utilities
-pub mod temperature {
-    /// Convert Celsius to Matter centi-degrees (0.01°C units)
-    pub fn celsius_to_matter(temp_c: f32) -> i16 {
-        (temp_c * 100.0) as i16
-    }
-
-    /// Convert Matter centi-degrees to Celsius
-    pub fn matter_to_celsius(centi_c: i16) -> f32 {
-        (centi_c as f32) / 100.0
-    }
-
-    /// Null temperature value (sensor unavailable)
-    pub const NULL_TEMPERATURE: i16 = 0x8000;
-}
-
-/// Default configuration values
-pub mod defaults {
-    use super::temperature::celsius_to_matter;
-    
-    /// Default setpoint: 20°C
-    pub const OCCUPIED_HEATING_SETPOINT: i16 = 2000;
-    
-    /// Minimum setpoint: 7°C (frost protection)
-    pub const MIN_HEAT_SETPOINT: i16 = 700;
-    
-    /// Maximum setpoint: 30°C
-    pub const MAX_HEAT_SETPOINT: i16 = 3000;
-}
-```
-
-**Step 2: Run tests**
-
-Run: `cd thermos-esp32 && cargo test --lib -- types`
-Expected: Type conversion tests pass
-
-**Step 3: Commit**
-
-```bash
-git add thermos-esp32/src/matter/types.rs
-git commit -m "feat(matter): add thermostat cluster type definitions"
-```
+**What was done:**
+- Cluster ID (0x0201) and device type ID (0x0301)
+- Attribute ID constants
+- SystemMode enum with conversions
+- ControlSequence enum
+- RunningState bitmap
+- Temperature conversion utilities
+- Default values (20°C setpoint, 7-30°C limits)
+- Unit tests
 
 ---
 
-### Task 3: Implement Thermostat State Container
+### Task 3: Implement Thermostat State Container ✅ COMPLETED
+
+**Status:** Done - thread-safe ZoneThermostatState.
+
+**What was done:**
+- `ZoneThermostatState` with atomic operations
+- Local temperature, setpoint, system mode, running state
+- Setpoint validation with `SetpointError`
+- Celsius conversion helpers
+- Unit tests
+
+---
+
+### Task 4: Import Thermostat Cluster and Create Hooks Trait
 
 **Files:**
-- Create: `thermos-esp32/src/matter/state.rs`
+- Create: `thermos-esp32/src/matter/cluster.rs`
 - Modify: `thermos-esp32/src/matter/mod.rs`
 
-**Step 1: Create thread-safe state container**
+**Step 1: Import Thermostat cluster from IDL**
 
-Create `thermos-esp32/src/matter/state.rs`:
+Create `thermos-esp32/src/matter/cluster.rs`:
 ```rust
-//! Thermostat state management
+//! Thermostat cluster definition imported from Matter IDL
 //!
-//! Provides thread-safe access to thermostat state for bridging
-//! between Matter cluster and thermos-core control loops.
+//! Uses rs-matter's import! macro to generate cluster metadata and types
+//! from the official Matter specification.
 
-use core::sync::atomic::{AtomicI16, AtomicU8, AtomicU16, Ordering};
-use crate::matter::types::{SystemMode, RunningState, temperature, defaults};
+// Import the Thermostat cluster from Matter IDL
+// This generates:
+// - FULL_CLUSTER: Cluster<'static> with all attributes/commands
+// - AttributeId, CommandId enums
+// - Feature bitmap
+// - All struct/enum types (SystemModeEnum, RelayStateBitmap, etc.)
+rs_matter::import!(Thermostat);
 
-/// Thread-safe thermostat state for a single zone
-pub struct ZoneThermostatState {
-    /// Current temperature in Matter centi-degrees (0.01°C)
-    local_temperature: AtomicI16,
-    
-    /// Target setpoint in Matter centi-degrees
-    occupied_heating_setpoint: AtomicI16,
-    
-    /// Current system mode (Off/Heat)
-    system_mode: AtomicU8,
-    
-    /// Running state bitmap
-    running_state: AtomicU16,
-}
+use rs_matter::dm::Cluster;
 
-impl ZoneThermostatState {
-    pub const fn new() -> Self {
-        Self {
-            local_temperature: AtomicI16::new(temperature::NULL_TEMPERATURE),
-            occupied_heating_setpoint: AtomicI16::new(defaults::OCCUPIED_HEATING_SETPOINT),
-            system_mode: AtomicU8::new(SystemMode::Heat as u8),
-            running_state: AtomicU16::new(0),
-        }
-    }
+/// Heating-only thermostat cluster configuration
+/// 
+/// Uses FULL_CLUSTER but restricts to heating-only features and attributes.
+pub const HEATING_ONLY_CLUSTER: Cluster<'static> = FULL_CLUSTER
+    .with_features(Feature::HEATING.bits())
+    .with_attrs(with!(
+        required,
+        LocalTemperature,
+        OccupiedHeatingSetpoint,
+        MinHeatSetpointLimit,
+        MaxHeatSetpointLimit,
+        ControlSequenceOfOperation,
+        SystemMode,
+        ThermostatRunningState
+    ));
 
-    // Temperature getters/setters
-    pub fn get_local_temperature(&self) -> i16 {
-        self.local_temperature.load(Ordering::Relaxed)
-    }
-
-    pub fn set_local_temperature(&self, temp_centi_c: i16) {
-        self.local_temperature.store(temp_centi_c, Ordering::Relaxed);
-    }
-
-    pub fn set_local_temperature_celsius(&self, temp_c: f32) {
-        self.set_local_temperature(temperature::celsius_to_matter(temp_c));
-    }
-
-    // Setpoint getters/setters  
-    pub fn get_occupied_heating_setpoint(&self) -> i16 {
-        self.occupied_heating_setpoint.load(Ordering::Relaxed)
-    }
-
-    pub fn set_occupied_heating_setpoint(&self, setpoint_centi_c: i16) -> Result<(), SetpointError> {
-        if setpoint_centi_c < defaults::MIN_HEAT_SETPOINT {
-            return Err(SetpointError::BelowMinimum);
-        }
-        if setpoint_centi_c > defaults::MAX_HEAT_SETPOINT {
-            return Err(SetpointError::AboveMaximum);
-        }
-        self.occupied_heating_setpoint.store(setpoint_centi_c, Ordering::Relaxed);
-        Ok(())
-    }
-
-    pub fn get_setpoint_celsius(&self) -> f32 {
-        temperature::matter_to_celsius(self.get_occupied_heating_setpoint())
-    }
-
-    // System mode getters/setters
-    pub fn get_system_mode(&self) -> SystemMode {
-        SystemMode::from_u8(self.system_mode.load(Ordering::Relaxed))
-            .unwrap_or(SystemMode::Off)
-    }
-
-    pub fn set_system_mode(&self, mode: SystemMode) {
-        self.system_mode.store(mode as u8, Ordering::Relaxed);
-    }
-
-    pub fn is_enabled(&self) -> bool {
-        self.get_system_mode() == SystemMode::Heat
-    }
-
-    // Running state getters/setters
-    pub fn get_running_state(&self) -> RunningState {
-        RunningState(self.running_state.load(Ordering::Relaxed))
-    }
-
-    pub fn set_heating_active(&self, active: bool) {
-        let mut state = self.get_running_state();
-        state.set_heating(active);
-        self.running_state.store(state.0, Ordering::Relaxed);
-    }
-
-    pub fn is_heating(&self) -> bool {
-        self.get_running_state().is_heating()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum SetpointError {
-    BelowMinimum,
-    AboveMaximum,
-}
+/// Re-export commonly used types
+pub use self::thermostat::{
+    AttributeId,
+    CommandId,
+    ControlSequenceOfOperationEnum,
+    Feature,
+    RelayStateBitmap,
+    SystemModeEnum,
+};
 ```
 
-**Step 2: Update mod.rs**
+**Step 2: Create ThermostatHooks trait**
 
-Add to `thermos-esp32/src/matter/mod.rs`:
+Add to `thermos-esp32/src/matter/cluster.rs`:
 ```rust
-pub mod state;
-pub use state::ZoneThermostatState;
+use rs_matter::dm::Cluster;
+use rs_matter::error::Error;
+use rs_matter::tlv::Nullable;
+use core::future::Future;
+
+/// Messages for out-of-band state changes (physical button, timer, etc.)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutOfBandMessage {
+    /// Temperature reading updated
+    TemperatureUpdate,
+    /// Setpoint changed externally
+    SetpointChanged,
+    /// Heating state changed
+    HeatingStateChanged,
+    /// System mode changed
+    ModeChanged,
+}
+
+/// Trait for device-specific thermostat logic
+///
+/// Implement this trait to provide the actual thermostat behavior.
+/// The handler will call these methods to read/write state.
+///
+/// Pattern based on rs-matter's OnOffHooks trait.
+pub trait ThermostatHooks {
+    /// Cluster metadata for this thermostat implementation
+    const CLUSTER: Cluster<'static>;
+
+    // --- Temperature ---
+    
+    /// Get current local temperature in Matter centi-degrees (0.01°C)
+    /// Returns None if sensor is unavailable
+    fn local_temperature(&self) -> Nullable<i16>;
+
+    // --- Setpoint ---
+    
+    /// Get occupied heating setpoint in centi-degrees
+    fn occupied_heating_setpoint(&self) -> i16;
+    
+    /// Set occupied heating setpoint in centi-degrees
+    /// Returns error if out of valid range
+    fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error>;
+    
+    /// Get minimum heat setpoint limit
+    fn min_heat_setpoint_limit(&self) -> i16;
+    
+    /// Get maximum heat setpoint limit
+    fn max_heat_setpoint_limit(&self) -> i16;
+
+    // --- System Mode ---
+    
+    /// Get current system mode (Off, Heat, etc.)
+    fn system_mode(&self) -> SystemModeEnum;
+    
+    /// Set system mode
+    /// For heating-only, only Off and Heat are valid
+    fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error>;
+
+    // --- Running State ---
+    
+    /// Get thermostat running state bitmap
+    fn thermostat_running_state(&self) -> RelayStateBitmap;
+
+    // --- Control Sequence ---
+    
+    /// Get control sequence of operation
+    /// For heating-only, always returns HeatingOnly
+    fn control_sequence_of_operation(&self) -> ControlSequenceOfOperationEnum {
+        ControlSequenceOfOperationEnum::HeatingOnly
+    }
+
+    // --- Background Task ---
+    
+    /// Background task for out-of-band notifications
+    ///
+    /// This future MUST NOT return. Implementations should loop forever
+    /// or await core::future::pending::<()>().
+    ///
+    /// Call `notify(OutOfBandMessage::TemperatureUpdate)` when the temperature
+    /// changes from the control loop so Matter can push updates to controllers.
+    async fn run<F: Fn(OutOfBandMessage)>(&self, _notify: F) {
+        core::future::pending::<()>().await
+    }
+}
 ```
 
-**Step 3: Commit**
+**Step 3: Update mod.rs**
+
+```rust
+pub mod cluster;
+
+pub use cluster::{
+    ThermostatHooks,
+    OutOfBandMessage,
+    HEATING_ONLY_CLUSTER,
+    AttributeId,
+    SystemModeEnum,
+    RelayStateBitmap,
+    ControlSequenceOfOperationEnum,
+};
+```
+
+**Step 4: Verify compilation**
+
+Run: `cd thermos-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
+Expected: Compiles with rs-matter types
+
+**Step 5: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/state.rs thermos-esp32/src/matter/mod.rs
-git commit -m "feat(matter): add thread-safe thermostat state container"
+git add thermos-esp32/src/matter/
+git commit -m "feat(matter): import thermostat cluster and create ThermostatHooks trait
+
+- Use rs_matter::import!(Thermostat) for IDL-based cluster definition
+- Create HEATING_ONLY_CLUSTER with restricted feature set
+- Define ThermostatHooks trait following OnOffHooks pattern
+- Add OutOfBandMessage enum for async notifications"
 ```
 
 ---
 
-### Task 4: Implement Cluster Handler Trait
+### Task 5: Implement ThermostatHandler
 
 **Files:**
 - Create: `thermos-esp32/src/matter/handler.rs`
 - Modify: `thermos-esp32/src/matter/mod.rs`
 
-**Step 1: Implement ClusterAsyncHandler for thermostat**
-
-This task requires studying the rs-matter API to understand:
-1. How `ClusterAsyncHandler` trait works
-2. How to read/write attributes
-3. How to respond to Matter commands
+**Step 1: Create ThermostatHandler struct**
 
 Create `thermos-esp32/src/matter/handler.rs`:
 ```rust
 //! Matter Thermostat Cluster handler implementation
 //!
-//! Implements rs-matter's ClusterAsyncHandler trait for the Thermostat cluster.
+//! Implements the thermostat cluster using the ThermostatHooks trait
+//! for device-specific logic. Based on rs-matter's OnOffHandler pattern.
 
-use crate::matter::types::{self, attribute, defaults, temperature, SystemMode, ControlSequence};
-use crate::matter::state::ZoneThermostatState;
+use core::cell::Cell;
+use core::pin::pin;
 
-// NOTE: The exact rs-matter API needs to be verified by examining the crate.
-// This is a template based on the OnOffHandler pattern shown in rs-matter-embassy.
+use embassy_futures::select::{select, Either};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::signal::Signal;
+
+use rs_matter::dm::{Cluster, Dataver, HandlerContext, ReadContext, WriteContext};
+use rs_matter::dm::types::EndptId;
+use rs_matter::error::{Error, ErrorCode};
+use rs_matter::tlv::Nullable;
+
+use crate::matter::cluster::{
+    ThermostatHooks, OutOfBandMessage, 
+    AttributeId, SystemModeEnum, RelayStateBitmap,
+    ControlSequenceOfOperationEnum,
+};
 
 /// Handler for Matter Thermostat Cluster (0x0201)
-pub struct ThermostatHandler<'a> {
-    /// Zone index (0-6 for 7 zones)
-    zone_index: usize,
-    
-    /// Reference to zone state (shared with thermos-core)
-    state: &'a ZoneThermostatState,
-    
-    /// Callback when setpoint changes (to trigger NVS persist)
-    on_setpoint_change: Option<fn(zone: usize, setpoint_c: f32)>,
+///
+/// This handler manages the thermostat state machine and bridges
+/// Matter commands to the device-specific ThermostatHooks implementation.
+pub struct ThermostatHandler<H: ThermostatHooks> {
+    dataver: Dataver,
+    endpoint_id: EndptId,
+    hooks: H,
+    state_change_signal: Signal<NoopRawMutex, OutOfBandMessage>,
 }
 
-impl<'a> ThermostatHandler<'a> {
-    pub fn new(zone_index: usize, state: &'a ZoneThermostatState) -> Self {
+impl<H: ThermostatHooks> ThermostatHandler<H> {
+    /// Create a new ThermostatHandler
+    pub fn new(dataver: Dataver, endpoint_id: EndptId, hooks: H) -> Self {
         Self {
-            zone_index,
-            state,
-            on_setpoint_change: None,
+            dataver,
+            endpoint_id,
+            hooks,
+            state_change_signal: Signal::new(),
         }
     }
 
-    pub fn with_setpoint_callback(
-        mut self, 
-        callback: fn(zone: usize, setpoint_c: f32)
-    ) -> Self {
-        self.on_setpoint_change = Some(callback);
-        self
-    }
-
-    /// Handle attribute read request
-    pub fn read_attribute(&self, attr_id: u16) -> Option<AttributeValue> {
-        match attr_id {
-            attribute::LOCAL_TEMPERATURE => {
-                Some(AttributeValue::Int16(self.state.get_local_temperature()))
-            }
-            attribute::OCCUPIED_HEATING_SETPOINT => {
-                Some(AttributeValue::Int16(self.state.get_occupied_heating_setpoint()))
-            }
-            attribute::MIN_HEAT_SETPOINT_LIMIT => {
-                Some(AttributeValue::Int16(defaults::MIN_HEAT_SETPOINT))
-            }
-            attribute::MAX_HEAT_SETPOINT_LIMIT => {
-                Some(AttributeValue::Int16(defaults::MAX_HEAT_SETPOINT))
-            }
-            attribute::CONTROL_SEQUENCE_OF_OPERATION => {
-                Some(AttributeValue::Enum8(ControlSequence::HeatingOnly as u8))
-            }
-            attribute::SYSTEM_MODE => {
-                Some(AttributeValue::Enum8(self.state.get_system_mode() as u8))
-            }
-            attribute::THERMOSTAT_RUNNING_STATE => {
-                Some(AttributeValue::Bitmap16(self.state.get_running_state().0))
-            }
-            _ => None, // Unknown attribute
+    /// Validate cluster configuration on init
+    fn validate(&self) {
+        // Ensure required attributes are present
+        if H::CLUSTER.attribute(AttributeId::LocalTemperature as _).is_none() {
+            panic!("Thermostat validation: missing required attribute: LocalTemperature");
+        }
+        if H::CLUSTER.attribute(AttributeId::SystemMode as _).is_none() {
+            panic!("Thermostat validation: missing required attribute: SystemMode");
         }
     }
 
-    /// Handle attribute write request
-    pub fn write_attribute(&self, attr_id: u16, value: &AttributeValue) -> WriteResult {
-        match attr_id {
-            attribute::OCCUPIED_HEATING_SETPOINT => {
-                if let AttributeValue::Int16(setpoint) = value {
-                    match self.state.set_occupied_heating_setpoint(*setpoint) {
-                        Ok(()) => {
-                            // Notify callback for persistence
-                            if let Some(callback) = self.on_setpoint_change {
-                                let celsius = temperature::matter_to_celsius(*setpoint);
-                                callback(self.zone_index, celsius);
-                            }
-                            WriteResult::Ok
-                        }
-                        Err(_) => WriteResult::ConstraintError,
-                    }
-                } else {
-                    WriteResult::InvalidDataType
-                }
+    /// Initialize the handler
+    pub fn init(&self) {
+        self.validate();
+    }
+
+    /// Notify that state has changed (for out-of-band updates)
+    pub fn notify_state_changed(&self, message: OutOfBandMessage) {
+        self.state_change_signal.signal(message);
+    }
+
+    /// Get current local temperature
+    pub fn local_temperature(&self) -> Nullable<i16> {
+        self.hooks.local_temperature()
+    }
+
+    /// Get current setpoint
+    pub fn occupied_heating_setpoint(&self) -> i16 {
+        self.hooks.occupied_heating_setpoint()
+    }
+
+    /// Set setpoint (called from Matter write)
+    pub fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error> {
+        self.hooks.set_occupied_heating_setpoint(value)
+    }
+
+    /// Get current system mode
+    pub fn system_mode(&self) -> SystemModeEnum {
+        self.hooks.system_mode()
+    }
+
+    /// Set system mode (called from Matter write)
+    pub fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error> {
+        // For heating-only, only allow Off or Heat
+        match mode {
+            SystemModeEnum::Off | SystemModeEnum::Heat => {
+                self.hooks.set_system_mode(mode)
             }
-            attribute::SYSTEM_MODE => {
-                if let AttributeValue::Enum8(mode) = value {
-                    if let Some(system_mode) = SystemMode::from_u8(*mode) {
-                        // Only allow Off or Heat for heating-only thermostat
-                        match system_mode {
-                            SystemMode::Off | SystemMode::Heat => {
-                                self.state.set_system_mode(system_mode);
-                                WriteResult::Ok
-                            }
-                            _ => WriteResult::ConstraintError,
-                        }
-                    } else {
-                        WriteResult::ConstraintError
-                    }
-                } else {
-                    WriteResult::InvalidDataType
-                }
-            }
-            _ => WriteResult::UnsupportedAttribute,
+            _ => Err(ErrorCode::ConstraintError.into()),
         }
+    }
+
+    /// Get thermostat running state
+    pub fn thermostat_running_state(&self) -> RelayStateBitmap {
+        self.hooks.thermostat_running_state()
     }
 }
 
-// Placeholder types - actual types come from rs-matter
-#[derive(Debug)]
-pub enum AttributeValue {
-    Int16(i16),
-    Enum8(u8),
-    Bitmap16(u16),
-}
+// Implement ClusterAsyncHandler trait
+// Note: The exact trait methods depend on rs-matter version
+// This is based on OnOffHandler implementation pattern
 
-#[derive(Debug)]
-pub enum WriteResult {
-    Ok,
-    ConstraintError,
-    InvalidDataType,
-    UnsupportedAttribute,
+impl<H: ThermostatHooks> ThermostatHandler<H> {
+    /// The cluster metadata for this handler
+    pub const CLUSTER: Cluster<'static> = H::CLUSTER;
+
+    /// Get current data version
+    pub fn dataver(&self) -> u32 {
+        self.dataver.get()
+    }
+
+    /// Mark data version as changed
+    pub fn dataver_changed(&self) {
+        self.dataver.changed();
+    }
+
+    /// Run the handler's background task
+    pub async fn run(&self, ctx: impl HandlerContext) -> Result<(), Error> {
+        let mut hooks_fut = pin!(self.hooks.run(|msg| self.notify_state_changed(msg)));
+
+        loop {
+            match select(&mut hooks_fut, self.state_change_signal.wait()).await {
+                Either::First(_) => {
+                    // Hooks future should never complete
+                    panic!("ThermostatHooks::run returned unexpectedly");
+                }
+                Either::Second(message) => {
+                    // Handle out-of-band state change
+                    match message {
+                        OutOfBandMessage::TemperatureUpdate => {
+                            self.dataver_changed();
+                            ctx.notify_attribute_changed(
+                                self.endpoint_id,
+                                Self::CLUSTER.id,
+                                AttributeId::LocalTemperature as _,
+                            );
+                        }
+                        OutOfBandMessage::SetpointChanged => {
+                            self.dataver_changed();
+                            ctx.notify_attribute_changed(
+                                self.endpoint_id,
+                                Self::CLUSTER.id,
+                                AttributeId::OccupiedHeatingSetpoint as _,
+                            );
+                        }
+                        OutOfBandMessage::HeatingStateChanged => {
+                            self.dataver_changed();
+                            ctx.notify_attribute_changed(
+                                self.endpoint_id,
+                                Self::CLUSTER.id,
+                                AttributeId::ThermostatRunningState as _,
+                            );
+                        }
+                        OutOfBandMessage::ModeChanged => {
+                            self.dataver_changed();
+                            ctx.notify_attribute_changed(
+                                self.endpoint_id,
+                                Self::CLUSTER.id,
+                                AttributeId::SystemMode as _,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 ```
 
-**Step 2: Update mod.rs**
+**Step 2: Implement ZoneThermostatState as ThermostatHooks**
 
-Add to `thermos-esp32/src/matter/mod.rs`:
+Modify `thermos-esp32/src/matter/state.rs` to implement the hooks trait:
+```rust
+// Add at the end of state.rs
+
+use crate::matter::cluster::{
+    ThermostatHooks, OutOfBandMessage,
+    HEATING_ONLY_CLUSTER,
+    SystemModeEnum, RelayStateBitmap, ControlSequenceOfOperationEnum,
+};
+use rs_matter::dm::Cluster;
+use rs_matter::error::{Error, ErrorCode};
+use rs_matter::tlv::Nullable;
+
+impl ThermostatHooks for ZoneThermostatState {
+    const CLUSTER: Cluster<'static> = HEATING_ONLY_CLUSTER;
+
+    fn local_temperature(&self) -> Nullable<i16> {
+        let temp = self.get_local_temperature();
+        if temp == temperature::NULL_TEMPERATURE {
+            Nullable::null()
+        } else {
+            Nullable::some(temp)
+        }
+    }
+
+    fn occupied_heating_setpoint(&self) -> i16 {
+        self.get_occupied_heating_setpoint()
+    }
+
+    fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), Error> {
+        self.set_occupied_heating_setpoint(value)
+            .map_err(|_| ErrorCode::ConstraintError.into())
+    }
+
+    fn min_heat_setpoint_limit(&self) -> i16 {
+        defaults::MIN_HEAT_SETPOINT
+    }
+
+    fn max_heat_setpoint_limit(&self) -> i16 {
+        defaults::MAX_HEAT_SETPOINT
+    }
+
+    fn system_mode(&self) -> SystemModeEnum {
+        match self.get_system_mode() {
+            SystemMode::Off => SystemModeEnum::Off,
+            SystemMode::Heat => SystemModeEnum::Heat,
+            _ => SystemModeEnum::Off, // Default to off for unsupported modes
+        }
+    }
+
+    fn set_system_mode(&self, mode: SystemModeEnum) -> Result<(), Error> {
+        let our_mode = match mode {
+            SystemModeEnum::Off => SystemMode::Off,
+            SystemModeEnum::Heat => SystemMode::Heat,
+            _ => return Err(ErrorCode::ConstraintError.into()),
+        };
+        self.set_system_mode(our_mode);
+        Ok(())
+    }
+
+    fn thermostat_running_state(&self) -> RelayStateBitmap {
+        let mut bitmap = RelayStateBitmap::empty();
+        if self.is_heating() {
+            bitmap |= RelayStateBitmap::HEAT;
+        }
+        bitmap
+    }
+}
+```
+
+**Step 3: Update mod.rs**
+
 ```rust
 pub mod handler;
+
 pub use handler::ThermostatHandler;
 ```
 
-**Step 3: Commit**
+**Step 4: Verify compilation**
+
+Run: `cd thermos-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
+Expected: Compiles with handler implementation
+
+**Step 5: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/handler.rs thermos-esp32/src/matter/mod.rs  
-git commit -m "feat(matter): implement thermostat cluster handler (template)"
-```
+git add thermos-esp32/src/matter/
+git commit -m "feat(matter): implement ThermostatHandler with hooks pattern
 
----
-
-### Task 5: Study rs-matter API and Adapt Handler
-
-**Goal:** Examine actual rs-matter crate API and adapt the handler template.
-
-**Files:**
-- Modify: `thermos-esp32/src/matter/handler.rs`
-
-**Step 1: Clone rs-matter and examine API**
-
-```bash
-cd /tmp
-git clone https://github.com/project-chip/rs-matter.git
-# Examine:
-# - rs-matter/src/data_model/cluster_basic_information.rs (example cluster)
-# - rs-matter/src/data_model/objects/mod.rs (ClusterAsyncHandler trait)
-# - rs-matter/src/data_model/sdm/on_off.rs (OnOff cluster implementation)
-```
-
-**Step 2: Adapt handler to actual rs-matter API**
-
-Update `handler.rs` based on actual trait requirements from rs-matter.
-
-The handler likely needs to implement:
-```rust
-impl ClusterAsyncHandler for ThermostatHandler {
-    async fn read(&self, attr_id: AttrId, writer: &mut AttrDataWriter<'_>) -> Result<(), Error>;
-    async fn write(&self, attr_id: AttrId, data: &AttrData<'_>) -> Result<(), Error>;
-    // Possibly invoke() for commands
-}
-```
-
-**Step 3: Verify compilation**
-
-Run: `cd thermos-esp32 && cargo check`
-Expected: Compiles with actual rs-matter types
-
-**Step 4: Commit**
-
-```bash
-git add thermos-esp32/src/matter/handler.rs
-git commit -m "feat(matter): adapt handler to rs-matter ClusterAsyncHandler API"
+- Create ThermostatHandler struct following OnOffHandler pattern
+- Implement background task for out-of-band notifications
+- Implement ThermostatHooks for ZoneThermostatState
+- Bridge between Matter types and our internal types"
 ```
 
 ---
@@ -633,10 +656,7 @@ Create `thermos-esp32/src/matter/device.rs`:
 //!
 //! Defines the Matter node with 7 thermostat endpoints (one per zone).
 
-use crate::matter::types::{CLUSTER_ID, DEVICE_TYPE_ID};
 use crate::matter::state::ZoneThermostatState;
-use crate::matter::handler::ThermostatHandler;
-use crate::config::ZONE_CONFIGS;
 
 /// Matter endpoint numbers (0 is root, 1-7 are zones)
 pub const ROOT_ENDPOINT: u16 = 0;
@@ -648,8 +668,11 @@ pub const ZONE5_ENDPOINT: u16 = 5;
 pub const ZONE6_ENDPOINT: u16 = 6;
 pub const ZONE7_ENDPOINT: u16 = 7;
 
+/// Number of thermostat zones
+pub const NUM_ZONES: usize = 7;
+
 /// Static state for all 7 zones
-pub static ZONE_STATES: [ZoneThermostatState; 7] = [
+pub static ZONE_STATES: [ZoneThermostatState; NUM_ZONES] = [
     ZoneThermostatState::new(),
     ZoneThermostatState::new(),
     ZoneThermostatState::new(),
@@ -672,9 +695,6 @@ pub fn get_zone_state_by_endpoint(endpoint: u16) -> Option<&'static ZoneThermost
         None
     }
 }
-
-// NOTE: Actual device/node configuration depends on rs-matter-embassy API
-// This is a template - adapt based on rs-matter-embassy examples
 
 /// Device information for Matter commissioning
 pub struct DeviceInfo {
@@ -701,7 +721,7 @@ impl Default for DeviceInfo {
 Add to `thermos-esp32/src/matter/mod.rs`:
 ```rust
 pub mod device;
-pub use device::{ZONE_STATES, get_zone_state, get_zone_state_by_endpoint, DeviceInfo};
+pub use device::{ZONE_STATES, get_zone_state, get_zone_state_by_endpoint, DeviceInfo, NUM_ZONES};
 ```
 
 **Step 3: Commit**
@@ -730,35 +750,43 @@ Create `thermos-esp32/src/matter/bridge.rs`:
 //! - Matter cluster (for HomeKit/Google/Alexa)
 //! - thermos-core hysteresis control (actual heating logic)
 
-use crate::matter::device::{get_zone_state, ZONE_STATES};
+use crate::matter::device::get_zone_state;
 use crate::matter::types::temperature;
-use crate::zone::ZoneState;
-use thermos_core::ThermostatState;
 
-/// Update Matter state from thermos-core (called in control loop)
-pub fn update_matter_from_thermos(zone_index: usize, thermos_state: &ThermostatState) {
-    if let Some(matter_state) = get_zone_state(zone_index) {
-        // Update current temperature
-        matter_state.set_local_temperature_celsius(thermos_state.current_temp);
-        
-        // Update heating state
-        matter_state.set_heating_active(thermos_state.heat_on);
+/// Update Matter state from thermos-core control loop
+///
+/// Call this after each control cycle to sync the current temperature
+/// and heating state to Matter for controller updates.
+pub fn update_matter_from_control_loop(
+    zone_index: usize,
+    current_temp_c: f32,
+    heating_active: bool,
+) {
+    if let Some(state) = get_zone_state(zone_index) {
+        state.set_local_temperature_celsius(current_temp_c);
+        state.set_heating_active(heating_active);
     }
 }
 
-/// Get setpoint from Matter for thermos-core (called in control loop)
+/// Get setpoint from Matter for thermos-core control loop
+///
+/// Call this in the control loop to get the current target temperature
+/// set via HomeKit/Google/Alexa.
 pub fn get_matter_setpoint(zone_index: usize) -> Option<f32> {
     get_zone_state(zone_index).map(|state| state.get_setpoint_celsius())
 }
 
-/// Check if zone is enabled in Matter
+/// Check if zone is enabled in Matter (SystemMode == Heat)
 pub fn is_zone_enabled_in_matter(zone_index: usize) -> bool {
     get_zone_state(zone_index)
         .map(|state| state.is_enabled())
         .unwrap_or(false)
 }
 
-/// Callback for when Matter setpoint changes (persist to NVS)
+/// Callback for when Matter setpoint changes
+///
+/// Use this to trigger NVS persistence when the setpoint is changed
+/// via Matter commands.
 pub fn on_matter_setpoint_change(zone_index: usize, setpoint_c: f32) {
     log::info!(
         "[Zone{}] Matter setpoint changed to {:.1}°C",
@@ -772,15 +800,21 @@ pub fn on_matter_setpoint_change(zone_index: usize, setpoint_c: f32) {
 **Step 2: Update controller.rs to use bridge**
 
 Modify the control loop in `controller.rs` to:
-1. Read setpoint from Matter state instead of (or in addition to) local config
-2. Call `update_matter_from_thermos()` after each control cycle
+1. Read setpoint from Matter state: `get_matter_setpoint(zone_index)`
+2. Check if zone enabled: `is_zone_enabled_in_matter(zone_index)`
+3. After control cycle: `update_matter_from_control_loop(zone_index, temp, heating)`
 
 **Step 3: Update mod.rs**
 
 Add to `thermos-esp32/src/matter/mod.rs`:
 ```rust
 pub mod bridge;
-pub use bridge::{update_matter_from_thermos, get_matter_setpoint, is_zone_enabled_in_matter};
+pub use bridge::{
+    update_matter_from_control_loop,
+    get_matter_setpoint,
+    is_zone_enabled_in_matter,
+    on_matter_setpoint_change,
+};
 ```
 
 **Step 4: Commit**
@@ -794,136 +828,53 @@ git commit -m "feat(matter): add bridge between Matter state and thermos-core"
 
 ### Task 8: Add Unit Tests
 
+**Status:** Unit tests already included in types.rs and state.rs.
+
+**Additional tests to add:**
+- Test ThermostatHooks implementation
+- Test bridge functions
+- Test device endpoint mapping
+
 **Files:**
-- Create: `thermos-esp32/src/matter/tests.rs`
-- Modify: `thermos-esp32/src/matter/mod.rs`
+- The tests are embedded in the modules themselves using `#[cfg(test)]`
 
-**Step 1: Write unit tests for types and state**
+**Note:** Since thermos-esp32 is no_std, tests run via the existing test infrastructure or need host-side testing.
 
-Create `thermos-esp32/src/matter/tests.rs`:
-```rust
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::matter::types::{temperature, SystemMode, RunningState, defaults};
-    use crate::matter::state::ZoneThermostatState;
-
-    #[test]
-    fn test_temperature_conversion() {
-        // Celsius to Matter
-        assert_eq!(temperature::celsius_to_matter(21.5), 2150);
-        assert_eq!(temperature::celsius_to_matter(0.0), 0);
-        assert_eq!(temperature::celsius_to_matter(-10.0), -1000);
-        
-        // Matter to Celsius
-        assert_eq!(temperature::matter_to_celsius(2150), 21.5);
-        assert_eq!(temperature::matter_to_celsius(0), 0.0);
-        assert_eq!(temperature::matter_to_celsius(-1000), -10.0);
-    }
-
-    #[test]
-    fn test_system_mode() {
-        assert_eq!(SystemMode::from_u8(0x00), Some(SystemMode::Off));
-        assert_eq!(SystemMode::from_u8(0x04), Some(SystemMode::Heat));
-        assert_eq!(SystemMode::from_u8(0xFF), None);
-        
-        assert_eq!(u8::from(SystemMode::Off), 0x00);
-        assert_eq!(u8::from(SystemMode::Heat), 0x04);
-    }
-
-    #[test]
-    fn test_running_state() {
-        let mut state = RunningState::new();
-        assert!(!state.is_heating());
-        
-        state.set_heating(true);
-        assert!(state.is_heating());
-        assert_eq!(state.0, RunningState::HEAT);
-        
-        state.set_heating(false);
-        assert!(!state.is_heating());
-        assert_eq!(state.0, 0);
-    }
-
-    #[test]
-    fn test_zone_state_temperature() {
-        let state = ZoneThermostatState::new();
-        
-        // Initial value is null
-        assert_eq!(state.get_local_temperature(), temperature::NULL_TEMPERATURE);
-        
-        // Set via Celsius
-        state.set_local_temperature_celsius(21.5);
-        assert_eq!(state.get_local_temperature(), 2150);
-    }
-
-    #[test]
-    fn test_zone_state_setpoint() {
-        let state = ZoneThermostatState::new();
-        
-        // Default setpoint
-        assert_eq!(state.get_occupied_heating_setpoint(), defaults::OCCUPIED_HEATING_SETPOINT);
-        
-        // Valid setpoint
-        assert!(state.set_occupied_heating_setpoint(2200).is_ok());
-        assert_eq!(state.get_setpoint_celsius(), 22.0);
-        
-        // Below minimum
-        assert!(state.set_occupied_heating_setpoint(500).is_err());
-        
-        // Above maximum
-        assert!(state.set_occupied_heating_setpoint(3500).is_err());
-    }
-
-    #[test]
-    fn test_zone_state_mode() {
-        let state = ZoneThermostatState::new();
-        
-        // Default is Heat
-        assert_eq!(state.get_system_mode(), SystemMode::Heat);
-        assert!(state.is_enabled());
-        
-        // Turn off
-        state.set_system_mode(SystemMode::Off);
-        assert_eq!(state.get_system_mode(), SystemMode::Off);
-        assert!(!state.is_enabled());
-    }
-}
-```
-
-**Step 2: Update mod.rs**
-
-Add to `thermos-esp32/src/matter/mod.rs`:
-```rust
-#[cfg(test)]
-mod tests;
-```
-
-**Step 3: Run tests**
-
-Run: `cd thermos-esp32 && cargo test --lib`
-Expected: All tests pass
-
-**Step 4: Commit**
-
+**Commit:**
 ```bash
-git add thermos-esp32/src/matter/tests.rs thermos-esp32/src/matter/mod.rs
-git commit -m "test(matter): add unit tests for thermostat types and state"
+git commit -m "test(matter): verify existing tests cover matter module"
 ```
 
 ---
 
 ## Validation Checklist
 
-Before proceeding to Phase 3 (rs-matter-embassy integration):
+Before proceeding to Phase 3 (Matter stack integration):
 
 - [ ] All unit tests pass
-- [ ] Types match Matter Thermostat Cluster specification
+- [ ] Types match Matter Thermostat Cluster specification  
 - [ ] State container is thread-safe (atomic operations)
-- [ ] Handler implements all required attributes
+- [ ] ThermostatHooks trait properly implemented for ZoneThermostatState
+- [ ] ThermostatHandler compiles with rs-matter types
 - [ ] Bridge correctly converts between Matter and thermos-core formats
 - [ ] No compilation errors with rs-matter dependencies
 - [ ] Code documented with rustdoc comments
+
+---
+
+## Phase 3 Preview: Matter Stack Integration
+
+Phase 3 will focus on:
+1. Integrating with rs-matter-embassy (or manual embassy integration)
+2. Setting up BLE commissioning
+3. WiFi connectivity for Matter
+4. NVS storage for Matter fabrics
+5. Testing with Apple Home, Google Home, Alexa
+
+This requires resolving the embassy-time version conflict, either by:
+- Waiting for rs-matter-stack to update to embassy-time 0.5
+- Implementing manual stack assembly without rs-matter-stack
+- Using a compatibility shim
 
 ---
 
@@ -932,9 +883,10 @@ Before proceeding to Phase 3 (rs-matter-embassy integration):
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | rs-matter API changes | Handler code breaks | Pin dependency version, check changelog |
-| No thermostat cluster in rs-matter | Must implement from scratch | Use OnOff cluster as template, follow spec |
+| Embassy version conflicts | Build fails | Monitor rs-matter updates, use compatible versions |
 | Memory pressure with Matter stack | OOM on ESP32 | Profile early, reduce HEAP_SIZE if needed |
 | BLE commissioning complexity | Pairing issues | Test with multiple controllers early |
+| IDL import issues | Cluster types wrong | Verify against Matter spec, test with chip-tool |
 
 ---
 
@@ -942,6 +894,6 @@ Before proceeding to Phase 3 (rs-matter-embassy integration):
 
 - [Matter Specification - Thermostat Cluster](https://github.com/project-chip/connectedhomeip/blob/master/data_model/1.5/clusters/Thermostat.xml)
 - [rs-matter GitHub](https://github.com/project-chip/rs-matter)
+- [rs-matter OnOffHandler](https://github.com/project-chip/rs-matter/blob/main/rs-matter/src/dm/clusters/on_off.rs) - Reference implementation
+- [rs-matter IDL Files](https://github.com/project-chip/rs-matter/tree/main/rs-matter-macros/src/idl/parser) - Cluster definitions
 - [rs-matter-embassy GitHub](https://github.com/sysgrok/rs-matter-embassy)
-- [Implementing a Matter Thermostat on ESP32](https://tomasmcguinness.com/2025/09/25/implementing-a-matter-thermostat-on-esp32/)
-- [Building a heating monitor using Matter and ESP32](https://tomasmcguinness.com/2025/11/27/building-a-new-heating-monitor-using-matter-and-esp32/)
