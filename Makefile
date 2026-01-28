@@ -2,6 +2,15 @@
 
 .PHONY: help build build-release test clean fmt lint check flash monitor install-hooks
 
+# Load environment from .env.local or .env if they exist
+ifneq (,$(wildcard .env.local))
+    include .env.local
+    export
+else ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
 # Default target
 help:
 	@echo "Thermos-Rust Build System (ESP32)"
@@ -28,6 +37,10 @@ help:
 	@echo "  setup          - Install development dependencies"
 	@echo "  install-hooks  - Install git pre-commit hooks"
 	@echo ""
+	@echo "Environment:"
+	@echo "  Copy .env.example to .env.local and configure your settings."
+	@echo "  .env.local is gitignored and loaded automatically."
+	@echo ""
 	@echo "Note: thermos-linux is preserved but not in active development."
 	@echo "      Use 'cargo build -p thermos-linux' to build it explicitly."
 
@@ -42,7 +55,7 @@ build-release:
 # Note: Must cd into thermos-esp32 to pick up .cargo/config.toml (target, build-std, linker flags)
 # Output goes to workspace root target/ directory
 
-# Helper to ensure WiFi credentials are set
+# Helper to ensure WiFi credentials are set (prompts if not in env)
 define check_wifi_creds
 	@if [ -z "$$WIFI_SSID" ]; then \
 		read -p "Enter WIFI_SSID: " ssid; \
@@ -106,6 +119,8 @@ setup:
 	@echo "For ESP32 development, also install:"
 	@echo "  rustup target add riscv32imac-unknown-none-elf"
 	@echo "  cargo install espflash"
+	@echo ""
+	@echo "Then copy .env.example to .env.local and configure your settings."
 
 # Install git hooks
 install-hooks:
