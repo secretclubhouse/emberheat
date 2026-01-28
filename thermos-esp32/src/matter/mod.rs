@@ -17,6 +17,7 @@
 //! - [`bridge`]: Bidirectional sync with thermos-core control loop
 
 pub mod cluster;
+pub mod device;
 pub mod handler;
 pub mod state;
 pub mod types;
@@ -32,3 +33,10 @@ pub use handler::ThermostatHandler;
 
 // Re-export state types
 pub use state::{SetpointError, ZoneThermostatState};
+
+// Re-export device types
+pub use device::{
+    endpoint_to_zone_index, get_zone_state, get_zone_state_by_endpoint, zone_index_to_endpoint,
+    DeviceInfo, NUM_ZONES, ROOT_ENDPOINT, ZONE1_ENDPOINT, ZONE2_ENDPOINT, ZONE3_ENDPOINT,
+    ZONE4_ENDPOINT, ZONE5_ENDPOINT, ZONE6_ENDPOINT, ZONE7_ENDPOINT, ZONE_STATES,
+};
