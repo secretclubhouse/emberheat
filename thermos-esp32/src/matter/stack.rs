@@ -415,9 +415,9 @@ macro_rules! mk_static {
 /// This function never returns under normal operation. It runs the Matter
 /// stack indefinitely, handling commissioning and attribute read/write requests.
 pub async fn matter_task(
+    controller: &'static EspRadioController<'static>,
     wifi: WIFI<'static>,
     bt: BT<'static>,
-    radio: &'static EspRadioController<'static>,
 ) {
     info!("Matter: Starting task...");
 
@@ -483,7 +483,7 @@ pub async fn matter_task(
 
     // Run Matter stack with WiFi+BLE coexistence (required for Alexa)
     let matter = pin!(stack.run_coex(
-        EmbassyWifi::new(EspWifiDriver::new(radio, wifi, bt), stack),
+        EmbassyWifi::new(EspWifiDriver::new(controller, wifi, bt), stack),
         &persist,
         (NODE, handler),
         (), // No user future

@@ -133,20 +133,25 @@ pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
 ];
 
 // =============================================================================
-// WiFi Configuration
+// WiFi Configuration (only for MQTT mode, not Matter)
 // =============================================================================
 
 /// WiFi SSID (set via WIFI_SSID environment variable at compile time)
+/// Only required when not using Matter feature (Matter handles WiFi internally)
+#[cfg(not(feature = "matter"))]
 pub const WIFI_SSID: &str = env!("WIFI_SSID");
 
 /// WiFi password (set via WIFI_PASSWORD environment variable at compile time)
+/// Only required when not using Matter feature (Matter handles WiFi internally)
+#[cfg(not(feature = "matter"))]
 pub const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 
 // =============================================================================
-// MQTT Configuration
+// MQTT Configuration (only for MQTT mode, not Matter)
 // =============================================================================
 
 /// MQTT broker hostname or IP address (set via MQTT_BROKER_HOST env var, default: "localhost")
+#[cfg(not(feature = "matter"))]
 pub const MQTT_BROKER_HOST: &str = match option_env!("MQTT_BROKER_HOST") {
     Some(host) => host,
     None => "localhost",
@@ -154,18 +159,22 @@ pub const MQTT_BROKER_HOST: &str = match option_env!("MQTT_BROKER_HOST") {
 
 /// MQTT broker port (default: 1883)
 /// Note: Port cannot be easily set via env var due to const parsing limitations
+#[cfg(not(feature = "matter"))]
 pub const MQTT_BROKER_PORT: u16 = 1883;
 
 /// MQTT client/device identifier (set via MQTT_DEVICE_ID env var, default: "thermos-esp32")
+#[cfg(not(feature = "matter"))]
 pub const MQTT_DEVICE_ID: &str = match option_env!("MQTT_DEVICE_ID") {
     Some(id) => id,
     None => "thermos-esp32",
 };
 
 /// MQTT username for authentication (set via MQTT_USERNAME env var, None = no auth)
+#[cfg(not(feature = "matter"))]
 pub const MQTT_USERNAME: Option<&str> = option_env!("MQTT_USERNAME");
 
 /// MQTT password for authentication (set via MQTT_PASSWORD env var, None = no auth)
+#[cfg(not(feature = "matter"))]
 pub const MQTT_PASSWORD: Option<&str> = option_env!("MQTT_PASSWORD");
 
 // =============================================================================
@@ -307,6 +316,7 @@ mod tests {
         let _ = config.name; // Original still usable
     }
 
+    #[cfg(not(feature = "matter"))]
     #[test]
     fn test_mqtt_config() {
         assert!(!MQTT_BROKER_HOST.is_empty());
