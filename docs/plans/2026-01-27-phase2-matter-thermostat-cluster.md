@@ -733,116 +733,222 @@ git commit -m "feat(matter): add 7-zone device configuration"
 
 ---
 
-### Task 7: Bridge Matter State to Thermos-Core
+### Task 7: Bridge Matter State to Thermos-Core ✅ COMPLETED
+
+**Status:** Done - bridge.rs with bidirectional sync functions.
+
+**What was done:**
+- Created `bridge.rs` with sync functions between Matter and control loop
+- `update_matter_from_control_loop()` - sync temp/heating to Matter
+- `get_matter_setpoint()` - read setpoint from Matter
+- `is_zone_enabled_in_matter()` - check zone mode
+- `set_matter_setpoint()`/`set_matter_mode()` - sync local changes
+- `sync_local_state_to_matter()` - bulk sync for NVS restore
+- Unit tests for all bridge functions
+
+---
+
+### Task 7.5: Extract thermos-matter Crate
+
+**Status:** Pending
+
+**Goal:** Extract the Matter module into a separate `thermos-matter` crate to enable:
+1. Host-based unit testing (can't run thermos-esp32 tests on host due to ESP32 dependencies)
+2. Optional `std` feature for future non-embedded use cases
+3. Cleaner dependency graph and independent versioning
 
 **Files:**
-- Create: `thermos-esp32/src/matter/bridge.rs`
-- Modify: `thermos-esp32/src/matter/mod.rs`
-- Modify: `thermos-esp32/src/controller.rs`
+- Create: `thermos-matter/Cargo.toml`
+- Create: `thermos-matter/src/lib.rs`
+- Move: `thermos-esp32/src/matter/types.rs` → `thermos-matter/src/types.rs`
+- Move: `thermos-esp32/src/matter/state.rs` → `thermos-matter/src/state.rs`
+- Move: `thermos-esp32/src/matter/cluster.rs` → `thermos-matter/src/cluster.rs`
+- Move: `thermos-esp32/src/matter/handler.rs` → `thermos-matter/src/handler.rs`
+- Move: `thermos-esp32/src/matter/device.rs` → `thermos-matter/src/device.rs`
+- Keep: `thermos-esp32/src/matter/bridge.rs` (integration layer, stays in thermos-esp32)
+- Modify: `thermos-esp32/src/matter/mod.rs` (re-export from thermos-matter)
+- Modify: `thermos-esp32/Cargo.toml` (add thermos-matter dependency)
+- Modify: `Cargo.toml` (add thermos-matter to workspace members)
 
-**Step 1: Create bidirectional bridge**
+**Step 1: Create thermos-matter crate**
 
-Create `thermos-esp32/src/matter/bridge.rs`:
-```rust
-//! Bridge between Matter cluster state and thermos-core control loop
-//!
-//! Syncs temperature readings, setpoints, and heating state between:
-//! - Matter cluster (for HomeKit/Google/Alexa)
-//! - thermos-core hysteresis control (actual heating logic)
+Create `thermos-matter/Cargo.toml`:
+```toml
+[package]
+name = "thermos-matter"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Matter Thermostat Cluster implementation for heating-only thermostats"
 
-use crate::matter::device::get_zone_state;
-use crate::matter::types::temperature;
+[dependencies]
+# Matter protocol
+rs-matter = { git = "https://github.com/project-chip/rs-matter", default-features = false, features = ["rustcrypto"] }
 
-/// Update Matter state from thermos-core control loop
-///
-/// Call this after each control cycle to sync the current temperature
-/// and heating state to Matter for controller updates.
-pub fn update_matter_from_control_loop(
-    zone_index: usize,
-    current_temp_c: f32,
-    heating_active: bool,
-) {
-    if let Some(state) = get_zone_state(zone_index) {
-        state.set_local_temperature_celsius(current_temp_c);
-        state.set_heating_active(heating_active);
-    }
-}
+# Embassy async (for Signal, select, etc.)
+embassy-futures = "0.1"
+embassy-sync = "0.7"
 
-/// Get setpoint from Matter for thermos-core control loop
-///
-/// Call this in the control loop to get the current target temperature
-/// set via HomeKit/Google/Alexa.
-pub fn get_matter_setpoint(zone_index: usize) -> Option<f32> {
-    get_zone_state(zone_index).map(|state| state.get_setpoint_celsius())
-}
+# Utilities
+log = { workspace = true }
+heapless = "0.9"
 
-/// Check if zone is enabled in Matter (SystemMode == Heat)
-pub fn is_zone_enabled_in_matter(zone_index: usize) -> bool {
-    get_zone_state(zone_index)
-        .map(|state| state.is_enabled())
-        .unwrap_or(false)
-}
+[features]
+default = []
+std = []
 
-/// Callback for when Matter setpoint changes
-///
-/// Use this to trigger NVS persistence when the setpoint is changed
-/// via Matter commands.
-pub fn on_matter_setpoint_change(zone_index: usize, setpoint_c: f32) {
-    log::info!(
-        "[Zone{}] Matter setpoint changed to {:.1}°C",
-        zone_index + 1,
-        setpoint_c
-    );
-    // NVS persistence will be triggered by control loop on next iteration
-}
+[dev-dependencies]
+tokio = { version = "1.48", features = ["rt", "macros", "sync", "time"] }
 ```
 
-**Step 2: Update controller.rs to use bridge**
+**Step 2: Create lib.rs**
 
-Modify the control loop in `controller.rs` to:
-1. Read setpoint from Matter state: `get_matter_setpoint(zone_index)`
-2. Check if zone enabled: `is_zone_enabled_in_matter(zone_index)`
-3. After control cycle: `update_matter_from_control_loop(zone_index, temp, heating)`
-
-**Step 3: Update mod.rs**
-
-Add to `thermos-esp32/src/matter/mod.rs`:
+Create `thermos-matter/src/lib.rs`:
 ```rust
+//! Matter Thermostat Cluster implementation
+//!
+//! Provides a heating-only Matter Thermostat Cluster (0x0201) implementation
+//! designed for integration with rs-matter on embedded systems.
+//!
+//! # Features
+//!
+//! - `std` - Enable std library support (default: no_std)
+//!
+//! # Architecture
+//!
+//! - [`cluster`]: Cluster definition from Matter IDL and ThermostatHooks trait
+//! - [`types`]: Type definitions (attribute IDs, enums, temperature conversions)
+//! - [`state`]: Thread-safe state container for zone thermostat data
+//! - [`handler`]: Matter cluster handler implementation
+//! - [`device`]: Multi-zone device configuration
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub mod cluster;
+pub mod device;
+pub mod handler;
+pub mod state;
+pub mod types;
+
+// Re-exports for convenience
+pub use cluster::{
+    AttributeId, ControlSequenceOfOperationEnum, Feature, OutOfBandMessage, 
+    RelayStateBitmap, SystemModeEnum, ThermostatHooks, HEATING_ONLY_CLUSTER,
+};
+pub use device::{
+    endpoint_to_zone_index, get_zone_state, get_zone_state_by_endpoint, 
+    zone_index_to_endpoint, DeviceInfo, NUM_ZONES, ROOT_ENDPOINT, 
+    ZONE1_ENDPOINT, ZONE2_ENDPOINT, ZONE3_ENDPOINT, ZONE4_ENDPOINT, 
+    ZONE5_ENDPOINT, ZONE6_ENDPOINT, ZONE7_ENDPOINT, ZONE_STATES,
+};
+pub use handler::ThermostatHandler;
+pub use state::{SetpointError, ZoneThermostatState};
+```
+
+**Step 3: Move source files**
+
+Move these files from `thermos-esp32/src/matter/` to `thermos-matter/src/`:
+- `types.rs`
+- `state.rs`
+- `cluster.rs`
+- `handler.rs`
+- `device.rs`
+
+Update imports in moved files:
+- Change `crate::matter::` to `crate::`
+
+**Step 4: Update thermos-esp32**
+
+Modify `thermos-esp32/Cargo.toml`:
+```toml
+# Add under [dependencies]
+thermos-matter = { path = "../thermos-matter" }
+```
+
+Modify `thermos-esp32/src/matter/mod.rs`:
+```rust
+//! Matter protocol integration for thermos-esp32
+//!
+//! Re-exports thermos-matter and provides the bridge to thermos-core.
+
 pub mod bridge;
+
+// Re-export everything from thermos-matter
+pub use thermos_matter::*;
+
+// Re-export bridge functions
 pub use bridge::{
-    update_matter_from_control_loop,
-    get_matter_setpoint,
-    is_zone_enabled_in_matter,
-    on_matter_setpoint_change,
+    get_matter_setpoint, is_zone_enabled_in_matter, set_matter_mode, 
+    set_matter_setpoint, sync_local_state_to_matter, update_matter_from_control_loop,
 };
 ```
 
-**Step 4: Commit**
+Update `thermos-esp32/src/matter/bridge.rs` imports:
+```rust
+// Change from:
+use crate::matter::device::get_zone_state;
+use crate::matter::types::SystemMode;
+
+// To:
+use thermos_matter::device::get_zone_state;
+use thermos_matter::types::SystemMode;
+```
+
+**Step 5: Update workspace**
+
+Modify root `Cargo.toml`:
+```toml
+[workspace]
+members = [
+    "thermos-core",
+    "thermos-matter",  # Add this
+    "thermos-esp32",
+    "thermos-linux",
+]
+```
+
+**Step 6: Verify compilation**
 
 ```bash
-git add thermos-esp32/src/matter/bridge.rs thermos-esp32/src/matter/mod.rs thermos-esp32/src/controller.rs
-git commit -m "feat(matter): add bridge between Matter state and thermos-core"
+# Test thermos-matter builds and tests pass
+cargo test -p thermos-matter
+
+# Test thermos-esp32 still compiles
+WIFI_SSID=test WIFI_PASSWORD=test cargo check -p thermos-esp32 --target riscv32imac-unknown-none-elf
+```
+
+**Step 7: Commit**
+
+```bash
+git add thermos-matter/ Cargo.toml thermos-esp32/
+git commit -m "refactor: extract thermos-matter crate for testability
+
+- Create thermos-matter crate with no_std default, optional std feature
+- Move types, state, cluster, handler, device modules from thermos-esp32
+- Keep bridge.rs in thermos-esp32 as integration layer
+- Re-export thermos-matter from thermos-esp32 for compatibility
+- Tests now run on host with cargo test -p thermos-matter"
 ```
 
 ---
 
-### Task 8: Add Unit Tests
+### Task 8: Verify Unit Tests Pass ✅ BLOCKED (depends on Task 7.5)
 
-**Status:** Unit tests already included in types.rs and state.rs.
+**Status:** Blocked - waiting for thermos-matter extraction
 
-**Additional tests to add:**
-- Test ThermostatHooks implementation
-- Test bridge functions
-- Test device endpoint mapping
+**Depends on:** Task 7.5
 
-**Files:**
-- The tests are embedded in the modules themselves using `#[cfg(test)]`
+After Task 7.5 is complete:
 
-**Note:** Since thermos-esp32 is no_std, tests run via the existing test infrastructure or need host-side testing.
-
-**Commit:**
 ```bash
-git commit -m "test(matter): verify existing tests cover matter module"
+# Run all thermos-matter tests on host
+cargo test -p thermos-matter
+
+# Expected: All tests pass including:
+# - types.rs tests (temperature conversion, enums)
+# - state.rs tests (ZoneThermostatState operations)
+# - device.rs tests (endpoint mapping)
+# - bridge.rs tests remain in thermos-esp32 (they use both crates)
 ```
 
 ---
