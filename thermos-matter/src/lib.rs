@@ -18,15 +18,22 @@
 //! # Example
 //!
 //! ```ignore
-//! use thermos_matter::{ZoneThermostatState, ThermostatHandler, ZONE_STATES};
+//! use thermos_matter::{DeviceInfo, ZoneThermostatState, endpoint_to_zone_index};
 //!
-//! // Access zone state
-//! let zone = &ZONE_STATES[0];
-//! zone.set_setpoint_celsius(21.5).unwrap();
+//! // Create device configuration
+//! let device = DeviceInfo::new(3); // 3-zone thermostat
 //!
-//! // Check if heating
-//! if zone.is_heating() {
-//!     // Relay is on
+//! // Application owns zone states (typically static or in main)
+//! let zones: [ZoneThermostatState; 3] = core::array::from_fn(|_| ZoneThermostatState::new());
+//!
+//! // Map Matter endpoint to zone index
+//! if let Some(idx) = endpoint_to_zone_index(1, device.num_zones) {
+//!     zones[idx].set_setpoint_celsius(21.5).unwrap();
+//!
+//!     // Check if heating
+//!     if zones[idx].is_heating() {
+//!         // Relay is on
+//!     }
 //! }
 //! ```
 
@@ -46,9 +53,8 @@ pub use cluster::{
 
 // Re-export device types
 pub use device::{
-    endpoint_to_zone_index, get_zone_state, get_zone_state_by_endpoint, zone_index_to_endpoint,
-    DeviceInfo, NUM_ZONES, ROOT_ENDPOINT, ZONE1_ENDPOINT, ZONE2_ENDPOINT, ZONE3_ENDPOINT,
-    ZONE4_ENDPOINT, ZONE5_ENDPOINT, ZONE6_ENDPOINT, ZONE7_ENDPOINT, ZONE_STATES,
+    endpoint_to_zone_index, zone_index_to_endpoint, DeviceInfo, FIRST_ZONE_ENDPOINT, MAX_ZONES,
+    ROOT_ENDPOINT,
 };
 
 // Re-export handler
