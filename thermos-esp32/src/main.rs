@@ -354,84 +354,120 @@ async fn main(spawner: Spawner) {
     );
 
     // Initialize GPIO pins for relays (all start in OFF state = HIGH for active-low)
-    info!("Initializing relay GPIO pins...");
+    // Only initialize zones where NUM_ZONES >= zone_number
+    info!("Initializing {} zones...", NUM_ZONES);
 
-    // Zone 1: GPIO0
-    info!("  Initializing Zone1 GPIO0...");
-    let pin1 = PIN_1.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO0,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor1 = SENSOR_1.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[0].name));
-    let state1 = STATE_1.init(ZoneState::with_target(ZONE_CONFIGS[0].default_target_c));
-    info!("  Zone1 initialized");
+    // Zone 1: GPIO0 (always initialized if NUM_ZONES >= 1)
+    let (sensor1, pin1, state1) = if NUM_ZONES >= 1 {
+        info!("  Initializing Zone1 GPIO{}...", ZONE_CONFIGS[0].relay_pin);
+        let pin = PIN_1.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO0,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_1.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[0].name));
+        let state = STATE_1.init(ZoneState::with_target(ZONE_CONFIGS[0].default_target_c));
+        info!("  Zone1 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     // Zone 2: GPIO1
-    info!("  Initializing Zone2 GPIO1...");
-    let pin2 = PIN_2.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO1,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor2 = SENSOR_2.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[1].name));
-    let state2 = STATE_2.init(ZoneState::with_target(ZONE_CONFIGS[1].default_target_c));
-    info!("  Zone2 initialized");
+    let (sensor2, pin2, state2) = if NUM_ZONES >= 2 {
+        info!("  Initializing Zone2 GPIO{}...", ZONE_CONFIGS[1].relay_pin);
+        let pin = PIN_2.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO1,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_2.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[1].name));
+        let state = STATE_2.init(ZoneState::with_target(ZONE_CONFIGS[1].default_target_c));
+        info!("  Zone2 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     // Zone 3: GPIO2
-    info!("  Initializing Zone3 GPIO2...");
-    let pin3 = PIN_3.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO2,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor3 = SENSOR_3.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[2].name));
-    let state3 = STATE_3.init(ZoneState::with_target(ZONE_CONFIGS[2].default_target_c));
-    info!("  Zone3 initialized");
+    let (sensor3, pin3, state3) = if NUM_ZONES >= 3 {
+        info!("  Initializing Zone3 GPIO{}...", ZONE_CONFIGS[2].relay_pin);
+        let pin = PIN_3.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO2,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_3.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[2].name));
+        let state = STATE_3.init(ZoneState::with_target(ZONE_CONFIGS[2].default_target_c));
+        info!("  Zone3 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     // Zone 4: GPIO3
-    info!("  Initializing Zone4 GPIO3...");
-    let pin4 = PIN_4.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO3,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor4 = SENSOR_4.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[3].name));
-    let state4 = STATE_4.init(ZoneState::with_target(ZONE_CONFIGS[3].default_target_c));
-    info!("  Zone4 initialized");
+    let (sensor4, pin4, state4) = if NUM_ZONES >= 4 {
+        info!("  Initializing Zone4 GPIO{}...", ZONE_CONFIGS[3].relay_pin);
+        let pin = PIN_4.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO3,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_4.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[3].name));
+        let state = STATE_4.init(ZoneState::with_target(ZONE_CONFIGS[3].default_target_c));
+        info!("  Zone4 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     // Zone 5: GPIO10
-    info!("  Initializing Zone5 GPIO10...");
-    let pin5 = PIN_5.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO10,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor5 = SENSOR_5.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[4].name));
-    let state5 = STATE_5.init(ZoneState::with_target(ZONE_CONFIGS[4].default_target_c));
-    info!("  Zone5 initialized");
+    let (sensor5, pin5, state5) = if NUM_ZONES >= 5 {
+        info!("  Initializing Zone5 GPIO{}...", ZONE_CONFIGS[4].relay_pin);
+        let pin = PIN_5.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO10,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_5.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[4].name));
+        let state = STATE_5.init(ZoneState::with_target(ZONE_CONFIGS[4].default_target_c));
+        info!("  Zone5 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     // Zone 6: GPIO11
-    info!("  Initializing Zone6 GPIO11...");
-    let pin6 = PIN_6.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO11,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor6 = SENSOR_6.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[5].name));
-    let state6 = STATE_6.init(ZoneState::with_target(ZONE_CONFIGS[5].default_target_c));
-    info!("  Zone6 initialized");
+    let (sensor6, pin6, state6) = if NUM_ZONES >= 6 {
+        info!("  Initializing Zone6 GPIO{}...", ZONE_CONFIGS[5].relay_pin);
+        let pin = PIN_6.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO11,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_6.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[5].name));
+        let state = STATE_6.init(ZoneState::with_target(ZONE_CONFIGS[5].default_target_c));
+        info!("  Zone6 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     // Zone 7: GPIO22
-    info!("  Initializing Zone7 GPIO22...");
-    let pin7 = PIN_7.init(Esp32GpioPin::new(Output::new(
-        peripherals.GPIO22,
-        Level::High,
-        OutputConfig::default(),
-    )));
-    let sensor7 = SENSOR_7.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[6].name));
-    let state7 = STATE_7.init(ZoneState::with_target(ZONE_CONFIGS[6].default_target_c));
-    info!("  Zone7 initialized");
+    let (sensor7, pin7, state7) = if NUM_ZONES >= 7 {
+        info!("  Initializing Zone7 GPIO{}...", ZONE_CONFIGS[6].relay_pin);
+        let pin = PIN_7.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO22,
+            Level::High,
+            OutputConfig::default(),
+        )));
+        let sensor = SENSOR_7.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[6].name));
+        let state = STATE_7.init(ZoneState::with_target(ZONE_CONFIGS[6].default_target_c));
+        info!("  Zone7 initialized");
+        (Some(sensor), Some(pin), Some(state))
+    } else {
+        (None, None, None)
+    };
 
     info!("All relay GPIO pins initialized (OFF state)");
     info!("Mock sensors initialized at {:.1}C", MOCK_TEMPERATURE_C);
@@ -444,43 +480,57 @@ async fn main(spawner: Spawner) {
         );
     }
 
-    // Spawn control tasks for all 7 zones
+    // Spawn control tasks only for configured zones
     info!("Spawning zone control tasks...");
 
-    spawner
-        .spawn(zone1_task(sensor1, pin1, state1, hysteresis))
-        .expect("Failed to spawn Zone1 task");
-    info!("  Zone1 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor1, pin1, state1) {
+        spawner
+            .spawn(zone1_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone1 task");
+        info!("  Zone1 task spawned");
+    }
 
-    spawner
-        .spawn(zone2_task(sensor2, pin2, state2, hysteresis))
-        .expect("Failed to spawn Zone2 task");
-    info!("  Zone2 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor2, pin2, state2) {
+        spawner
+            .spawn(zone2_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone2 task");
+        info!("  Zone2 task spawned");
+    }
 
-    spawner
-        .spawn(zone3_task(sensor3, pin3, state3, hysteresis))
-        .expect("Failed to spawn Zone3 task");
-    info!("  Zone3 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor3, pin3, state3) {
+        spawner
+            .spawn(zone3_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone3 task");
+        info!("  Zone3 task spawned");
+    }
 
-    spawner
-        .spawn(zone4_task(sensor4, pin4, state4, hysteresis))
-        .expect("Failed to spawn Zone4 task");
-    info!("  Zone4 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor4, pin4, state4) {
+        spawner
+            .spawn(zone4_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone4 task");
+        info!("  Zone4 task spawned");
+    }
 
-    spawner
-        .spawn(zone5_task(sensor5, pin5, state5, hysteresis))
-        .expect("Failed to spawn Zone5 task");
-    info!("  Zone5 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor5, pin5, state5) {
+        spawner
+            .spawn(zone5_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone5 task");
+        info!("  Zone5 task spawned");
+    }
 
-    spawner
-        .spawn(zone6_task(sensor6, pin6, state6, hysteresis))
-        .expect("Failed to spawn Zone6 task");
-    info!("  Zone6 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor6, pin6, state6) {
+        spawner
+            .spawn(zone6_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone6 task");
+        info!("  Zone6 task spawned");
+    }
 
-    spawner
-        .spawn(zone7_task(sensor7, pin7, state7, hysteresis))
-        .expect("Failed to spawn Zone7 task");
-    info!("  Zone7 task spawned");
+    if let (Some(sensor), Some(pin), Some(state)) = (sensor7, pin7, state7) {
+        spawner
+            .spawn(zone7_task(sensor, pin, state, hysteresis))
+            .expect("Failed to spawn Zone7 task");
+        info!("  Zone7 task spawned");
+    }
 
     info!("All {} zone control tasks running", NUM_ZONES);
     info!("====================================");
