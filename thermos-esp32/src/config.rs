@@ -146,11 +146,25 @@ pub const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 // MQTT Configuration
 // =============================================================================
 
-/// MQTT broker address
-pub const MQTT_BROKER: &str = "mqtt://localhost:1883";
+/// MQTT broker hostname or IP address
+pub const MQTT_BROKER_HOST: &str = "localhost";
 
-/// MQTT client identifier
-pub const MQTT_CLIENT_ID: &str = "thermos-esp32";
+/// MQTT broker port (default: 1883)
+pub const MQTT_BROKER_PORT: u16 = 1883;
+
+/// MQTT client/device identifier
+pub const MQTT_DEVICE_ID: &str = "thermos-esp32";
+
+/// MQTT username for authentication (None = no auth)
+///
+/// For Home Assistant Mosquitto broker, use your HA username
+/// or create a dedicated MQTT user in the Mosquitto add-on config.
+pub const MQTT_USERNAME: Option<&str> = None;
+
+/// MQTT password for authentication (None = no auth)
+///
+/// For Home Assistant Mosquitto broker, use the corresponding password.
+pub const MQTT_PASSWORD: Option<&str> = None;
 
 // =============================================================================
 // Testing Configuration
@@ -262,8 +276,12 @@ mod tests {
 
     #[test]
     fn test_mqtt_config() {
-        assert!(!MQTT_BROKER.is_empty());
-        assert!(!MQTT_CLIENT_ID.is_empty());
+        assert!(!MQTT_BROKER_HOST.is_empty());
+        assert!(MQTT_BROKER_PORT > 0);
+        assert!(!MQTT_DEVICE_ID.is_empty());
+        // Username and password are optional, just verify they're valid Option types
+        let _ = MQTT_USERNAME;
+        let _ = MQTT_PASSWORD;
     }
 
     #[test]

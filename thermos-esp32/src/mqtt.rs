@@ -40,11 +40,26 @@ pub struct MqttConfig {
     pub device_id: String<32>,
     /// Client ID for MQTT connection
     pub client_id: String<32>,
+    /// Optional username for authentication
+    pub username: Option<String<32>>,
+    /// Optional password for authentication
+    pub password: Option<String<64>>,
 }
 
 impl MqttConfig {
-    /// Create a new MQTT configuration
+    /// Create a new MQTT configuration without authentication
     pub fn new(broker_host: &str, broker_port: u16, device_id: &str) -> Result<Self, &'static str> {
+        Self::with_auth(broker_host, broker_port, device_id, None, None)
+    }
+
+    /// Create a new MQTT configuration with optional authentication
+    pub fn with_auth(
+        broker_host: &str,
+        broker_port: u16,
+        device_id: &str,
+        username: Option<&str>,
+        password: Option<&str>,
+    ) -> Result<Self, &'static str> {
         let broker_host =
             String::from_str(broker_host).map_err(|_| "Broker host too long (max 64 chars)")?;
         let device_id =
@@ -54,11 +69,23 @@ impl MqttConfig {
         let mut client_id = String::new();
         let _ = write!(client_id, "thermos-{}", device_id);
 
+        // Parse optional credentials
+        let username = match username {
+            Some(u) => Some(String::from_str(u).map_err(|_| "Username too long (max 32 chars)")?),
+            None => None,
+        };
+        let password = match password {
+            Some(p) => Some(String::from_str(p).map_err(|_| "Password too long (max 64 chars)")?),
+            None => None,
+        };
+
         Ok(Self {
             broker_host,
             broker_port,
             device_id,
             client_id,
+            username,
+            password,
         })
     }
 }
@@ -250,6 +277,15 @@ async fn mqtt_connect_and_publish(
     mqtt_config.max_packet_size = 1024;
     mqtt_config.keep_alive = MQTT_KEEPALIVE_SECS;
 
+    // Add authentication if configured
+    if let Some(ref username) = config.username {
+        mqtt_config.add_username(username.as_str());
+        info!("MQTT auth: using username '{}'", username);
+    }
+    if let Some(ref password) = config.password {
+        mqtt_config.add_password(password.as_bytes());
+    }
+
     // Create MQTT client
     let mut recv_buffer = [0; 1024];
     let mut write_buffer = [0; 1024];
@@ -335,6 +371,33 @@ mod tests {
         assert_eq!(config.broker_port, 1883);
         assert_eq!(config.device_id.as_str(), "esp32-001");
         assert!(config.client_id.starts_with("thermos-"));
+        assert!(config.username.is_none());
+        assert!(config.password.is_none());
+    }
+
+    #[test]
+    fn test_mqtt_config_with_auth() {
+        let config = MqttConfig::with_auth(
+            "192.168.1.100",
+            1883,
+            "esp32-001",
+            Some("mqtt_user"),
+            Some("mqtt_pass"),
+        )
+        .unwrap();
+        assert_eq!(config.broker_host.as_str(), "192.168.1.100");
+        assert_eq!(config.username.as_ref().unwrap().as_str(), "mqtt_user");
+        assert_eq!(config.password.as_ref().unwrap().as_str(), "mqtt_pass");
+    }
+
+    #[test]
+    fn test_mqtt_config_partial_auth() {
+        // Username only (no password)
+        let config =
+            MqttConfig::with_auth("192.168.1.100", 1883, "esp32-001", Some("mqtt_user"), None)
+                .unwrap();
+        assert!(config.username.is_some());
+        assert!(config.password.is_none());
     }
 
     #[test]
