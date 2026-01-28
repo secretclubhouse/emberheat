@@ -49,11 +49,10 @@ embedded-io-async = "0.6"
 rust-mqtt = { version = "0.3", default-features = false }
 
 # Matter protocol support via rs-matter-embassy
-# Using local fork with EnetNetif.stack made public for MQTT TCP support
-# Fork lives at ~/Code/rs-matter-embassy-fork, remote: github.com/secretclubhouse/rs-matter-embassy
-# (upstream: git = "https://github.com/sysgrok/rs-matter-embassy")
+# Using fork with global TCP stack storage for MQTT support
+# Fork: github.com/secretclubhouse/rs-matter-embassy (upstream: sysgrok/rs-matter-embassy)
 # embassy-net feature enables WiFi networking, esp feature enables ESP32 drivers
-rs-matter-embassy = { path = "/Users/josh/Code/rs-matter-embassy-fork/rs-matter-embassy", features = ["esp", "embassy-net", "log"] }
+rs-matter-embassy = { git = "https://github.com/secretclubhouse/rs-matter-embassy", branch = "stack-public", features = ["esp", "embassy-net", "log"] }
 
 # 1-Wire DS18B20 temperature sensor (using RMT peripheral)
 # Note: esp-hal-rmt-onewire 0.4 has compatibility issues with esp-hal 1.0
