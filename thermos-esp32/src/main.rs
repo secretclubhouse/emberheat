@@ -80,7 +80,7 @@ use config::{
 #[cfg(feature = "external-ble")]
 use dual_radio::DualRadioDriver;
 #[cfg(feature = "external-ble")]
-use esp_hal::uart::{Config as UartConfig, Uart};
+use esp_hal::uart::{Config as UartConfig, RxConfig, Uart};
 #[cfg(feature = "external-ble")]
 use matter::stack::matter_task_dual_radio;
 
@@ -942,7 +942,10 @@ async fn main(spawner: Spawner) {
             RADIO_CONTROLLER.init(esp_radio::init().expect("Failed to initialize esp-radio"));
 
         // Initialize UART for HCI transport to ESP32-H2 with hardware flow control
-        let uart_config = UartConfig::default().with_baudrate(HCI_UART_BAUDRATE);
+        // Use a low FIFO threshold to trigger reads before the buffer overflows
+        let uart_config = UartConfig::default()
+            .with_baudrate(HCI_UART_BAUDRATE)
+            .with_rx(RxConfig::default().with_fifo_full_threshold(32));
         let uart = Uart::new(peripherals.UART1, uart_config)
             .expect("Failed to initialize HCI UART")
             .with_rx(peripherals.GPIO19) // RX (H2 TX -> C6 RX)

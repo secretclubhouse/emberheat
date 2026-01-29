@@ -4438,6 +4438,7 @@ name = "thermos-esp32"
 version = "0.1.0"
 dependencies = [
  "bme280",
+ "bt-hci",
  "embassy-executor",
  "embassy-futures",
  "embassy-net",

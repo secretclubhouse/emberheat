@@ -235,8 +235,10 @@ pub const MOCK_TEMPERATURE_C: f32 = 20.0;
 // =============================================================================
 
 /// HCI UART baud rate (must match ESP32-H2 firmware)
+/// Note: Using 115200 instead of 921600 to prevent FIFO overflow during commissioning.
+/// The async UART read isn't polled fast enough at higher baud rates.
 #[cfg(feature = "external-ble")]
-pub const HCI_UART_BAUDRATE: u32 = 921600;
+pub const HCI_UART_BAUDRATE: u32 = 115200;
 
 /// HCI UART TX pin (C6 -> H2)
 /// Using GPIO18 to avoid strapping pins (4, 5, 8, 9, 15)
