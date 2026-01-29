@@ -73,6 +73,15 @@ use esp_radio::Controller as EspRadioController;
 #[cfg(feature = "matter")]
 use matter::stack::matter_task;
 
+#[cfg(feature = "external-ble")]
+use config::{HCI_UART_BAUDRATE, HCI_UART_RX_PIN, HCI_UART_TX_PIN};
+#[cfg(feature = "external-ble")]
+use dual_radio::DualRadioDriver;
+#[cfg(feature = "external-ble")]
+use esp_hal::uart::{Config as UartConfig, Uart};
+#[cfg(feature = "external-ble")]
+use matter::stack::matter_task_dual_radio;
+
 /// Control loop interval (6 seconds, same as Raspberry Pi)
 const CONTROL_INTERVAL_SECS: u64 = 6;
 
@@ -465,7 +474,7 @@ async fn mqtt_task(stack: &'static embassy_net::Stack<'static>, config: mqtt::Mq
 // Matter Task (only compiled with Matter feature)
 // =============================================================================
 
-#[cfg(feature = "matter")]
+#[cfg(all(feature = "matter", not(feature = "external-ble")))]
 #[embassy_executor::task]
 async fn matter_main_task(
     controller: &'static EspRadioController<'static>,
@@ -474,6 +483,19 @@ async fn matter_main_task(
     user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
 ) {
     matter_task(controller, wifi, bt, user_task).await
+}
+
+#[cfg(feature = "external-ble")]
+#[embassy_executor::task]
+async fn matter_main_task_dual_radio(
+    controller: &'static EspRadioController<'static>,
+    wifi: esp_hal::peripherals::WIFI<'static>,
+    uart_rx: esp_hal::uart::UartRx<'static, esp_hal::Async>,
+    uart_tx: esp_hal::uart::UartTx<'static, esp_hal::Async>,
+    user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
+) {
+    let driver = DualRadioDriver::new(controller, wifi, uart_rx, uart_tx);
+    matter_task_dual_radio(driver, user_task).await
 }
 
 // =============================================================================
@@ -848,11 +870,12 @@ async fn main(spawner: Spawner) {
         info!("MQTT task spawned");
     }
 
-    #[cfg(feature = "matter")]
+    // Single-radio Matter mode (C6 WiFi + C6 BLE, time-shared)
+    #[cfg(all(feature = "matter", not(feature = "external-ble")))]
     {
         info!("------------------------------------");
         info!("Matter Configuration:");
-        info!("  Mode: WiFi + BLE coexistence");
+        info!("  Mode: Single-radio (C6 WiFi + C6 BLE, time-shared)");
         info!("  Zones: 1 (single zone test)");
 
         // Initialize esp-radio for WiFi+BLE coexistence
@@ -898,6 +921,72 @@ async fn main(spawner: Spawner) {
             ))
             .expect("Failed to spawn Matter task");
         info!("Matter task spawned (MQTT disabled - socket limit)");
+    }
+
+    // Dual-radio Matter mode (C6 WiFi + H2 BLE over UART)
+    #[cfg(feature = "external-ble")]
+    {
+        info!("------------------------------------");
+        info!("Matter Configuration:");
+        info!("  Mode: Dual-radio (C6 WiFi + H2 BLE over UART)");
+        info!("  Zones: 1 (single zone test)");
+        info!(
+            "  HCI UART: TX=GPIO{}, RX=GPIO{}, {}baud",
+            HCI_UART_TX_PIN, HCI_UART_RX_PIN, HCI_UART_BAUDRATE
+        );
+
+        // Initialize esp-radio for WiFi (BLE comes from H2 over UART)
+        let controller =
+            RADIO_CONTROLLER.init(esp_radio::init().expect("Failed to initialize esp-radio"));
+
+        // Initialize UART for HCI transport to ESP32-H2
+        let uart_config = UartConfig::default().with_baudrate(HCI_UART_BAUDRATE);
+        let uart = Uart::new(peripherals.UART1, uart_config)
+            .expect("Failed to initialize HCI UART")
+            .with_rx(peripherals.GPIO19) // RX (H2 TX -> C6 RX)
+            .with_tx(peripherals.GPIO18) // TX (C6 TX -> H2 RX)
+            .into_async();
+        let (uart_rx, uart_tx) = uart.split();
+        info!("HCI UART initialized");
+
+        // Configure MQTT for Matter mode (runs inside Matter's UserTask)
+        info!("------------------------------------");
+        info!("MQTT Configuration (Matter mode):");
+        info!("  Broker: {}:{}", MQTT_BROKER_HOST, MQTT_BROKER_PORT);
+        info!("  Device ID: {}", MQTT_DEVICE_ID);
+        info!(
+            "  Auth: {}",
+            if MQTT_USERNAME.is_some() {
+                "enabled"
+            } else {
+                "disabled"
+            }
+        );
+
+        let mqtt_config = MqttConfig::with_auth(
+            MQTT_BROKER_HOST,
+            MQTT_BROKER_PORT,
+            MQTT_DEVICE_ID,
+            MQTT_USERNAME,
+            MQTT_PASSWORD,
+        )
+        .expect("Failed to create MQTT config");
+
+        // Create MQTT bridge that runs inside Matter's UserTask
+        // NOTE: MQTT is temporarily disabled - socket set in rs-matter-embassy is too small
+        let _mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
+
+        // Spawn dual-radio Matter task (C6 WiFi + H2 BLE)
+        spawner
+            .spawn(matter_main_task_dual_radio(
+                controller,
+                peripherals.WIFI,
+                uart_rx,
+                uart_tx,
+                (), // MQTT disabled - socket set full
+            ))
+            .expect("Failed to spawn Matter dual-radio task");
+        info!("Matter dual-radio task spawned (C6 WiFi + H2 BLE)");
     }
 
     info!("------------------------------------");
