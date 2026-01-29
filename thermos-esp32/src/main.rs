@@ -28,6 +28,8 @@ esp_bootloader_esp_idf::esp_app_desc!();
 
 mod config;
 mod controller;
+#[cfg(feature = "external-ble")]
+mod dual_radio;
 mod gpio_impl;
 mod matter;
 mod mqtt;
@@ -469,9 +471,9 @@ async fn matter_main_task(
     controller: &'static EspRadioController<'static>,
     wifi: esp_hal::peripherals::WIFI<'static>,
     bt: esp_hal::peripherals::BT<'static>,
-    mqtt_bridge: matter::MqttBridge,
+    user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
 ) {
-    matter_task(controller, wifi, bt, mqtt_bridge).await
+    matter_task(controller, wifi, bt, user_task).await
 }
 
 // =============================================================================
@@ -760,7 +762,14 @@ async fn main(spawner: Spawner) {
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
     // Initialize heap allocator (72KB)
+    // Note: rs-matter-embassy example uses 100KB, but ESP32-C6 has limited RAM
+    // and our 7 zone tasks + MQTT need memory too
     esp_alloc::heap_allocator!(size: 73728);
+
+    // Initialize random number generator early (required before Matter crypto)
+    // Must be called before esp_rtos::start per rs-matter-embassy example
+    #[cfg(feature = "matter")]
+    rs_matter_embassy::rand::esp::esp_init_rand(esp_hal::rng::Rng::new());
 
     // Initialize esp-rtos scheduler with timer and software interrupt
     let timg0 = TimerGroup::new(peripherals.TIMG0);
@@ -843,7 +852,7 @@ async fn main(spawner: Spawner) {
     {
         info!("------------------------------------");
         info!("Matter Configuration:");
-        info!("  Mode: WiFi + BLE commissioning");
+        info!("  Mode: WiFi + BLE coexistence");
         info!("  Zones: 1 (single zone test)");
 
         // Initialize esp-radio for WiFi+BLE coexistence
@@ -874,18 +883,21 @@ async fn main(spawner: Spawner) {
         .expect("Failed to create MQTT config");
 
         // Create MQTT bridge that runs inside Matter's UserTask
-        let mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
+        // NOTE: MQTT is temporarily disabled - socket set in rs-matter-embassy is too small
+        // (4 sockets: 2 UDP for Matter, 1 DHCP, 1 DNS - no room for TCP)
+        // TODO: Fork rs-matter-embassy to increase ENET_MIN_SOCKET_SET
+        let _mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
 
-        // Spawn Matter task (handles WiFi and runs MQTT internally)
+        // Spawn Matter task (handles WiFi, MQTT disabled due to socket limit)
         spawner
             .spawn(matter_main_task(
                 controller,
                 peripherals.WIFI,
                 peripherals.BT,
-                mqtt_bridge,
+                (), // MQTT disabled - socket set full
             ))
             .expect("Failed to spawn Matter task");
-        info!("Matter task spawned (includes MQTT bridge)");
+        info!("Matter task spawned (MQTT disabled - socket limit)");
     }
 
     info!("------------------------------------");
