@@ -74,7 +74,9 @@ use esp_radio::Controller as EspRadioController;
 use matter::stack::matter_task;
 
 #[cfg(feature = "external-ble")]
-use config::{HCI_UART_BAUDRATE, HCI_UART_RX_PIN, HCI_UART_TX_PIN};
+use config::{
+    HCI_UART_BAUDRATE, HCI_UART_CTS_PIN, HCI_UART_RTS_PIN, HCI_UART_RX_PIN, HCI_UART_TX_PIN,
+};
 #[cfg(feature = "external-ble")]
 use dual_radio::DualRadioDriver;
 #[cfg(feature = "external-ble")]
@@ -931,20 +933,22 @@ async fn main(spawner: Spawner) {
         info!("  Mode: Dual-radio (C6 WiFi + H2 BLE over UART)");
         info!("  Zones: 1 (single zone test)");
         info!(
-            "  HCI UART: TX=GPIO{}, RX=GPIO{}, {}baud",
-            HCI_UART_TX_PIN, HCI_UART_RX_PIN, HCI_UART_BAUDRATE
+            "  HCI UART: TX=GPIO{}, RX=GPIO{}, RTS=GPIO{}, CTS=GPIO{}, {}baud",
+            HCI_UART_TX_PIN, HCI_UART_RX_PIN, HCI_UART_RTS_PIN, HCI_UART_CTS_PIN, HCI_UART_BAUDRATE
         );
 
         // Initialize esp-radio for WiFi (BLE comes from H2 over UART)
         let controller =
             RADIO_CONTROLLER.init(esp_radio::init().expect("Failed to initialize esp-radio"));
 
-        // Initialize UART for HCI transport to ESP32-H2
+        // Initialize UART for HCI transport to ESP32-H2 with hardware flow control
         let uart_config = UartConfig::default().with_baudrate(HCI_UART_BAUDRATE);
         let uart = Uart::new(peripherals.UART1, uart_config)
             .expect("Failed to initialize HCI UART")
             .with_rx(peripherals.GPIO19) // RX (H2 TX -> C6 RX)
             .with_tx(peripherals.GPIO18) // TX (C6 TX -> H2 RX)
+            .with_rts(peripherals.GPIO6) // RTS (C6 RTS -> H2 CTS)
+            .with_cts(peripherals.GPIO7) // CTS (C6 CTS <- H2 RTS)
             .into_async();
         let (uart_rx, uart_tx) = uart.split();
         info!("HCI UART initialized");
