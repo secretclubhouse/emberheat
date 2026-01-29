@@ -41,7 +41,8 @@
 pub const ONEWIRE_PIN: u8 = 21;
 
 /// Number of heating zones supported
-pub const NUM_ZONES: usize = 7;
+/// TEMP: Reduced to 1 for Matter commissioning testing
+pub const NUM_ZONES: usize = 1;
 
 /// Compile-time zone configuration data
 ///
@@ -87,7 +88,18 @@ pub struct ZoneConfigData {
 /// - Zone7: GPIO 22
 ///
 /// Note: GPIO 4 is reserved for 1-Wire bus (ONEWIRE_PIN)
-pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
+// TEMP: Reduced to 1 zone for Matter commissioning testing
+// Original 7-zone config commented out below
+pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [ZoneConfigData {
+    name: "Zone1",
+    relay_pin: 0,
+    sensor_address: [0x28, 0, 0, 0, 0, 0, 0, 1],
+    default_target_c: 21.1,
+}];
+
+/*
+// Original 7-zone configuration:
+pub const ZONE_CONFIGS_FULL: [ZoneConfigData; 7] = [
     ZoneConfigData {
         name: "Zone1",
         relay_pin: 0,
@@ -131,6 +143,7 @@ pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
         default_target_c: 21.1,
     },
 ];
+*/
 
 // =============================================================================
 // WiFi Configuration (only for MQTT mode, not Matter)
@@ -216,6 +229,32 @@ pub const USE_MOCK_SENSORS: bool = true;
 ///
 /// Only used when `USE_MOCK_SENSORS` is `true`.
 pub const MOCK_TEMPERATURE_C: f32 = 20.0;
+
+// =============================================================================
+// Dual-Radio BLE Configuration (ESP32-H2 over UART HCI)
+// =============================================================================
+
+/// HCI UART baud rate (must match ESP32-H2 firmware)
+#[cfg(feature = "external-ble")]
+pub const HCI_UART_BAUDRATE: u32 = 921600;
+
+/// HCI UART TX pin (C6 -> H2)
+/// Using GPIO18 to avoid strapping pins (4, 5, 8, 9, 15)
+#[cfg(feature = "external-ble")]
+pub const HCI_UART_TX_PIN: u8 = 18;
+
+/// HCI UART RX pin (H2 -> C6)
+/// Using GPIO19 to avoid strapping pins (4, 5, 8, 9, 15)
+#[cfg(feature = "external-ble")]
+pub const HCI_UART_RX_PIN: u8 = 19;
+
+/// HCI UART RTS pin (hardware flow control)
+#[cfg(feature = "external-ble")]
+pub const HCI_UART_RTS_PIN: u8 = 6;
+
+/// HCI UART CTS pin (hardware flow control)
+#[cfg(feature = "external-ble")]
+pub const HCI_UART_CTS_PIN: u8 = 7;
 
 #[cfg(test)]
 mod tests {
