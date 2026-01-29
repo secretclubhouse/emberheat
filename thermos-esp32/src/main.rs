@@ -926,6 +926,17 @@ async fn main(spawner: Spawner) {
         // TODO: Fork rs-matter-embassy to increase ENET_MIN_SOCKET_SET
         let _mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
 
+        // Sync initial temperature to Matter state BEFORE spawning Matter task
+        // This ensures HomeKit sees valid LocalTemperature during commissioning
+        // (otherwise it may cache "not supported" status from NULL temperature)
+        for zone_index in 0..NUM_ZONES {
+            matter::update_matter_from_control_loop(zone_index, MOCK_TEMPERATURE_C, false);
+        }
+        info!(
+            "Initial temperature ({:.1}C) synced to Matter state for {} zones",
+            MOCK_TEMPERATURE_C, NUM_ZONES
+        );
+
         // Spawn Matter task (handles WiFi, MQTT disabled due to socket limit)
         spawner
             .spawn(matter_main_task(
@@ -995,6 +1006,17 @@ async fn main(spawner: Spawner) {
         // Create MQTT bridge that runs inside Matter's UserTask
         // NOTE: MQTT is temporarily disabled - socket set in rs-matter-embassy is too small
         let _mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
+
+        // Sync initial temperature to Matter state BEFORE spawning Matter task
+        // This ensures HomeKit sees valid LocalTemperature during commissioning
+        // (otherwise it may cache "not supported" status from NULL temperature)
+        for zone_index in 0..NUM_ZONES {
+            matter::update_matter_from_control_loop(zone_index, MOCK_TEMPERATURE_C, false);
+        }
+        info!(
+            "Initial temperature ({:.1}C) synced to Matter state for {} zones",
+            MOCK_TEMPERATURE_C, NUM_ZONES
+        );
 
         // Spawn dual-radio Matter task (C6 WiFi + H2 BLE)
         spawner
