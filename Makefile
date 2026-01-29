@@ -1,7 +1,7 @@
 # Makefile for Thermos-Rust (ESP32-focused)
 
 .PHONY: help build build-release test clean fmt lint check flash monitor install-hooks
-.PHONY: build-esp32 build-matter flash-matter flash-monitor-matter
+.PHONY: build-esp32 build-matter build-matter-dual-radio flash-matter flash-monitor-matter flash-matter-dual-radio flash-monitor-matter-dual-radio
 
 # Load environment from .env.local or .env if they exist
 ifneq (,$(wildcard .env.local))
@@ -28,8 +28,10 @@ help:
 	@echo "  flash-monitor    - Flash and open monitor (MQTT mode)"
 	@echo ""
 	@echo "ESP32 Matter mode (WiFi handled by Matter commissioning):"
-	@echo "  flash-matter         - Build and flash Matter firmware"
-	@echo "  flash-monitor-matter - Flash Matter firmware and open monitor"
+	@echo "  flash-matter                   - Build and flash Matter firmware (single radio)"
+	@echo "  flash-monitor-matter           - Flash Matter firmware and open monitor"
+	@echo "  flash-matter-dual-radio        - Build and flash Matter with dual-radio (C6+H2)"
+	@echo "  flash-monitor-matter-dual-radio - Flash dual-radio Matter and open monitor"
 	@echo ""
 	@echo "Other ESP32 targets:"
 	@echo "  monitor          - Open serial monitor"
@@ -90,6 +92,11 @@ build-esp32:
 build-matter:
 	@cd thermos-esp32 && cargo build --features matter --release
 
+# Build ESP32 firmware with Matter using dual-radio (C6 WiFi + H2 BLE over UART)
+# Requires ESP32-H2 with HCI UART firmware connected to C6 via UART
+build-matter-dual-radio:
+	@cd thermos-esp32 && cargo build --features "matter,external-ble" --release
+
 # Flash targets (MQTT mode)
 flash:
 	$(check_wifi_creds)
@@ -101,11 +108,18 @@ flash-monitor:
 	@cd thermos-esp32 && WIFI_SSID="$$WIFI_SSID" WIFI_PASSWORD="$$WIFI_PASSWORD" cargo build --release
 	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
-# Flash targets (Matter mode)
+# Flash targets (Matter mode - single radio)
 flash-matter: build-matter
 	espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
 flash-monitor-matter: build-matter
+	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+# Flash targets (Matter mode - dual radio with ESP32-H2)
+flash-matter-dual-radio: build-matter-dual-radio
+	espflash flash target/riscv32imac-unknown-none-elf/release/thermos-esp32
+
+flash-monitor-matter-dual-radio: build-matter-dual-radio
 	espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
 
 # Serial monitor
