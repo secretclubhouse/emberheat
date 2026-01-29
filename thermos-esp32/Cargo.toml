@@ -59,6 +59,9 @@ rs-matter-embassy = { git = "https://github.com/secretclubhouse/rs-matter-embass
 # Enable via `onewire-rmt` feature when dependency is updated
 esp-hal-rmt-onewire = { version = "0.4", optional = true }
 
+# BLE HCI over UART for external controller (ESP32-H2)
+bt-hci = { version = "0.6", optional = true }
+
 # Utilities
 log = { workspace = true }
 heapless = "0.9"
@@ -77,6 +80,9 @@ onewire-rmt = ["dep:esp-hal-rmt-onewire"]
 # Enable Matter protocol support (disables MQTT - Matter takes control of WiFi/BLE)
 # Use: cargo build -p thermos-esp32 --features matter
 matter = []
+# Enable external BLE controller over UART HCI (ESP32-H2 co-processor)
+# Requires Matter feature. Use: cargo build -p thermos-esp32 --features "matter,external-ble"
+external-ble = ["dep:bt-hci", "matter"]
 
 [profile.dev]
 opt-level = "z"
