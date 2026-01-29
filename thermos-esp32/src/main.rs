@@ -377,6 +377,19 @@ async fn zone_control_loop(
                     if state.heating_active { "ON" } else { "OFF" }
                 );
 
+                // Sync temperature to Matter state (so HomeKit/Google/Alexa can see it)
+                // Zone index is derived from zone name (Zone1 -> 0, Zone2 -> 1, etc.)
+                let zone_index = zone_name
+                    .strip_prefix("Zone")
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .map(|n| n.saturating_sub(1))
+                    .unwrap_or(0);
+                matter::update_matter_from_control_loop(
+                    zone_index,
+                    reading.celsius,
+                    state.heating_active,
+                );
+
                 // Publish temperature to MQTT (messages queue until MQTT connects)
                 let mqtt_msg = build_temperature_message(
                     zone_name,
