@@ -16,22 +16,24 @@ Before starting implementation:
 
 1. **Flash ESP32-H2 with HCI UART firmware:**
    
-   The ESP32-H2 doesn't have a dedicated HCI UART example, but the ESP32-C3/S3 example works:
+   Use the **NimBLE HCI example** which explicitly supports ESP32-H2:
    ```bash
-   cd $IDF_PATH/examples/bluetooth/hci/controller_hci_uart_esp32c3_and_esp32s3
+   cd $IDF_PATH/examples/bluetooth/nimble/hci
    idf.py set-target esp32h2
    idf.py menuconfig
-   # Navigate to: Component config -> Bluetooth -> Controller Options
-   # Set: HCI mode = UART(H4)
-   # Set: UART Number = UART1
-   # Set: UART Baudrate = 921600
+   # Navigate to: Example Configuration
+   # Set: UART Baudrate = 921600 (default is 115200)
    # Set: UART TX pin = 1
    # Set: UART RX pin = 0
-   # (Optional) Enable hardware flow control:
-   # Set: UART RTS pin = 3
-   # Set: UART CTS pin = 2
+   # Note: Default pins are GPIO8 (TX), GPIO9 (RX). Change to 0/1 to avoid conflicts.
+   # 
+   # Navigate to: Component config -> Bluetooth -> NimBLE Options
+   # Verify: Controller enabled, Host disabled
    idf.py build flash -p /dev/tty.usbserial-H2
    ```
+   
+   **Important:** The old `controller_hci_uart_esp32c3_and_esp32s3` example does NOT work
+   for ESP32-H2 - it uses different APIs (`esp_bt_hci_tl_t`) that don't exist on H2.
    
    **Note:** ESP32-H2 has GPIOs 0-5, 8-14, 22-27. There is no GPIO6 or GPIO7.
 
