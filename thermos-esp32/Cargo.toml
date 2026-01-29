@@ -53,6 +53,9 @@ rust-mqtt = { version = "0.3", default-features = false }
 # Fork: github.com/secretclubhouse/rs-matter-embassy (upstream: sysgrok/rs-matter-embassy)
 # embassy-net feature enables WiFi networking, esp feature enables ESP32 drivers
 rs-matter-embassy = { git = "https://github.com/secretclubhouse/rs-matter-embassy", branch = "stack-public", features = ["esp", "embassy-net", "log"] }
+# Direct rs-matter dependency to enable max-fabrics-5 (default is 3, too few for HA + HomeKit + Google)
+# default-features = false avoids pulling in std feature which breaks embedded builds
+rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next", default-features = false, features = ["max-fabrics-5"] }
 
 # 1-Wire DS18B20 temperature sensor (using RMT peripheral)
 # Note: esp-hal-rmt-onewire 0.4 has compatibility issues with esp-hal 1.0
