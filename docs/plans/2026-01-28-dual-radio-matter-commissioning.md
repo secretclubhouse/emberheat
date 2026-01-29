@@ -21,19 +21,29 @@ Before starting implementation:
    cd $IDF_PATH/examples/bluetooth/nimble/hci
    idf.py set-target esp32h2
    idf.py menuconfig
-   # Navigate to: Example Configuration
-   # Set: UART Baudrate = 921600 (default is 115200)
-   # Set: UART TX pin = 1
-   # Set: UART RX pin = 0
-   # Note: Default pins are GPIO8 (TX), GPIO9 (RX). Change to 0/1 to avoid conflicts.
-   # 
-   # Navigate to: Component config -> Bluetooth -> NimBLE Options
-   # Verify: Controller enabled, Host disabled
+   ```
+   
+   Configure in menuconfig:
+   - **Component config → Bluetooth → Controller Options → HCI Config:**
+     - HCI mode: UART(H4)
+     - HCI UART port: 1
+     - HCI uart Hardware Flow ctrl: enabled
+     - HCI uart Tx gpio: 1
+     - HCI uart Rx gpio: 0
+     - HCI uart RTS gpio: 3
+     - HCI uart CTS gpio: 2
+     - HCI uart baudrate: **115200** (not 921600 - see note below)
+   
+   ```bash
    idf.py build flash -p /dev/tty.usbserial-H2
    ```
    
    **Important:** The old `controller_hci_uart_esp32c3_and_esp32s3` example does NOT work
    for ESP32-H2 - it uses different APIs (`esp_bt_hci_tl_t`) that don't exist on H2.
+   
+   **Baud Rate Note:** Use 115200 baud, not 921600. At higher baud rates, the ESP32-C6's
+   async UART read task isn't polled frequently enough during BLE commissioning, causing
+   the hardware RX FIFO to overflow. Future improvement: use DMA-based UART.
    
    **Note:** ESP32-H2 has GPIOs 0-5, 8-14, 22-27. There is no GPIO6 or GPIO7.
 
