@@ -26,9 +26,11 @@ use rs_matter_embassy::matter::error::{Error, ErrorCode};
 use rs_matter_embassy::matter::tlv::Nullable;
 use rs_matter_embassy::matter::utils::init::InitMaybeUninit;
 use rs_matter_embassy::matter::{clusters, devices, BasicCommData};
-use rs_matter_embassy::rand::esp::{esp_init_rand, esp_rand};
+use rs_matter_embassy::rand::esp::esp_rand;
 use rs_matter_embassy::stack::persist::DummyKvBlobStore;
 use rs_matter_embassy::wireless::esp::EspWifiDriver;
+#[cfg(feature = "external-ble")]
+use rs_matter_embassy::wireless::{BleDriver, WifiCoexDriver, WifiDriver};
 use rs_matter_embassy::wireless::{EmbassyWifi, EmbassyWifiMatterStack};
 
 use esp_hal::peripherals::{BT, WIFI};
@@ -62,6 +64,257 @@ pub const DEV_TYPE_THERMOSTAT: DeviceType = DeviceType {
 /// First zone endpoint ID (endpoint 0 is root/system)
 pub const FIRST_ZONE_ENDPOINT: u16 = 1;
 
+/// Identify cluster ID (Matter spec 0x0003)
+pub const CLUSTER_IDENTIFY: u32 = 0x0003;
+
+// =============================================================================
+// Identify Cluster (required by HomeKit for thermostat devices)
+// =============================================================================
+
+/// Identify cluster attribute IDs
+pub mod identify_attr {
+    /// Time remaining in identify mode (seconds)
+    pub const IDENTIFY_TIME: u16 = 0x0000;
+    /// Type of identification the device supports
+    pub const IDENTIFY_TYPE: u16 = 0x0001;
+}
+
+/// Identify type enum values
+#[repr(u8)]
+pub enum IdentifyType {
+    None = 0x00,
+    LightOutput = 0x01,
+    VisibleIndicator = 0x02,
+    AudibleBeep = 0x03,
+    Display = 0x04,
+    Actuator = 0x05,
+}
+
+/// Simple Identify cluster handler
+///
+/// This is a minimal implementation that satisfies HomeKit's requirement
+/// for an Identify cluster on thermostat endpoints.
+pub struct IdentifyHandler {
+    endpoint_id: u16,
+    dataver: Dataver,
+}
+
+impl IdentifyHandler {
+    pub fn new(endpoint_id: u16, dataver: Dataver) -> Self {
+        Self {
+            endpoint_id,
+            dataver,
+        }
+    }
+}
+
+impl Handler for IdentifyHandler {
+    fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
+        let attr = ctx.attr();
+        let attr_id = attr.attr_id;
+
+        info!(
+            "Identify read: endpoint={}, cluster={:#x}, attr={:#x}",
+            attr.endpoint_id, attr.cluster_id, attr_id
+        );
+
+        let Some(writer) = reply.with_dataver(self.dataver.get())? else {
+            return Ok(());
+        };
+
+        match attr_id {
+            x if x == identify_attr::IDENTIFY_TIME as u32 => {
+                // Always return 0 (not currently identifying)
+                Reply::set(writer, 0u16)?;
+            }
+            x if x == identify_attr::IDENTIFY_TYPE as u32 => {
+                // We don't have any physical indicator
+                Reply::set(writer, IdentifyType::None as u8)?;
+            }
+            _ => {
+                return Err(ErrorCode::AttributeNotFound.into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write(&self, ctx: impl WriteContext) -> Result<(), Error> {
+        let attr = ctx.attr();
+        let attr_id = attr.attr_id;
+
+        match attr_id {
+            x if x == identify_attr::IDENTIFY_TIME as u32 => {
+                // Accept the write but don't do anything (no physical indicator)
+                let _value: u16 = ctx.data().u16()?;
+                info!("Identify: received identify request (no-op)");
+                Ok(())
+            }
+            _ => Err(ErrorCode::UnsupportedAccess.into()),
+        }
+    }
+}
+
+impl NonBlockingHandler for IdentifyHandler {}
+
+/// Identify cluster attributes
+const IDENTIFY_ATTRIBUTES: &[Attribute] = &[
+    // IdentifyTime (0x0000) - u16, read-write
+    Attribute::new(
+        identify_attr::IDENTIFY_TIME as u32,
+        Access::RWVM,
+        Quality::N,
+    ),
+    // IdentifyType (0x0001) - enum8, read-only
+    Attribute::new(identify_attr::IDENTIFY_TYPE as u32, Access::RV, Quality::N),
+];
+
+/// Identify cluster metadata
+pub const IDENTIFY_CLUSTER: Cluster<'static> = Cluster::new(
+    CLUSTER_IDENTIFY, // cluster ID 0x0003
+    4,                // revision
+    0x00,             // feature map (no optional features)
+    IDENTIFY_ATTRIBUTES,
+    &[], // commands (Identify command not implemented)
+    |_, _, _| true,
+    |_, _, _| true,
+);
+
+// =============================================================================
+// Thermostat User Interface Configuration Cluster (0x0204)
+// =============================================================================
+
+/// Thermostat UI Configuration cluster ID
+pub const CLUSTER_THERMOSTAT_UI_CONFIG: u32 = 0x0204;
+
+/// Thermostat UI Configuration attribute IDs
+pub mod thermostat_ui_attr {
+    /// Temperature display mode (Celsius=0, Fahrenheit=1)
+    pub const TEMPERATURE_DISPLAY_MODE: u16 = 0x0000;
+    /// Keypad lockout level (0-5)
+    pub const KEYPAD_LOCKOUT: u16 = 0x0001;
+}
+
+/// Temperature display mode enum
+#[repr(u8)]
+pub enum TemperatureDisplayMode {
+    Celsius = 0x00,
+    Fahrenheit = 0x01,
+}
+
+/// Keypad lockout enum
+#[repr(u8)]
+#[allow(dead_code)]
+pub enum KeypadLockout {
+    NoLockout = 0x00,
+    Lockout1 = 0x01,
+    Lockout2 = 0x02,
+    Lockout3 = 0x03,
+    Lockout4 = 0x04,
+    Lockout5 = 0x05,
+}
+
+/// Thermostat User Interface Configuration handler
+///
+/// Controls display settings like temperature unit (Celsius/Fahrenheit).
+pub struct ThermostatUiConfigHandler {
+    dataver: Dataver,
+}
+
+impl ThermostatUiConfigHandler {
+    pub fn new(dataver: Dataver) -> Self {
+        Self { dataver }
+    }
+}
+
+impl Handler for ThermostatUiConfigHandler {
+    fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
+        let attr = ctx.attr();
+        let attr_id = attr.attr_id;
+
+        info!(
+            "ThermostatUIConfig read: endpoint={}, cluster={:#x}, attr={:#x}",
+            attr.endpoint_id, attr.cluster_id, attr_id
+        );
+
+        let Some(writer) = reply.with_dataver(self.dataver.get())? else {
+            return Ok(());
+        };
+
+        match attr_id {
+            x if x == thermostat_ui_attr::TEMPERATURE_DISPLAY_MODE as u32 => {
+                // Default to Celsius
+                Reply::set(writer, TemperatureDisplayMode::Celsius as u8)?;
+            }
+            x if x == thermostat_ui_attr::KEYPAD_LOCKOUT as u32 => {
+                // No lockout
+                Reply::set(writer, KeypadLockout::NoLockout as u8)?;
+            }
+            _ => {
+                return Err(ErrorCode::AttributeNotFound.into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn write(&self, ctx: impl WriteContext) -> Result<(), Error> {
+        let attr = ctx.attr();
+        let attr_id = attr.attr_id;
+
+        match attr_id {
+            x if x == thermostat_ui_attr::TEMPERATURE_DISPLAY_MODE as u32 => {
+                // Accept the write (HomeKit may want to set display mode)
+                let value: u8 = ctx.data().u8()?;
+                if value > 1 {
+                    return Err(ErrorCode::ConstraintError.into());
+                }
+                info!("ThermostatUIConfig: display mode set to {}", value);
+                Ok(())
+            }
+            x if x == thermostat_ui_attr::KEYPAD_LOCKOUT as u32 => {
+                // Accept the write
+                let value: u8 = ctx.data().u8()?;
+                if value > 5 {
+                    return Err(ErrorCode::ConstraintError.into());
+                }
+                info!("ThermostatUIConfig: keypad lockout set to {}", value);
+                Ok(())
+            }
+            _ => Err(ErrorCode::UnsupportedAccess.into()),
+        }
+    }
+}
+
+impl NonBlockingHandler for ThermostatUiConfigHandler {}
+
+/// Thermostat UI Configuration cluster attributes
+const THERMOSTAT_UI_CONFIG_ATTRIBUTES: &[Attribute] = &[
+    // TemperatureDisplayMode (0x0000) - enum8, read-write
+    Attribute::new(
+        thermostat_ui_attr::TEMPERATURE_DISPLAY_MODE as u32,
+        Access::RWVM,
+        Quality::N,
+    ),
+    // KeypadLockout (0x0001) - enum8, read-write (requires manage access in spec)
+    Attribute::new(
+        thermostat_ui_attr::KEYPAD_LOCKOUT as u32,
+        Access::RWVM,
+        Quality::N,
+    ),
+];
+
+/// Thermostat UI Configuration cluster metadata
+pub const THERMOSTAT_UI_CONFIG_CLUSTER: Cluster<'static> = Cluster::new(
+    CLUSTER_THERMOSTAT_UI_CONFIG, // cluster ID 0x0204
+    2,                            // revision
+    0x00,                         // feature map (no optional features)
+    THERMOSTAT_UI_CONFIG_ATTRIBUTES,
+    &[], // no commands
+    |_, _, _| true,
+    |_, _, _| true,
+);
+
 // =============================================================================
 // Thermostat Attribute IDs (heating-only subset)
 // =============================================================================
@@ -70,11 +323,15 @@ pub const FIRST_ZONE_ENDPOINT: u16 = 1;
 pub mod attr {
     /// Current temperature in 0.01°C units (nullable i16)
     pub const LOCAL_TEMPERATURE: u16 = 0x0000;
+    /// Absolute minimum heat setpoint limit (hardware limit) - mandatory with HEAT feature
+    pub const ABS_MIN_HEAT_SETPOINT_LIMIT: u16 = 0x0003;
+    /// Absolute maximum heat setpoint limit (hardware limit) - mandatory with HEAT feature
+    pub const ABS_MAX_HEAT_SETPOINT_LIMIT: u16 = 0x0004;
     /// Target heating temperature in 0.01°C units (i16)
     pub const OCCUPIED_HEATING_SETPOINT: u16 = 0x0012;
-    /// Minimum allowed setpoint (i16)
+    /// Minimum allowed setpoint (user-adjustable limit, i16)
     pub const MIN_HEAT_SETPOINT_LIMIT: u16 = 0x0015;
-    /// Maximum allowed setpoint (i16)
+    /// Maximum allowed setpoint (user-adjustable limit, i16)
     pub const MAX_HEAT_SETPOINT_LIMIT: u16 = 0x0016;
     /// Control sequence: 0x02 = Heating Only
     pub const CONTROL_SEQUENCE_OF_OPERATION: u16 = 0x001B;
@@ -142,6 +399,11 @@ impl Handler for ZoneThermostatCluster {
         let attr = ctx.attr();
         let attr_id = attr.attr_id;
 
+        info!(
+            "Thermostat read: endpoint={}, cluster={:#x}, attr={:#x}",
+            attr.endpoint_id, attr.cluster_id, attr_id
+        );
+
         // Get writer with dataver check
         let Some(writer) = reply.with_dataver(self.dataver())? else {
             // Dataver unchanged, no need to send data
@@ -167,12 +429,22 @@ impl Handler for ZoneThermostatCluster {
                 Reply::set(writer, setpoint)?;
             }
 
-            // MinHeatSetpointLimit - i16
+            // AbsMinHeatSetpointLimit - i16 (hardware minimum, same as our min limit)
+            x if x == attr::ABS_MIN_HEAT_SETPOINT_LIMIT as u32 => {
+                Reply::set(writer, defaults::MIN_HEAT_SETPOINT)?;
+            }
+
+            // AbsMaxHeatSetpointLimit - i16 (hardware maximum, same as our max limit)
+            x if x == attr::ABS_MAX_HEAT_SETPOINT_LIMIT as u32 => {
+                Reply::set(writer, defaults::MAX_HEAT_SETPOINT)?;
+            }
+
+            // MinHeatSetpointLimit - i16 (user-adjustable minimum)
             x if x == attr::MIN_HEAT_SETPOINT_LIMIT as u32 => {
                 Reply::set(writer, defaults::MIN_HEAT_SETPOINT)?;
             }
 
-            // MaxHeatSetpointLimit - i16
+            // MaxHeatSetpointLimit - i16 (user-adjustable maximum)
             x if x == attr::MAX_HEAT_SETPOINT_LIMIT as u32 => {
                 Reply::set(writer, defaults::MAX_HEAT_SETPOINT)?;
             }
@@ -253,6 +525,8 @@ impl Handler for ZoneThermostatCluster {
 
             // Read-only attributes
             x if x == attr::LOCAL_TEMPERATURE as u32
+                || x == attr::ABS_MIN_HEAT_SETPOINT_LIMIT as u32
+                || x == attr::ABS_MAX_HEAT_SETPOINT_LIMIT as u32
                 || x == attr::MIN_HEAT_SETPOINT_LIMIT as u32
                 || x == attr::MAX_HEAT_SETPOINT_LIMIT as u32
                 || x == attr::CONTROL_SEQUENCE_OF_OPERATION as u32
@@ -306,6 +580,18 @@ pub fn endpoint_to_zone(endpoint_id: u16) -> Option<usize> {
 const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[
     // LocalTemperature (0x0000) - nullable i16, read-only
     Attribute::new(attr::LOCAL_TEMPERATURE as u32, Access::RV, Quality::X),
+    // AbsMinHeatSetpointLimit (0x0003) - i16, read-only (mandatory with HEAT feature)
+    Attribute::new(
+        attr::ABS_MIN_HEAT_SETPOINT_LIMIT as u32,
+        Access::RV,
+        Quality::F,
+    ),
+    // AbsMaxHeatSetpointLimit (0x0004) - i16, read-only (mandatory with HEAT feature)
+    Attribute::new(
+        attr::ABS_MAX_HEAT_SETPOINT_LIMIT as u32,
+        Access::RV,
+        Quality::F,
+    ),
     // OccupiedHeatingSetpoint (0x0012) - i16, read-write
     Attribute::new(
         attr::OCCUPIED_HEATING_SETPOINT as u32,
@@ -409,29 +695,31 @@ macro_rules! mk_static {
 /// 1. Initializes the Matter stack with device credentials
 /// 2. Creates a handler chain with thermostat cluster for zone 0
 /// 3. Runs the Matter stack with WiFi and BLE commissioning
-/// 4. Runs MQTT client alongside Matter using the same WiFi connection
+/// 4. Optionally runs a user task (e.g., MQTT) alongside Matter
 ///
 /// # Arguments
 ///
 /// * `controller` - The esp-radio controller for WiFi+BLE
 /// * `wifi` - The WiFi peripheral
 /// * `bt` - The Bluetooth peripheral
-/// * `mqtt_bridge` - The MQTT bridge that runs alongside Matter
+/// * `user_task` - User task that runs alongside Matter (can be `()` to disable)
 ///
 /// # Note
 ///
 /// This function never returns under normal operation. It runs the Matter
 /// stack indefinitely, handling commissioning and attribute read/write requests.
-pub async fn matter_task(
+pub async fn matter_task<U>(
     controller: &'static EspRadioController<'static>,
     wifi: WIFI<'static>,
     bt: BT<'static>,
-    mqtt_bridge: super::mqtt_bridge::MqttBridge,
-) {
+    user_task: U,
+) where
+    U: rs_matter_embassy::stack::UserTask,
+{
     info!("Matter: Starting task...");
 
-    // Initialize random number generator for Matter crypto
-    esp_init_rand(esp_hal::rng::Rng::new());
+    // Note: esp_init_rand is called early in main.rs before esp_rtos::start
+    // per rs-matter-embassy example requirements
 
     // Allocate Matter stack statically (~35-50KB)
     let stack = mk_static!(EmbassyWifiMatterStack::<BUMP_SIZE, ()>).init_with(
@@ -450,9 +738,33 @@ pub async fn matter_task(
         Dataver::new_rand(stack.matter().rand()),
     );
 
-    // Build handler chain: descriptor + thermostat clusters on endpoint 1
+    // Create identify handler for zone 0 (endpoint 1)
+    // Required by HomeKit for proper device identification
+    let identify = IdentifyHandler::new(
+        FIRST_ZONE_ENDPOINT,
+        Dataver::new_rand(stack.matter().rand()),
+    );
+
+    // Create thermostat UI config handler for zone 0 (endpoint 1)
+    // Controls temperature display format (Celsius/Fahrenheit)
+    let thermostat_ui = ThermostatUiConfigHandler::new(Dataver::new_rand(stack.matter().rand()));
+
+    // Build handler chain: identify + thermostat UI + thermostat + descriptor clusters on endpoint 1
     // Wrap with Async() to convert NonBlockingHandler to AsyncHandler
     let handler = EmptyHandler
+        // Identify cluster on endpoint 1 (required by HomeKit)
+        .chain(
+            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_IDENTIFY)),
+            Async(&identify),
+        )
+        // Thermostat UI Configuration cluster on endpoint 1
+        .chain(
+            EpClMatcher::new(
+                Some(FIRST_ZONE_ENDPOINT),
+                Some(CLUSTER_THERMOSTAT_UI_CONFIG),
+            ),
+            Async(&thermostat_ui),
+        )
         // Thermostat cluster on endpoint 1
         .chain(
             EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_THERMOSTAT)),
@@ -485,21 +797,119 @@ pub async fn matter_task(
             Endpoint {
                 id: FIRST_ZONE_ENDPOINT,
                 device_types: devices!(DEV_TYPE_THERMOSTAT),
-                clusters: clusters!(desc::DescHandler::CLUSTER, THERMOSTAT_CLUSTER),
+                clusters: clusters!(
+                    IDENTIFY_CLUSTER,
+                    THERMOSTAT_UI_CONFIG_CLUSTER,
+                    desc::DescHandler::CLUSTER,
+                    THERMOSTAT_CLUSTER
+                ),
             },
         ],
     };
 
-    // Run Matter stack with WiFi+BLE coexistence (required for Alexa)
-    // MqttBridge runs MQTT alongside Matter using the same WiFi connection
+    // Run Matter stack with concurrent commissioning (BLE + WiFi simultaneously)
+    // This is required for Home Assistant and Alexa compatibility.
+    // Note: ESP32-C6 has a single radio, so BLE and WiFi time-share.
+    // User task (e.g., MqttBridge) runs alongside Matter using the WiFi connection.
     let matter = pin!(stack.run_coex(
         EmbassyWifi::new(EspWifiDriver::new(controller, wifi, bt), stack),
         &persist,
         (NODE, handler),
-        mqtt_bridge,
+        user_task,
     ));
 
     info!("Matter: Running...");
+    matter.await.unwrap();
+}
+
+/// Run the Matter stack with dual-radio (C6 WiFi + H2 BLE)
+///
+/// This variant uses an external BLE controller over UART HCI instead of
+/// the ESP32-C6's internal BLE, avoiding radio time-sharing issues.
+#[cfg(feature = "external-ble")]
+pub async fn matter_task_dual_radio<D, U>(driver: D, user_task: U)
+where
+    D: WifiCoexDriver + WifiDriver + BleDriver,
+    U: rs_matter_embassy::stack::UserTask,
+{
+    info!("Matter: Starting dual-radio task (C6 WiFi + H2 BLE)...");
+
+    let stack = mk_static!(EmbassyWifiMatterStack::<BUMP_SIZE, ()>).init_with(
+        EmbassyWifiMatterStack::init(&DEV_DET, DEV_COMM, &TEST_DEV_ATT, epoch, esp_rand),
+    );
+
+    info!("Matter: Stack initialized (dual-radio mode)");
+    info!(
+        "Matter: Discriminator={}, Passcode={}",
+        MATTER_DISCRIMINATOR, MATTER_PASSCODE
+    );
+
+    let thermostat = ZoneThermostatCluster::new(
+        FIRST_ZONE_ENDPOINT,
+        Dataver::new_rand(stack.matter().rand()),
+    );
+
+    let identify = IdentifyHandler::new(
+        FIRST_ZONE_ENDPOINT,
+        Dataver::new_rand(stack.matter().rand()),
+    );
+
+    let thermostat_ui = ThermostatUiConfigHandler::new(Dataver::new_rand(stack.matter().rand()));
+
+    let handler = EmptyHandler
+        .chain(
+            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_IDENTIFY)),
+            Async(&identify),
+        )
+        .chain(
+            EpClMatcher::new(
+                Some(FIRST_ZONE_ENDPOINT),
+                Some(CLUSTER_THERMOSTAT_UI_CONFIG),
+            ),
+            Async(&thermostat_ui),
+        )
+        .chain(
+            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_THERMOSTAT)),
+            Async(&thermostat),
+        )
+        .chain(
+            EpClMatcher::new(
+                Some(FIRST_ZONE_ENDPOINT),
+                Some(desc::DescHandler::CLUSTER.id),
+            ),
+            Async(desc::DescHandler::new(Dataver::new_rand(stack.matter().rand())).adapt()),
+        );
+
+    let persist = stack
+        .create_persist_with_comm_window(DummyKvBlobStore)
+        .await
+        .unwrap();
+
+    const NODE: Node = Node {
+        id: 0,
+        endpoints: &[
+            EmbassyWifiMatterStack::<0, ()>::root_endpoint(),
+            Endpoint {
+                id: FIRST_ZONE_ENDPOINT,
+                device_types: devices!(DEV_TYPE_THERMOSTAT),
+                clusters: clusters!(
+                    IDENTIFY_CLUSTER,
+                    THERMOSTAT_UI_CONFIG_CLUSTER,
+                    desc::DescHandler::CLUSTER,
+                    THERMOSTAT_CLUSTER
+                ),
+            },
+        ],
+    };
+
+    let matter = pin!(stack.run_coex(
+        EmbassyWifi::new(driver, stack),
+        &persist,
+        (NODE, handler),
+        user_task,
+    ));
+
+    info!("Matter: Running with dual-radio (C6 WiFi + H2 BLE)...");
     matter.await.unwrap();
 }
 
