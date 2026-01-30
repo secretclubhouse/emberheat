@@ -1066,6 +1066,17 @@ const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[
         Access::RV,
         Quality::NONE,
     ),
+    // --- Global Attributes (required by Matter spec) ---
+    // GeneratedCommandList (0xFFF8) - list of command IDs
+    Attribute::new(0xFFF8, Access::RV, Quality::NONE),
+    // AcceptedCommandList (0xFFF9) - list of command IDs
+    Attribute::new(0xFFF9, Access::RV, Quality::NONE),
+    // AttributeList (0xFFFB) - list of attribute IDs
+    Attribute::new(0xFFFB, Access::RV, Quality::NONE),
+    // FeatureMap (0xFFFC) - u32 bitmap
+    Attribute::new(0xFFFC, Access::RV, Quality::NONE),
+    // ClusterRevision (0xFFFD) - u16
+    Attribute::new(0xFFFD, Access::RV, Quality::F),
 ];
 
 /// Thermostat cluster metadata for Matter node definition
