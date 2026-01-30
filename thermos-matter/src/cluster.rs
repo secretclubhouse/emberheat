@@ -40,6 +40,25 @@ pub const HEATING_ONLY_CLUSTER: Cluster<'static> = thermostat::FULL_CLUSTER
             | thermostat::AttributeId::ThermostatRunningState
     ));
 
+/// Heating and cooling thermostat cluster configuration
+///
+/// Supports both HEAT and COOL features for better HomeKit compatibility.
+pub const HEATING_AND_COOLING_CLUSTER: Cluster<'static> = thermostat::FULL_CLUSTER
+    .with_features(thermostat::Feature::HEATING.bits() | thermostat::Feature::COOLING.bits())
+    .with_attrs(with!(
+        required;
+        thermostat::AttributeId::LocalTemperature
+            | thermostat::AttributeId::OccupiedHeatingSetpoint
+            | thermostat::AttributeId::OccupiedCoolingSetpoint
+            | thermostat::AttributeId::MinHeatSetpointLimit
+            | thermostat::AttributeId::MaxHeatSetpointLimit
+            | thermostat::AttributeId::MinCoolSetpointLimit
+            | thermostat::AttributeId::MaxCoolSetpointLimit
+            | thermostat::AttributeId::ControlSequenceOfOperation
+            | thermostat::AttributeId::SystemMode
+            | thermostat::AttributeId::ThermostatRunningState
+    ));
+
 /// Re-export commonly used types from the generated thermostat module
 pub use thermostat::{
     AttributeId, CommandId, ControlSequenceOfOperationEnum, Feature, RelayStateBitmap,
@@ -116,6 +135,20 @@ pub trait ThermostatHooks {
 
     /// Get maximum heat setpoint limit in centi-degrees
     fn max_heat_setpoint_limit(&self) -> i16;
+
+    // --- Cooling Setpoint ---
+
+    /// Get occupied cooling setpoint in centi-degrees
+    fn occupied_cooling_setpoint(&self) -> i16;
+
+    /// Set occupied cooling setpoint in centi-degrees
+    fn set_occupied_cooling_setpoint(&self, value: i16) -> Result<(), Error>;
+
+    /// Get minimum cool setpoint limit in centi-degrees
+    fn min_cool_setpoint_limit(&self) -> i16;
+
+    /// Get maximum cool setpoint limit in centi-degrees
+    fn max_cool_setpoint_limit(&self) -> i16;
 
     // --- System Mode ---
 
@@ -195,6 +228,22 @@ where
 
     fn max_heat_setpoint_limit(&self) -> i16 {
         (*self).max_heat_setpoint_limit()
+    }
+
+    fn occupied_cooling_setpoint(&self) -> i16 {
+        (*self).occupied_cooling_setpoint()
+    }
+
+    fn set_occupied_cooling_setpoint(&self, value: i16) -> Result<(), Error> {
+        (*self).set_occupied_cooling_setpoint(value)
+    }
+
+    fn min_cool_setpoint_limit(&self) -> i16 {
+        (*self).min_cool_setpoint_limit()
+    }
+
+    fn max_cool_setpoint_limit(&self) -> i16 {
+        (*self).max_cool_setpoint_limit()
     }
 
     fn system_mode(&self) -> SystemModeEnum {

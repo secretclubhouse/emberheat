@@ -1,7 +1,8 @@
 //! Matter Thermostat Cluster implementation
 //!
-//! Provides a heating-only Matter Thermostat Cluster (0x0201) implementation
-//! designed for integration with rs-matter on embedded systems.
+//! Provides Matter Thermostat Cluster (0x0201) implementations for both
+//! heating-only and heating+cooling thermostats, designed for integration
+//! with rs-matter on embedded systems.
 //!
 //! # Features
 //!
@@ -48,7 +49,7 @@ pub mod types;
 // Re-export cluster types (from rs-matter IDL)
 pub use cluster::{
     AttributeId, ControlSequenceOfOperationEnum, Feature, OutOfBandMessage, RelayStateBitmap,
-    SystemModeEnum, ThermostatHooks, HEATING_ONLY_CLUSTER,
+    SystemModeEnum, ThermostatHooks, HEATING_AND_COOLING_CLUSTER, HEATING_ONLY_CLUSTER,
 };
 
 // Re-export device types

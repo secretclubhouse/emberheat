@@ -445,14 +445,14 @@ mod tests {
 
 use crate::cluster::{
     ControlSequenceOfOperationEnum, RelayStateBitmap, SystemModeEnum, ThermostatHooks,
-    HEATING_ONLY_CLUSTER,
+    HEATING_AND_COOLING_CLUSTER,
 };
 use rs_matter::dm::Cluster;
 use rs_matter::error::{Error, ErrorCode};
 use rs_matter::tlv::Nullable;
 
 impl ThermostatHooks for ZoneThermostatState {
-    const CLUSTER: Cluster<'static> = HEATING_ONLY_CLUSTER;
+    const CLUSTER: Cluster<'static> = HEATING_AND_COOLING_CLUSTER;
 
     fn local_temperature(&self) -> Nullable<i16> {
         let temp = self.get_local_temperature();
@@ -480,12 +480,30 @@ impl ThermostatHooks for ZoneThermostatState {
         defaults::MAX_HEAT_SETPOINT
     }
 
+    fn occupied_cooling_setpoint(&self) -> i16 {
+        self.get_occupied_cooling_setpoint()
+    }
+
+    fn set_occupied_cooling_setpoint(&self, value: i16) -> Result<(), Error> {
+        ZoneThermostatState::set_occupied_cooling_setpoint(self, value)
+            .map_err(|_| ErrorCode::ConstraintError.into())
+    }
+
+    fn min_cool_setpoint_limit(&self) -> i16 {
+        defaults::MIN_COOL_SETPOINT
+    }
+
+    fn max_cool_setpoint_limit(&self) -> i16 {
+        defaults::MAX_COOL_SETPOINT
+    }
+
     fn system_mode(&self) -> SystemModeEnum {
         match self.get_system_mode() {
             SystemMode::Off => SystemModeEnum::Off,
             SystemMode::Heat => SystemModeEnum::Heat,
+            SystemMode::Cool => SystemModeEnum::Cool,
             // Map unsupported modes to Off for safety
-            _ => SystemModeEnum::Off,
+            SystemMode::Auto | SystemMode::EmergencyHeat => SystemModeEnum::Off,
         }
     }
 
@@ -493,7 +511,8 @@ impl ThermostatHooks for ZoneThermostatState {
         let our_mode = match mode {
             SystemModeEnum::Off => SystemMode::Off,
             SystemModeEnum::Heat => SystemMode::Heat,
-            // Reject unsupported modes
+            SystemModeEnum::Cool => SystemMode::Cool,
+            // Reject unsupported modes (Auto, etc.)
             _ => return Err(ErrorCode::ConstraintError.into()),
         };
         ZoneThermostatState::set_system_mode(self, our_mode);
@@ -501,16 +520,18 @@ impl ThermostatHooks for ZoneThermostatState {
     }
 
     fn thermostat_running_state(&self) -> RelayStateBitmap {
+        let mut state = RelayStateBitmap::empty();
         if self.is_heating() {
-            RelayStateBitmap::HEAT
-        } else {
-            RelayStateBitmap::empty()
+            state |= RelayStateBitmap::HEAT;
         }
+        if self.is_cooling() {
+            state |= RelayStateBitmap::COOL;
+        }
+        state
     }
 
     fn control_sequence_of_operation(&self) -> ControlSequenceOfOperationEnum {
-        // Heating-only thermostat
-        ControlSequenceOfOperationEnum::HeatingOnly
+        ControlSequenceOfOperationEnum::CoolingAndHeating
     }
 
     // Use default run() implementation - pends forever
