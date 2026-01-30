@@ -1,6 +1,6 @@
 # HomeKit "Not Supported" Issue - Debugging Report
 
-**Date:** 2026-01-29
+**Date Range:** 2026-01-27 to 2026-01-29
 **Status:** Resolved
 **Root Cause:** Missing global attributes in THERMOSTAT_ATTRIBUTES array
 
@@ -15,48 +15,86 @@ After commissioning a Matter thermostat (device type 0x0301) to Apple HomeKit, t
 - No thermostat controls visible in Home app
 - Device worked correctly with Home Assistant
 
-## Investigation Timeline
+## Timeline of Investigation
 
-### Initial Hypothesis: Missing Features
+### Day 1 (Jan 27): Initial Matter Integration
 
-We suspected HomeKit required both HEAT and COOL features, similar to how HAP (HomeKit Accessory Protocol) worked better with combined heat/cool support.
+Started integrating rs-matter-embassy into the ESP32-C6 thermostat firmware. Initial commits:
+- Added rs-matter-embassy dependencies
+- Created ZoneThermostatCluster handler skeleton
+- Implemented Handler trait for thermostat attributes
+- Added matter_task entry point with WiFi+BLE coexistence
 
-**Actions taken:**
-1. Added COOL feature support (FeatureMap 0x03 = HEAT + COOL)
-2. Added OccupiedCoolingSetpoint attribute and handler
-3. Added cooling setpoint limits (AbsMin/Max, Min/Max)
-4. Changed ControlSequenceOfOperation from HeatingOnly (2) to CoolingAndHeating (4)
+**Issue discovered:** Single-radio time-sharing between WiFi and BLE caused unreliable commissioning on ESP32-C6.
 
-**Result:** Still showed "Not Supported"
+### Day 2 (Jan 28): Dual-Radio Architecture
 
-### Second Hypothesis: Developer Profile Required
+Implemented dual-radio solution using ESP32-H2 as BLE co-processor:
 
-Research indicated Apple might reject devices with test vendor IDs (0xFFF1) without the Matter Developer Profile installed.
+1. **Added ESP32-H2 HCI UART support:**
+   - Flashed ESP32-H2 with NimBLE HCI firmware
+   - Created DualRadioDriver for external BLE over UART
+   - Wired ESP32-C6 (WiFi) to ESP32-H2 (BLE) via UART
 
-**Actions taken:**
-- Verified developer profile was installed on iOS device
-- Confirmed profile should also be on Home Hub (Apple TV/HomePod)
+2. **Encountered UART issues:**
+   - At 921600 baud, RX FIFO overflow during BLE commissioning
+   - **Fix:** Lowered to 115200 baud (commit 45c0788)
+   - Added hardware flow control (RTS/CTS)
 
-**Result:** Profile was already correctly installed
+3. **Fixed ESP32-H2 configuration:**
+   - Wrong example initially (`controller_hci_uart_esp32c3_and_esp32s3`)
+   - **Fix:** Used `nimble/hci` example which supports H2 (commit 2a4e003)
+   - Fixed pin assignments (H2 has no GPIO6/7)
 
-### Third Hypothesis: Panic on Multi-Fabric
+**Result:** Commissioning now worked reliably. Home Assistant could control the thermostat. But HomeKit still showed "Not Supported."
 
-Observed a panic when adding a 3rd fabric (chip-tool after HomeKit's 2 fabrics):
+### Day 3 (Jan 29): HomeKit-Specific Debugging
+
+#### Attempt 1: Temperature Sync Issues
+
+Noticed LocalTemperature was stuck at NULL_TEMPERATURE (0x8000).
+
+**Fixes applied:**
+- Sync temperature readings to Matter state after each sensor read (commit e09a044)
+- Sync initial temperature before Matter task starts (commit fdc105d)
+
+**Result:** Temperature now visible in Home Assistant. HomeKit still "Not Supported."
+
+#### Attempt 2: Multi-Fabric Panic
+
+Observed panic when adding 3rd fabric (chip-tool after HomeKit's 2 fabrics):
 ```
 panicked at rs-matter: No space
 ```
 
-**Actions taken:**
-- Verified MAX_FABRICS=5 feature was enabled
-- Created GitHub issue #38 to track
+**Fix:** Enabled max-fabrics-5 feature in rs-matter (commit 5c4ff24)
 
-**Result:** Unrelated to HomeKit issue, but blocked chip-tool debugging
+**Result:** Could now add more fabrics. HomeKit still "Not Supported."
 
-### Breakthrough: chip-tool Testing
+#### Attempt 3: Add Cooling Support
 
-Used chip-tool with fresh KVS directory to test directly:
+Hypothesis: Apple might require HEAT+COOL support like HAP did.
+
+**Changes made (commits 570f70d through 6183746):**
+- Added cooling type definitions and defaults
+- Added cooling setpoint state management
+- Updated ThermostatHooks trait with cooling methods
+- Added cooling attribute handlers
+- Changed FeatureMap from 0x01 (HEAT) to 0x03 (HEAT+COOL)
+- Changed ControlSequenceOfOperation to CoolingAndHeating
+
+**Result:** HomeKit still "Not Supported."
+
+#### Attempt 4: Direct Attribute Testing with chip-tool
+
+Used chip-tool to test attribute reads directly:
 
 ```bash
+# First attempt - wrong cluster!
+chip-tool thermostat read feature-map 1 1
+# Returned cluster 0x001D (Descriptor), not 0x0201 (Thermostat)
+
+# Explicit cluster targeting
 chip-tool any read-by-id 0x0201 0xFFFC 1 1
 ```
 
@@ -65,11 +103,11 @@ chip-tool any read-by-id 0x0201 0xFFFC 1 1
 status = 0x86 (UNSUPPORTED_ATTRIBUTE)
 ```
 
-FeatureMap (0xFFFC) was returning UNSUPPORTED_ATTRIBUTE, even though we had a handler for it.
+FeatureMap was returning UNSUPPORTED_ATTRIBUTE even though we had a handler.
 
-### Root Cause Identified
+#### Root Cause Identified
 
-The ESP32 serial logs revealed:
+ESP32 serial logs revealed:
 ```
 ERROR - Error processing attribute read: AttrStatus {
   path: AttrPath { endpoint: Some(1), cluster: Some(513), attr: Some(65532) },
@@ -77,7 +115,7 @@ ERROR - Error processing attribute read: AttrStatus {
 }
 ```
 
-The error was coming from rs-matter's attribute filtering, NOT our handler. rs-matter checks if an attribute is in the cluster's attribute array BEFORE calling the handler. Since global attributes (0xFFF8-0xFFFD) weren't in `THERMOSTAT_ATTRIBUTES`, they were rejected upstream.
+The error came from rs-matter's attribute filtering, NOT our handler. rs-matter checks if an attribute is in the cluster's attribute array BEFORE calling the handler. Global attributes (0xFFF8-0xFFFD) weren't in `THERMOSTAT_ATTRIBUTES`, so they were rejected upstream.
 
 ## Solution
 
@@ -119,20 +157,37 @@ HomeKit now recognizes and controls the thermostat.
 
 2. **UNSUPPORTED_ATTRIBUTE can come from filtering, not handlers**: When debugging attribute issues, check if the attribute is even reaching your handler code.
 
-3. **Use `chip-tool any read-by-id` for explicit cluster targeting**: The standard `chip-tool thermostat read` command had issues targeting the correct cluster in our testing.
+3. **Use `chip-tool any read-by-id` for explicit cluster targeting**: The standard `chip-tool thermostat read` command had issues targeting the correct cluster.
 
 4. **ESP32 serial logs are essential**: The device-side error messages revealed the true source of the UNSUPPORTED_ATTRIBUTE response.
 
+5. **Dual-radio can solve WiFi+BLE coexistence issues**: ESP32-C6's single radio had time-sharing issues. Adding ESP32-H2 for BLE made commissioning reliable.
+
+6. **Temperature must be valid during commissioning**: NULL_TEMPERATURE can cause ecosystems to mark devices as unsupported.
+
 ## Related Issues
 
-- GitHub #38: Panic when adding 3rd fabric (still open)
-- GitHub #39: Feature flag for cooling support (enhancement)
+- GitHub #38: Panic when adding 3rd fabric (still open, likely session/exchange buffer exhaustion)
+- GitHub #39: Feature flag for cooling support (enhancement for future)
 
-## Commits
+## Key Commits
 
-1. 570f70d - feat(matter): add cooling type definitions and defaults
-2. 7c9e12c - feat(matter): add cooling setpoint state management
-3. 22a341d - feat(matter): add cooling support to ThermostatHooks trait
-4. 7b2760e - feat(esp32): add cooling attribute handlers to Matter stack
-5. 6183746 - feat(esp32): update cluster definition for HEAT+COOL support
-6. **53838bb** - fix(matter): add global attributes to THERMOSTAT_ATTRIBUTES ← **Actual fix**
+### Day 1: Initial Integration
+- a3c346b - docs: add Phase 3 Matter integration design
+- 5fb6d19 - feat(matter): add rs-matter-embassy dependencies
+- c2c4afc - feat(matter): implement Handler trait for ZoneThermostatCluster
+- e0b8188 - feat(matter): add matter_task entry point with WiFi+BLE coexistence
+
+### Day 2: Dual-Radio Setup
+- 2cd5d79 - feat(matter): add bt-hci dependency for external BLE controller
+- 5b34304 - feat(matter): add DualRadioDriver for external BLE over UART
+- 4a18cc2 - feat(matter): add matter_task_dual_radio for external BLE
+- 45c0788 - fix(matter): use 115200 baud for HCI UART to prevent FIFO overflow
+- 6dbd4f0 - feat(matter): enable hardware flow control for HCI UART
+
+### Day 3: HomeKit Fixes
+- e09a044 - fix(matter): sync temperature readings to Matter state
+- fdc105d - fix(matter): sync initial temperature before Matter task starts
+- 5c4ff24 - fix(matter): increase MAX_FABRICS to 5 for multi-ecosystem support
+- 570f70d through 6183746 - feat: add COOL support (6 commits)
+- **53838bb** - fix(matter): add global attributes to THERMOSTAT_ATTRIBUTES ← **Actual fix**
