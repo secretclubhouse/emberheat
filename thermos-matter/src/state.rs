@@ -40,10 +40,13 @@ pub struct ZoneThermostatState {
     /// Current temperature in Matter centi-degrees (0.01°C)
     local_temperature: AtomicI16,
 
-    /// Target setpoint in Matter centi-degrees
+    /// Target heating setpoint in Matter centi-degrees
     occupied_heating_setpoint: AtomicI16,
 
-    /// Current system mode (Off/Heat)
+    /// Target cooling setpoint in Matter centi-degrees
+    occupied_cooling_setpoint: AtomicI16,
+
+    /// Current system mode (Off/Heat/Cool)
     system_mode: AtomicU8,
 
     /// Running state bitmap
@@ -62,6 +65,7 @@ impl ZoneThermostatState {
         Self {
             local_temperature: AtomicI16::new(temperature::NULL_TEMPERATURE),
             occupied_heating_setpoint: AtomicI16::new(defaults::OCCUPIED_HEATING_SETPOINT),
+            occupied_cooling_setpoint: AtomicI16::new(defaults::OCCUPIED_COOLING_SETPOINT),
             system_mode: AtomicU8::new(SystemMode::Heat as u8),
             running_state: AtomicU16::new(0),
         }
@@ -146,6 +150,39 @@ impl ZoneThermostatState {
         self.set_occupied_heating_setpoint(temperature::celsius_to_matter(temp_c))
     }
 
+    // ---- Cooling Setpoint getters/setters ----
+
+    /// Get the occupied cooling setpoint in Matter centi-degrees
+    pub fn get_occupied_cooling_setpoint(&self) -> i16 {
+        self.occupied_cooling_setpoint.load(Ordering::Relaxed)
+    }
+
+    /// Set the occupied cooling setpoint in Matter centi-degrees
+    ///
+    /// # Errors
+    ///
+    /// Returns `SetpointError::BelowMinimum` if below 10°C.
+    /// Returns `SetpointError::AboveMaximum` if above 35°C.
+    pub fn set_occupied_cooling_setpoint(
+        &self,
+        setpoint_centi_c: i16,
+    ) -> Result<(), SetpointError> {
+        if setpoint_centi_c < defaults::MIN_COOL_SETPOINT {
+            return Err(SetpointError::BelowMinimum);
+        }
+        if setpoint_centi_c > defaults::MAX_COOL_SETPOINT {
+            return Err(SetpointError::AboveMaximum);
+        }
+        self.occupied_cooling_setpoint
+            .store(setpoint_centi_c, Ordering::Relaxed);
+        Ok(())
+    }
+
+    /// Get the cooling setpoint in Celsius
+    pub fn get_cooling_setpoint_celsius(&self) -> f32 {
+        temperature::matter_to_celsius(self.get_occupied_cooling_setpoint())
+    }
+
     // ---- System mode getters/setters ----
 
     /// Get the current system mode
@@ -158,9 +195,9 @@ impl ZoneThermostatState {
         self.system_mode.store(mode as u8, Ordering::Relaxed);
     }
 
-    /// Check if the thermostat is enabled (mode is Heat)
+    /// Check if the thermostat is enabled (mode is Heat or Cool)
     pub fn is_enabled(&self) -> bool {
-        self.get_system_mode() == SystemMode::Heat
+        matches!(self.get_system_mode(), SystemMode::Heat | SystemMode::Cool)
     }
 
     // ---- Running state getters/setters ----
@@ -180,6 +217,18 @@ impl ZoneThermostatState {
     /// Check if heating is currently active
     pub fn is_heating(&self) -> bool {
         self.get_running_state().is_heating()
+    }
+
+    /// Set whether cooling is currently active
+    pub fn set_cooling_active(&self, active: bool) {
+        let mut state = self.get_running_state();
+        state.set_cooling(active);
+        self.running_state.store(state.0, Ordering::Relaxed);
+    }
+
+    /// Check if cooling is currently active
+    pub fn is_cooling(&self) -> bool {
+        self.get_running_state().is_cooling()
     }
 }
 
@@ -338,6 +387,55 @@ mod tests {
         let state = ZoneThermostatState::default();
         assert_eq!(state.get_system_mode(), SystemMode::Heat);
         assert_eq!(state.get_setpoint_celsius(), 20.0);
+    }
+
+    #[test]
+    fn test_cooling_setpoint_operations() {
+        let state = ZoneThermostatState::new();
+
+        // Default is 24°C
+        assert_eq!(state.get_occupied_cooling_setpoint(), 2400);
+        assert_eq!(state.get_cooling_setpoint_celsius(), 24.0);
+
+        // Valid setpoint
+        assert!(state.set_occupied_cooling_setpoint(2600).is_ok());
+        assert_eq!(state.get_cooling_setpoint_celsius(), 26.0);
+
+        // Below minimum
+        assert_eq!(
+            state.set_occupied_cooling_setpoint(500),
+            Err(SetpointError::BelowMinimum)
+        );
+
+        // Above maximum
+        assert_eq!(
+            state.set_occupied_cooling_setpoint(4000),
+            Err(SetpointError::AboveMaximum)
+        );
+    }
+
+    #[test]
+    fn test_cooling_state() {
+        let state = ZoneThermostatState::new();
+
+        assert!(!state.is_cooling());
+
+        state.set_cooling_active(true);
+        assert!(state.is_cooling());
+
+        state.set_cooling_active(false);
+        assert!(!state.is_cooling());
+    }
+
+    #[test]
+    fn test_is_enabled_includes_cool() {
+        let state = ZoneThermostatState::new();
+
+        state.set_system_mode(SystemMode::Cool);
+        assert!(state.is_enabled());
+
+        state.set_system_mode(SystemMode::Off);
+        assert!(!state.is_enabled());
     }
 }
 
