@@ -1002,23 +1002,41 @@ pub fn endpoint_to_zone(endpoint_id: u16) -> Option<usize> {
 // Thermostat Cluster Definition
 // =============================================================================
 
-/// Thermostat cluster attributes for heating-only mode
+/// Thermostat cluster attributes for heating and cooling mode
 ///
 /// Based on Matter spec section 4.3 (Thermostat Cluster)
 const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[
     // LocalTemperature (0x0000) - nullable i16, read-only
     Attribute::new(attr::LOCAL_TEMPERATURE as u32, Access::RV, Quality::X),
-    // AbsMinHeatSetpointLimit (0x0003) - i16, read-only (mandatory with HEAT feature)
+    // AbsMinHeatSetpointLimit (0x0003) - i16, read-only
     Attribute::new(
         attr::ABS_MIN_HEAT_SETPOINT_LIMIT as u32,
         Access::RV,
         Quality::F,
     ),
-    // AbsMaxHeatSetpointLimit (0x0004) - i16, read-only (mandatory with HEAT feature)
+    // AbsMaxHeatSetpointLimit (0x0004) - i16, read-only
     Attribute::new(
         attr::ABS_MAX_HEAT_SETPOINT_LIMIT as u32,
         Access::RV,
         Quality::F,
+    ),
+    // AbsMinCoolSetpointLimit (0x0005) - i16, read-only
+    Attribute::new(
+        attr::ABS_MIN_COOL_SETPOINT_LIMIT as u32,
+        Access::RV,
+        Quality::F,
+    ),
+    // AbsMaxCoolSetpointLimit (0x0006) - i16, read-only
+    Attribute::new(
+        attr::ABS_MAX_COOL_SETPOINT_LIMIT as u32,
+        Access::RV,
+        Quality::F,
+    ),
+    // OccupiedCoolingSetpoint (0x0011) - i16, read-write
+    Attribute::new(
+        attr::OCCUPIED_COOLING_SETPOINT as u32,
+        Access::RWVM,
+        Quality::SN,
     ),
     // OccupiedHeatingSetpoint (0x0012) - i16, read-write
     Attribute::new(
@@ -1030,6 +1048,10 @@ const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[
     Attribute::new(attr::MIN_HEAT_SETPOINT_LIMIT as u32, Access::RV, Quality::N),
     // MaxHeatSetpointLimit (0x0016) - i16, read-only
     Attribute::new(attr::MAX_HEAT_SETPOINT_LIMIT as u32, Access::RV, Quality::N),
+    // MinCoolSetpointLimit (0x0017) - i16, read-only
+    Attribute::new(attr::MIN_COOL_SETPOINT_LIMIT as u32, Access::RV, Quality::N),
+    // MaxCoolSetpointLimit (0x0018) - i16, read-only
+    Attribute::new(attr::MAX_COOL_SETPOINT_LIMIT as u32, Access::RV, Quality::N),
     // ControlSequenceOfOperation (0x001B) - enum8, read-only
     Attribute::new(
         attr::CONTROL_SEQUENCE_OF_OPERATION as u32,
@@ -1050,9 +1072,9 @@ const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[
 pub const THERMOSTAT_CLUSTER: Cluster<'static> = Cluster::new(
     CLUSTER_THERMOSTAT,    // cluster ID 0x0201
     6,                     // revision (Matter 1.3 thermostat spec)
-    0x01,                  // feature map: Heating feature enabled
+    0x03,                  // feature map: Heating + Cooling features
     THERMOSTAT_ATTRIBUTES, // attributes
-    &[],                   // commands (none for heating-only)
+    &[],                   // commands
     |_, _, _| true,        // with_attrs: include all
     |_, _, _| true,        // with_cmds: include all
 );
@@ -1234,7 +1256,7 @@ pub async fn matter_task<U>(
         "  Endpoint 1 (Thermostat): device_type=0x{:04X} rev={}",
         DEV_TYPE_THERMOSTAT.dtype, DEV_TYPE_THERMOSTAT.drev
     );
-    info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201)");
+    info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201) [HEAT+COOL]");
 
     // Create persister (using dummy store for now - TODO: implement NVS persistence)
     let persist = stack
@@ -1357,7 +1379,7 @@ where
         "  Endpoint 1 (Thermostat): device_type=0x{:04X} rev={}",
         DEV_TYPE_THERMOSTAT.dtype, DEV_TYPE_THERMOSTAT.drev
     );
-    info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201)");
+    info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201) [HEAT+COOL]");
 
     let persist = stack
         .create_persist_with_comm_window(DummyKvBlobStore)
@@ -1412,7 +1434,7 @@ mod tests {
     fn test_thermostat_cluster_definition() {
         assert_eq!(THERMOSTAT_CLUSTER.id, CLUSTER_THERMOSTAT);
         assert_eq!(THERMOSTAT_CLUSTER.revision, 6);
-        assert_eq!(THERMOSTAT_CLUSTER.feature_map, 0x01); // Heating feature
+        assert_eq!(THERMOSTAT_CLUSTER.feature_map, 0x03); // Heating + Cooling features
         assert!(!THERMOSTAT_ATTRIBUTES.is_empty());
     }
 }
