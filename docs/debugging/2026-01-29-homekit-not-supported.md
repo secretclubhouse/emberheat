@@ -6,7 +6,7 @@
 
 ## Summary
 
-After commissioning a Matter thermostat (device type 0x0301) to Apple HomeKit, the device showed "This accessory is not currently supported by the Home" despite successful commissioning and correct Matter protocol implementation.
+After commissioning a Matter thermostat (device type 0x0301) to Apple HomeKit, the device showed "Not Supported" despite successful commissioning and correct Matter protocol implementation.
 
 ## Symptoms
 

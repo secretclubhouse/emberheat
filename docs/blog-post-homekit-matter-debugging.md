@@ -36,7 +36,7 @@ Then I tried HomeKit.
 
 After commissioning to Apple Home (which worked fine), I was greeted with this lovely message:
 
-> "This accessory is not currently supported by the Home"
+> "Not Supported"
 
 No controls. No temperature display. Just... nothing useful. The device was there, HomeKit acknowledged its existence, but apparently decided it wasn't worth talking to.
 
@@ -130,7 +130,7 @@ Three days of debugging. Dual-radio architecture. Full cooling support implement
 
 2. **rs-matter requires explicit attribute listing.** Unlike some Matter implementations that auto-include global attributes, rs-matter needs them in your attribute array. Makes sense for an embedded-focused library where you want full control, but it bit me hard.
 
-3. **Start with the simplest debugging first.** I went down rabbit holes about dual-radio architectures and cooling support before I even verified that basic attribute reads were working. Should have started there.
+3. **Start with the simplest debugging first.** I went down rabbit holes about dual-radio architectures and cooling support before I even verified that basic attribute reads were working. Should have started there. Of course it also helps to have all the pieces in place to do that debugging. I didn't want to spend the time commissioning chip-tool originally and then also took a bit to realize I needed to install a matter developer profile from Apple so BLE would work correctly during commissioning.
 
 4. **When HomeKit says "Not Supported," it could be one broken attribute.** The error message makes it sound like the whole device type is wrong, but it might be something as simple as a missing FeatureMap response.
 
