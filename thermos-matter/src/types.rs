@@ -65,6 +65,11 @@ impl SystemMode {
     pub fn is_valid_for_heating_only(&self) -> bool {
         matches!(self, Self::Off | Self::Heat)
     }
+
+    /// Check if this mode is valid for a heating+cooling thermostat
+    pub fn is_valid_for_heat_cool(&self) -> bool {
+        matches!(self, Self::Off | Self::Heat | Self::Cool)
+    }
 }
 
 impl From<SystemMode> for u8 {
@@ -133,6 +138,20 @@ impl RunningState {
     pub fn is_heating(&self) -> bool {
         self.0 & Self::HEAT != 0
     }
+
+    /// Set whether cooling is active
+    pub fn set_cooling(&mut self, active: bool) {
+        if active {
+            self.0 |= Self::COOL;
+        } else {
+            self.0 &= !Self::COOL;
+        }
+    }
+
+    /// Check if cooling is currently active
+    pub fn is_cooling(&self) -> bool {
+        self.0 & Self::COOL != 0
+    }
 }
 
 /// Temperature conversion utilities
@@ -181,6 +200,15 @@ pub mod defaults {
 
     /// Maximum setpoint: 30°C
     pub const MAX_HEAT_SETPOINT: i16 = 3000;
+
+    /// Default cooling setpoint: 24°C (2400 centi-degrees)
+    pub const OCCUPIED_COOLING_SETPOINT: i16 = 2400;
+
+    /// Minimum cooling setpoint: 10°C
+    pub const MIN_COOL_SETPOINT: i16 = 1000;
+
+    /// Maximum cooling setpoint: 35°C
+    pub const MAX_COOL_SETPOINT: i16 = 3500;
 }
 
 #[cfg(test)]
@@ -263,5 +291,33 @@ mod tests {
     fn test_null_temperature() {
         // NULL_TEMPERATURE should be the minimum i16 value
         assert_eq!(temperature::NULL_TEMPERATURE, i16::MIN);
+    }
+
+    #[test]
+    fn test_cooling_defaults() {
+        assert_eq!(defaults::OCCUPIED_COOLING_SETPOINT, 2400); // 24°C
+        assert_eq!(defaults::MIN_COOL_SETPOINT, 1000); // 10°C
+        assert_eq!(defaults::MAX_COOL_SETPOINT, 3500); // 35°C
+    }
+
+    #[test]
+    fn test_system_mode_valid_for_heat_cool() {
+        assert!(SystemMode::Off.is_valid_for_heat_cool());
+        assert!(SystemMode::Heat.is_valid_for_heat_cool());
+        assert!(SystemMode::Cool.is_valid_for_heat_cool());
+        assert!(!SystemMode::Auto.is_valid_for_heat_cool());
+    }
+
+    #[test]
+    fn test_running_state_cooling() {
+        let mut state = RunningState::new();
+        assert!(!state.is_cooling());
+
+        state.set_cooling(true);
+        assert!(state.is_cooling());
+        assert_eq!(state.0, RunningState::COOL);
+
+        state.set_cooling(false);
+        assert!(!state.is_cooling());
     }
 }
