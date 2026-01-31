@@ -38,6 +38,9 @@ bme280 = { version = "0.5", default-features = false }
 
 # Embedded storage traits
 embedded-storage = "0.3"
+# Sequential flash storage with wear leveling
+sequential-storage = { version = "3.0", default-features = false }
+embedded-storage-async = "0.4"
 
 # WiFi and networking (esp-radio replaces esp-wifi)
 # unstable feature required for BLE commissioning via rs-matter-embassy
