@@ -6,6 +6,8 @@
 //!
 //! Uses `sequential-storage` crate for wear-leveled key-value storage.
 
+pub mod flash_store;
 pub mod types;
 
+pub use flash_store::{FlashKvBlobStore, StorageKey};
 pub use types::{zone_key, PersistedZoneState, ZONE_KEY_BASE};
