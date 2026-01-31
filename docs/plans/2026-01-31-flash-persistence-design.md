@@ -283,3 +283,158 @@ With `sequential-storage` wear leveling and write-on-change-only pattern: **deca
 6. User sees correct setpoint in HomeKit immediately
 
 **Edge case:** If temperature is in dead band (±0.5°C of setpoint) at restart, relay stays OFF until temperature drifts. For hydronic heating with thermal mass, this is negligible.
+
+## Factory Reset
+
+Factory reset clears all persisted data, returning the device to out-of-box state.
+
+### What Gets Cleared
+
+| Data | Effect |
+|------|--------|
+| Matter Fabrics | Device must be re-commissioned with HomeKit |
+| Matter BasicInfo | Device info reset to defaults |
+| Matter Networks | WiFi credentials cleared (if applicable) |
+| Zone setpoints | Reset to defaults (20°C heating, 24°C cooling) |
+| Zone modes | Reset to Heat mode |
+
+### Implementation
+
+**Location:** `thermos-esp32/src/persistence/reset.rs`
+
+```rust
+use sequential_storage::erase_all;
+use esp_storage::FlashStorage;
+
+/// Perform factory reset - erase entire persistence partition
+pub async fn factory_reset(
+    flash: &mut FlashStorage,
+    flash_range: Range<u32>,
+    matter: &Matter<'_>,
+) -> Result<(), Error> {
+    log::warn!("Factory reset initiated - erasing all persisted data");
+
+    // 1. Erase entire persistence partition
+    erase_all(flash, flash_range).await?;
+
+    // 2. Reset Matter stack in-memory state
+    matter.reset_persist(false);
+    matter.reset_transport()?;
+
+    // 3. Reset zone states to defaults
+    for state in ZONE_STATES.iter() {
+        let _ = state.set_occupied_heating_setpoint(defaults::OCCUPIED_HEATING_SETPOINT);
+        let _ = state.set_occupied_cooling_setpoint(defaults::OCCUPIED_COOLING_SETPOINT);
+        state.set_system_mode(SystemMode::Heat);
+        state.clear_dirty();
+    }
+
+    log::info!("Factory reset complete - device will need re-commissioning");
+    Ok(())
+}
+```
+
+### Trigger Mechanisms
+
+#### 1. GPIO Button at Boot (Hardware Trigger)
+
+Hold a designated button during power-on to trigger factory reset.
+
+**Location:** `thermos-esp32/src/main.rs` (early in startup)
+
+```rust
+/// GPIO pin for factory reset button (directly to GND when pressed)
+const FACTORY_RESET_PIN: u8 = 9;  // Adjust to available GPIO
+
+/// How long button must be held to confirm reset (seconds)
+const FACTORY_RESET_HOLD_SECS: u64 = 5;
+
+async fn check_factory_reset_button(pin: &Input<'_>) -> bool {
+    // Check if button is pressed at boot
+    if pin.is_low() {
+        log::warn!("Factory reset button pressed - hold for {}s to confirm",
+            FACTORY_RESET_HOLD_SECS);
+
+        // Require sustained hold to prevent accidental resets
+        for _ in 0..FACTORY_RESET_HOLD_SECS {
+            Timer::after(Duration::from_secs(1)).await;
+            if pin.is_high() {
+                log::info!("Factory reset cancelled - button released");
+                return false;
+            }
+        }
+
+        log::warn!("Factory reset confirmed!");
+        return true;
+    }
+    false
+}
+```
+
+**Startup Integration:**
+
+```rust
+async fn main(spawner: Spawner) {
+    // 1. Hardware init
+    let reset_button = Input::new(io.pins.gpio9, Pull::Up);
+
+    // 2. Check for factory reset (before loading any persisted state)
+    if check_factory_reset_button(&reset_button).await {
+        factory_reset(&mut flash, PERSIST_PARTITION_RANGE, &matter).await?;
+        // Optionally reboot to start fresh
+        esp_hal::reset::software_reset();
+    }
+
+    // 3. Normal startup: load persisted state...
+}
+```
+
+#### 2. Matter FactoryReset Command (Protocol Trigger)
+
+The Matter specification defines a `FactoryReset` command in the General Commissioning cluster. The rs-matter stack will call into our code when this command is received.
+
+**Location:** `thermos-esp32/src/matter/stack.rs`
+
+```rust
+// Hook into rs-matter's factory reset handling
+impl FactoryResetHandler for ThermosMatterHandler {
+    async fn factory_reset(&self) -> Result<(), Error> {
+        // Use the same reset function
+        factory_reset(
+            &mut self.flash,
+            PERSIST_PARTITION_RANGE,
+            &self.matter,
+        ).await
+    }
+}
+```
+
+This ensures that when a user removes the device from HomeKit (which sends FactoryReset), all data is properly cleared.
+
+### User Feedback
+
+During factory reset, provide visual/audio feedback if available:
+
+| Phase | Feedback |
+|-------|----------|
+| Button detected | LED slow blink |
+| Holding (5s countdown) | LED fast blink |
+| Reset in progress | LED solid |
+| Reset complete | LED off, device reboots |
+
+### Safety Considerations
+
+- **5-second hold requirement** prevents accidental resets from brief button presses
+- **Button checked early in boot** before WiFi/Matter stack starts
+- **Full partition erase** ensures no data remnants
+- **Device reboots after reset** to ensure clean state
+
+### Files to Add/Modify
+
+| File | Change |
+|------|--------|
+| `thermos-esp32/src/persistence/reset.rs` | New: `factory_reset()` function |
+| `thermos-esp32/src/persistence/mod.rs` | Export reset module |
+| `thermos-esp32/src/main.rs` | Add boot-time reset button check |
+| `thermos-esp32/src/matter/stack.rs` | Hook Matter FactoryReset command |
+| `thermos-esp32/src/config.rs` | Add `FACTORY_RESET_PIN` constant |
