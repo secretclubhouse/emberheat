@@ -9,7 +9,7 @@
 //! between the Matter stack (handling HomeKit/Google/Alexa commands)
 //! and the thermos-core control loop (running hysteresis algorithm).
 
-use core::sync::atomic::{AtomicI16, AtomicU16, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI16, AtomicU16, AtomicU8, Ordering};
 
 use crate::types::{defaults, temperature, RunningState, SystemMode};
 
@@ -51,6 +51,9 @@ pub struct ZoneThermostatState {
 
     /// Running state bitmap
     running_state: AtomicU16,
+
+    /// Dirty flag for persistence (true = needs to be saved)
+    dirty: AtomicBool,
 }
 
 impl ZoneThermostatState {
@@ -68,6 +71,7 @@ impl ZoneThermostatState {
             occupied_cooling_setpoint: AtomicI16::new(defaults::OCCUPIED_COOLING_SETPOINT),
             system_mode: AtomicU8::new(SystemMode::Heat as u8),
             running_state: AtomicU16::new(0),
+            dirty: AtomicBool::new(false),
         }
     }
 
@@ -133,6 +137,7 @@ impl ZoneThermostatState {
         }
         self.occupied_heating_setpoint
             .store(setpoint_centi_c, Ordering::Relaxed);
+        self.mark_dirty();
         Ok(())
     }
 
@@ -175,6 +180,7 @@ impl ZoneThermostatState {
         }
         self.occupied_cooling_setpoint
             .store(setpoint_centi_c, Ordering::Relaxed);
+        self.mark_dirty();
         Ok(())
     }
 
@@ -193,6 +199,7 @@ impl ZoneThermostatState {
     /// Set the system mode
     pub fn set_system_mode(&self, mode: SystemMode) {
         self.system_mode.store(mode as u8, Ordering::Relaxed);
+        self.mark_dirty();
     }
 
     /// Check if the thermostat is enabled (mode is Heat or Cool)
@@ -229,6 +236,23 @@ impl ZoneThermostatState {
     /// Check if cooling is currently active
     pub fn is_cooling(&self) -> bool {
         self.get_running_state().is_cooling()
+    }
+
+    // ---- Persistence dirty flag ----
+
+    /// Check if state has changed since last persist
+    pub fn is_dirty(&self) -> bool {
+        self.dirty.load(Ordering::Relaxed)
+    }
+
+    /// Clear dirty flag after successful persist
+    pub fn clear_dirty(&self) {
+        self.dirty.store(false, Ordering::Relaxed);
+    }
+
+    /// Mark state as dirty (needs persistence)
+    fn mark_dirty(&self) {
+        self.dirty.store(true, Ordering::Relaxed);
     }
 }
 
@@ -436,6 +460,70 @@ mod tests {
 
         state.set_system_mode(SystemMode::Off);
         assert!(!state.is_enabled());
+    }
+
+    #[test]
+    fn test_dirty_flag_initial_state() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_set_on_heating_setpoint_change() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+        state.set_occupied_heating_setpoint(2200).unwrap();
+        assert!(state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_set_on_cooling_setpoint_change() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+        state.set_occupied_cooling_setpoint(2600).unwrap();
+        assert!(state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_set_on_mode_change() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+        state.set_system_mode(SystemMode::Off);
+        assert!(state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_not_set_on_invalid_setpoint() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+        let result = state.set_occupied_heating_setpoint(500); // Below minimum
+        assert!(result.is_err());
+        assert!(!state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_clear() {
+        let state = ZoneThermostatState::new();
+        state.set_occupied_heating_setpoint(2200).unwrap();
+        assert!(state.is_dirty());
+        state.clear_dirty();
+        assert!(!state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_not_set_on_temperature_update() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+        state.set_local_temperature_celsius(21.5);
+        assert!(!state.is_dirty());
+    }
+
+    #[test]
+    fn test_dirty_flag_not_set_on_heating_state_update() {
+        let state = ZoneThermostatState::new();
+        assert!(!state.is_dirty());
+        state.set_heating_active(true);
+        assert!(!state.is_dirty());
     }
 }
 
