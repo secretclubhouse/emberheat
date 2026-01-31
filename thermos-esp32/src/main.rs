@@ -33,6 +33,7 @@ mod dual_radio;
 mod gpio_impl;
 mod matter;
 mod mqtt;
+mod persistence;
 mod persistence_nvs;
 mod sensor_i2c;
 mod sensors;
@@ -50,6 +51,8 @@ use esp_println::println;
 use log::{debug, error, info, warn};
 use static_cell::StaticCell;
 
+#[cfg(feature = "matter")]
+use config::PERSIST_FLASH_RANGE;
 use config::{MOCK_TEMPERATURE_C, NUM_ZONES, USE_MOCK_SENSORS, ZONE_CONFIGS};
 use config::{MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID, MQTT_PASSWORD, MQTT_USERNAME};
 #[cfg(not(feature = "matter"))]
@@ -57,8 +60,12 @@ use config::{WIFI_PASSWORD, WIFI_SSID};
 use core::fmt::Write as FmtWrite;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+#[cfg(feature = "matter")]
+use esp_storage::FlashStorage;
 use gpio_impl::Esp32GpioPin;
 use mqtt::{MqttConfig, MqttMessage};
+#[cfg(feature = "matter")]
+use persistence::{load_all_zones, FlashKvBlobStore};
 use sensors::MockSensor;
 use thermos_core::{
     apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState,
@@ -497,7 +504,15 @@ async fn matter_main_task(
     bt: esp_hal::peripherals::BT<'static>,
     user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
 ) {
-    matter_task(controller, wifi, bt, user_task).await
+    // Initialize flash storage for persistence
+    let flash = FlashStorage::new();
+    let mut store = FlashKvBlobStore::new(flash, PERSIST_FLASH_RANGE);
+
+    // Load persisted zone states before Matter starts
+    load_all_zones(&mut store).await;
+
+    // Run Matter with flash-backed persistence
+    matter_task(controller, wifi, bt, store, user_task).await
 }
 
 #[cfg(feature = "external-ble")]
@@ -509,8 +524,16 @@ async fn matter_main_task_dual_radio(
     uart_tx: esp_hal::uart::UartTx<'static, esp_hal::Async>,
     user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
 ) {
+    // Initialize flash storage for persistence
+    let flash = FlashStorage::new();
+    let mut store = FlashKvBlobStore::new(flash, PERSIST_FLASH_RANGE);
+
+    // Load persisted zone states before Matter starts
+    load_all_zones(&mut store).await;
+
+    // Run Matter with flash-backed persistence
     let driver = DualRadioDriver::new(controller, wifi, uart_rx, uart_tx);
-    matter_task_dual_radio(driver, user_task).await
+    matter_task_dual_radio(driver, store, user_task).await
 }
 
 // =============================================================================

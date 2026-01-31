@@ -216,14 +216,35 @@ async fn main(spawner: Spawner) {
 
 ## Flash Partition Layout
 
-**Partition Table Addition** (`partitions.csv`):
+### Raw Flash Access
 
-```csv
-# Name,   Type, SubType, Offset,   Size,    Flags
-persist,  data, nvs,     0x310000, 0x10000,   # 64KB for persistence
+This implementation uses `esp-storage` for direct flash access, bypassing the ESP-IDF partition table. This approach:
+- Simplifies integration (no partition table modifications needed)
+- Works with the existing `esp-bootloader-esp-idf` setup
+- Requires careful offset selection to avoid overlapping with application code
+
+### Flash Memory Map (ESP32-C6)
+
+```
+┌────────────────────────────────┬─────────────┐
+│ 0x000000 - 0x00FFFF (64KB)     │ Bootloader  │
+├────────────────────────────────┼─────────────┤
+│ 0x010000 - 0x30FFFF (~3MB)     │ Application │
+│                                │ (currently  │
+│                                │  ~2.2MB)    │
+├────────────────────────────────┼─────────────┤
+│ 0x310000 - 0x31FFFF (64KB)     │ Persistence │◄── Our partition
+├────────────────────────────────┼─────────────┤
+│ 0x320000 - 0x3FFFFF (896KB)    │ Free        │
+└────────────────────────────────┴─────────────┘
+                                    (4MB total)
 ```
 
-**Constants:**
+**Safety margin:** ~850KB between application end and persistence start.
+
+**Note:** If application grows beyond ~2.9MB, the persistence offset must be increased.
+
+### Constants (in config.rs)
 
 ```rust
 const PERSIST_PARTITION_START: u32 = 0x310000;
@@ -249,8 +270,8 @@ const PERSIST_PARTITION_SIZE: u32 = 0x10000;  // 64KB
 | `thermos-matter/src/state.rs` | Add `dirty: AtomicBool` field and methods |
 | `thermos-esp32/src/matter/stack.rs` | Replace `DummyKvBlobStore` with `FlashKvBlobStore` |
 | `thermos-esp32/src/main.rs` | Add storage init, zone loading, spawn persist task |
-| `thermos-esp32/Cargo.toml` | Ensure `sequential-storage` features enabled |
-| `partitions.csv` | Add persist partition |
+| `thermos-esp32/Cargo.toml` | Add `sequential-storage` and `embedded-storage-async` deps |
+| `thermos-esp32/src/config.rs` | Add persistence partition constants |
 
 ## New Files
 
