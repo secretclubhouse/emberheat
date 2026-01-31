@@ -39,7 +39,10 @@ mod mocks;
 pub use controller::run_zone_control_loop;
 pub use gpio_impl::Esp32GpioPin;
 pub use onewire_gpio::{Ds18b20Gpio, OneWireGpio};
-pub use persistence::{PersistedZoneState, ZONE_KEY_BASE};
+pub use persistence::{
+    factory_reset, load_all_zones, reset_zone_states, run_persist_task, FlashKvBlobStore,
+    PersistedZoneState, StorageKey, ZONE_KEY_BASE,
+};
 pub use persistence_nvs::NvsStorage;
 pub use sensor_i2c::Bme280Sensor;
 pub use sensors::{MockSensor, SharedDs18b20Sensor, SharedOneWireBus};
