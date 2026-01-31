@@ -27,7 +27,7 @@ use rs_matter_embassy::matter::tlv::Nullable;
 use rs_matter_embassy::matter::utils::init::InitMaybeUninit;
 use rs_matter_embassy::matter::{clusters, devices, BasicCommData};
 use rs_matter_embassy::rand::esp::esp_rand;
-use rs_matter_embassy::stack::persist::DummyKvBlobStore;
+use rs_matter_embassy::stack::persist::KvBlobStore;
 use rs_matter_embassy::wireless::esp::EspWifiDriver;
 #[cfg(feature = "external-ble")]
 use rs_matter_embassy::wireless::{BleDriver, WifiCoexDriver, WifiDriver};
@@ -1169,12 +1169,14 @@ macro_rules! mk_static {
 ///
 /// This function never returns under normal operation. It runs the Matter
 /// stack indefinitely, handling commissioning and attribute read/write requests.
-pub async fn matter_task<U>(
+pub async fn matter_task<S, U>(
     controller: &'static EspRadioController<'static>,
     wifi: WIFI<'static>,
     bt: BT<'static>,
+    store: S,
     user_task: U,
 ) where
+    S: KvBlobStore,
     U: rs_matter_embassy::stack::UserTask,
 {
     info!("Matter: Starting task...");
@@ -1269,11 +1271,8 @@ pub async fn matter_task<U>(
     );
     info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201) [HEAT+COOL]");
 
-    // Create persister (using dummy store for now - TODO: implement NVS persistence)
-    let persist = stack
-        .create_persist_with_comm_window(DummyKvBlobStore)
-        .await
-        .unwrap();
+    // Create persister with the provided key-value store
+    let persist = stack.create_persist_with_comm_window(store).await.unwrap();
 
     info!("Matter: Persist created, starting stack...");
 
@@ -1316,9 +1315,10 @@ pub async fn matter_task<U>(
 /// This variant uses an external BLE controller over UART HCI instead of
 /// the ESP32-C6's internal BLE, avoiding radio time-sharing issues.
 #[cfg(feature = "external-ble")]
-pub async fn matter_task_dual_radio<D, U>(driver: D, user_task: U)
+pub async fn matter_task_dual_radio<D, S, U>(driver: D, store: S, user_task: U)
 where
     D: WifiCoexDriver + WifiDriver + BleDriver,
+    S: KvBlobStore,
     U: rs_matter_embassy::stack::UserTask,
 {
     info!("Matter: Starting dual-radio task (C6 WiFi + H2 BLE)...");
@@ -1392,10 +1392,8 @@ where
     );
     info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201) [HEAT+COOL]");
 
-    let persist = stack
-        .create_persist_with_comm_window(DummyKvBlobStore)
-        .await
-        .unwrap();
+    // Create persister with the provided key-value store
+    let persist = stack.create_persist_with_comm_window(store).await.unwrap();
 
     const NODE: Node = Node {
         id: 0,
