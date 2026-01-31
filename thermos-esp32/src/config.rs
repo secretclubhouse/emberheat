@@ -40,6 +40,36 @@
 /// Note: Avoid strapping pins (4, 5, 8, 9, 15) and USB pins (12, 13, 16, 17)
 pub const ONEWIRE_PIN: u8 = 21;
 
+// ============================================================================
+// Flash Persistence Configuration
+// ============================================================================
+
+/// Start address of persistence partition in flash
+/// Must not overlap with app or other partitions
+pub const PERSIST_PARTITION_START: u32 = 0x310000;
+
+/// Size of persistence partition (64KB)
+/// Provides ~25x headroom for sequential-storage wear leveling
+pub const PERSIST_PARTITION_SIZE: u32 = 0x10000;
+
+/// Flash range for persistence partition
+pub const PERSIST_FLASH_RANGE: core::ops::Range<u32> =
+    PERSIST_PARTITION_START..(PERSIST_PARTITION_START + PERSIST_PARTITION_SIZE);
+
+/// Interval between persistence checks (seconds)
+pub const PERSIST_CHECK_INTERVAL_SECS: u64 = 5;
+
+// ============================================================================
+// Factory Reset Configuration
+// ============================================================================
+
+/// GPIO pin for factory reset button (directly to GND when pressed)
+/// Hold during boot to trigger factory reset
+pub const FACTORY_RESET_PIN: u8 = 9;
+
+/// How long reset button must be held to confirm factory reset (seconds)
+pub const FACTORY_RESET_HOLD_SECS: u64 = 5;
+
 /// Number of heating zones supported
 /// TEMP: Reduced to 1 for Matter commissioning testing
 pub const NUM_ZONES: usize = 1;
