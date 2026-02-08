@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Thermos Contributors"]
 description = "Multi-zone thermostat system for Raspberry Pi/Linux"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/josht/thermos-rust"
 
 [lints.rust]

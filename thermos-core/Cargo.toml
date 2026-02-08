@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Thermos Contributors"]
 description = "Platform-agnostic thermostat control logic"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Serialization (no_std compatible)

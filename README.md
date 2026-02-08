@@ -1,68 +1,62 @@
 # Thermos-Rust
 
-A multi-zone thermostat system for hydronic heating, written in Rust for ESP32-C6.
+A Matter-enabled multi-zone thermostat system for hydronic heating, written in Rust for ESP32-C6. Controls heating zones via HomeKit, Google Home, and other Matter-compatible controllers.
 
-This is a Rust reimplementation of the [Thermos](https://github.com/truncj/thermos) Python project, offering improved performance, memory safety, and embedded support.
+## Architecture
 
-> **Note:** Matter/HomeKit integration is planned but not yet functional. See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for details.
+**Cargo workspace** with three active crates:
 
-## Features
+| Crate | Purpose | Platform |
+|-------|---------|----------|
+| `thermos-core` | Core control logic, traits, types | `no_std` compatible |
+| `thermos-matter` | Matter protocol types and cluster definitions | `no_std` compatible |
+| `thermos-esp32` | ESP32-C6 firmware (active) | ESP32-C6 bare-metal |
+| `thermos-linux` | Raspberry Pi implementation (preserved) | Linux |
 
-- **Configurable Multi-Zone Control**: Independent temperature control for 1-7 heating zones
-- **Hysteresis Control**: Intelligent heating control with configurable dead band to prevent rapid cycling
-- **Multiple Sensor Types**:
-  - 1-Wire DS18B20 temperature sensors via RMT peripheral
-  - I2C BME280 sensor support
-- **State Persistence**: NVS flash storage for recovery after restarts
-- **MQTT Logging**: Temperature and state reporting via MQTT
-- **WiFi Connectivity**: Built-in WiFi for network integration
+### Core Library (`thermos-core`)
 
-## Project Structure
+Platform-agnostic library containing:
+- **Temperature types** with Celsius/Fahrenheit conversion
+- **Hysteresis control algorithm** (prevents relay chatter with ±0.5°C dead band)
+- **Trait definitions** for sensors, GPIO, and state persistence
+- **Sensor validation** (3°C - 37°C range)
 
-```
-thermos-rust/
-├── Cargo.toml              # Workspace definition
-├── thermos-core/           # Platform-agnostic core library (no_std)
-│   └── src/
-│       ├── types.rs        # HeatingState, TemperatureReading, etc.
-│       ├── sensor.rs       # TemperatureSensor trait
-│       ├── gpio.rs         # GpioManager trait
-│       ├── persistence.rs  # StateStorage trait
-│       └── control.rs      # Hysteresis control algorithm
-├── thermos-matter/         # Matter protocol types and cluster definitions (no_std)
-│   └── src/
-│       ├── types.rs        # Matter temperature/mode types
-│       ├── state.rs        # ZoneThermostatState with atomic operations
-│       ├── cluster.rs      # Thermostat cluster (0x0201) hooks
-│       └── device.rs       # Device info and endpoint mapping
-├── thermos-esp32/          # ESP32-C6 bare-metal implementation
-│   └── src/
-│       ├── main.rs         # Embassy entry point
-│       ├── config.rs       # Zone configuration (NUM_ZONES, ZONE_CONFIGS)
-│       ├── gpio_impl.rs    # esp-hal GPIO
-│       ├── sensor_onewire.rs   # 1-Wire via RMT peripheral
-│       ├── sensor_i2c.rs   # BME280 I2C sensor
-│       ├── persistence_nvs.rs  # NVS flash storage
-│       ├── wifi.rs         # WiFi connectivity
-│       └── mqtt.rs         # MQTT logging
-└── thermos-linux/          # Linux implementation (preserved, not active)
-```
+### Matter Integration (`thermos-matter`)
 
-> **Note:** `thermos-linux` contains a Raspberry Pi implementation with Redis and Prometheus support. It is preserved in the repository but not actively developed. Use `cargo build -p thermos-linux` to build it explicitly.
+Smart home protocol support via [rs-matter](https://github.com/project-chip/rs-matter):
+- **Thermostat Cluster** (0x0201) with heating and cooling support
+- **Atomic state management** for cross-task zone state access
+- **Zone-aware state** with target temperatures and system modes
+- **Lock-free design** using portable-atomic for real-time safety
+- **Dirty flag tracking** for efficient flash persistence
 
-## Hardware Requirements
+### ESP32 Implementation (`thermos-esp32`)
 
-- ESP32-C6 development board
-- DS18B20 1-Wire temperature sensor OR BME280 I2C sensor
-- Relay module for heating control
-- WiFi network for MQTT connectivity
+Active firmware for ESP32-C6:
+- **Embassy async runtime** for cooperative multitasking
+- **Matter stack** with BLE + WiFi commissioning (single-radio and dual-radio modes)
+- **Flash persistence** with wear-leveling via sequential-storage
+- **Factory reset** via GPIO button (hold 5 seconds)
+- **1-Wire temperature sensors** via RMT peripheral
+- **BME280 I2C sensor** support
+- **Relay control** via GPIO
+- **WiFi connectivity** provisioned through Matter commissioning
+- **MQTT logging** for monitoring
+- **Matter bridge** connecting protocol state to control loops
 
-## Getting Started
+### Linux Implementation (`thermos-linux`)
+
+Preserved but not actively developed. Uses:
+- `sysfs_gpio` for GPIO control
+- `ds18b20` for 1-Wire sensors
+- `serde_json` for state persistence
+
+## Quick Start (ESP32-C6)
 
 ### Prerequisites
 
 ```bash
-# Install Rust
+# Install Rust (if needed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Add ESP32 target
@@ -72,123 +66,174 @@ rustup target add riscv32imac-unknown-none-elf
 cargo install espflash
 ```
 
-### Building and Flashing
+### Build and Flash
 
 ```bash
-# Build ESP32 firmware
-make build-esp32
+# Build with Matter support (single-radio: C6 WiFi + BLE time-shared)
+make build-matter
 
-# Flash to device
-make flash
+# Build with dual-radio (C6 WiFi + H2 BLE over UART HCI)
+make build-matter-dual-radio
 
-# Flash and open serial monitor
-make flash-monitor
+# Flash Matter firmware and monitor serial output
+make flash-monitor-matter
+
+# Run tests (thermos-core + thermos-matter)
+make test
 ```
 
-### Configuration
+### Matter Commissioning
 
-#### WiFi and MQTT
+After flashing, the device enters commissioning mode. Use the Apple Home app, Google Home, or any Matter controller to pair:
 
-WiFi and MQTT settings are configured in `thermos-esp32/src/main.rs`. Update the constants for your network:
+1. Power on the ESP32-C6
+2. Open your Matter controller app
+3. Scan the QR code or enter the setup code manually
+4. The device appears as a Thermostat
+
+Default commissioning credentials (configurable in `config.rs`):
+- **Discriminator:** 3840
+- **Passcode:** 20202021
+- **Vendor ID:** 0xFFF1 (test)
+
+The device supports up to 5 Matter fabrics simultaneously (HomeKit (2) + Google Home + Alexa + Home Assistant).
+
+### Zone Configuration
+
+Edit `thermos-esp32/src/config.rs` to configure zones (1-16 supported):
 
 ```rust
-const WIFI_SSID: &str = "your-ssid";
-const WIFI_PASSWORD: &str = "your-password";
-const MQTT_BROKER: &str = "192.168.1.100";
+pub const NUM_ZONES: usize = 7;
+
+pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
+    ZoneConfigData {
+        name: "Living Room",
+        relay_pin: 5,
+        sensor_address: [0x28, ...],
+        default_target_c: 21.1,
+    },
+    // ... more zones
+];
 ```
 
-#### Zone Count
+Each zone appears as a separate thermostat endpoint in Matter controllers.
 
-The number of heating zones is configurable (1-16 supported). Edit `thermos-esp32/src/config.rs`:
+## How It Works
 
-1. Set `NUM_ZONES` to desired value
-2. Ensure `ZONE_CONFIGS` array has exactly `NUM_ZONES` entries
-3. Rebuild firmware
-
-> **Note:** Adding zones beyond 7 requires adding corresponding task functions in `main.rs`. See [CLAUDE.md](.claude/CLAUDE.md) for details.
-
-## Hysteresis Control Logic
-
-The thermostat prevents rapid on/off cycling using a **±0.5°C dead band**:
+### Control Loop (per zone)
 
 ```
-Temperature
-    ↑
-    │
- 22°C ├─────────┐ OFF
-    │         │
-21.5°C ├─────────┼───────┐ Dead Band
-    │         │       │
- 21°C ├─────────┼───────┘ Target
-    │         │
-20.5°C ├─────────┘ ON
-    │
-    └──────────────────> Time
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│ Read Sensor  │────▶│ Apply        │────▶│ Set Relay   │
+│ Temperature  │     │ Hysteresis   │     │ State       │
+└─────────────┘     └──────────────┘     └─────────────┘
+       │                    │                     │
+       ▼                    ▼                     ▼
+  Validate 3-37°C    ±0.5°C dead band     GPIO HIGH/LOW
 ```
 
-- **Turn ON** when: `temperature ≤ target - 0.5°C`
-- **Turn OFF** when: `temperature ≥ target + 0.5°C`
-- **Maintain state** when within dead band
+### Matter Integration
+
+```
+┌──────────────┐     ┌──────────────┐     ┌─────────────┐
+│ Matter Stack │────▶│ Zone State   │────▶│ Control     │
+│ (HomeKit etc)│     │ (Atomic)     │     │ Loop        │
+└──────────────┘     └──────────────┘     └─────────────┘
+  Set target temp    Lock-free R/W     Reads new target
+  Set mode           Portable-atomic   Applies hysteresis
+       │                    │
+       ▼                    ▼
+  BLE commission     Flash persist
+  WiFi provision     (sequential-storage)
+```
+
+### Persistence
+
+Zone setpoints and modes are persisted to flash with wear-leveling. On power loss, the device restores its last known configuration. Matter commissioning data (fabrics, network credentials) is also persisted.
+
+### Safety
+
+- Heating defaults to **OFF** on any error
+- Temperature readings validated before use
+- State persisted to flash for power-loss recovery
+- Hysteresis prevents rapid relay switching
+- Factory reset available via GPIO 9 button (hold 5 seconds)
+
+## Matter Clusters
+
+The thermostat endpoint implements:
+
+| Cluster | ID | Purpose |
+|---------|-----|---------|
+| Thermostat | 0x0201 | Temperature control, setpoints, system mode |
+| Identify | 0x0003 | Device identification (HomeKit requirement) |
+| Binding | 0x001E | External sensor support |
+| Thermostat UI Config | 0x0204 | Temperature display format |
+| Descriptor | 0x001D | Device type and cluster lists |
+
+### Thermostat Attributes
+
+| Attribute | Access | Description |
+|-----------|--------|-------------|
+| LocalTemperature | Read | Current temperature (0.01°C units) |
+| OccupiedHeatingSetpoint | Read/Write | Heating target (7-30°C) |
+| OccupiedCoolingSetpoint | Read/Write | Cooling target (10-35°C) |
+| SystemMode | Read/Write | Off / Heat / Cool |
+| ThermostatRunningState | Read | Currently heating/cooling/idle |
+| ControlSequenceOfOperation | Read | CoolingAndHeating |
 
 ## Development
 
-### Running Tests
-
 ```bash
-# Run thermos-core tests
-make test
-
-# Run with verbose output
-make test-verbose
+make dev        # Format + lint + test
+make build      # Build core library
+make test       # Run all tests
+make lint       # Clippy lints
 ```
 
-### Code Quality
+### Build Targets
 
 ```bash
-# Format, lint, and test
-make dev
+# Core
+make build              # Build thermos-core
+make build-esp32        # Build ESP32 firmware (MQTT mode, no Matter)
 
-# Format code
-make fmt
+# Matter
+make build-matter                    # Single radio (C6 WiFi + BLE)
+make build-matter-dual-radio         # Dual radio (C6 WiFi + H2 BLE)
+make flash-matter                    # Flash single radio
+make flash-matter-dual-radio         # Flash dual radio
+make flash-monitor-matter            # Flash + monitor
+make flash-monitor-matter-dual-radio # Flash + monitor (dual radio)
 
-# Run clippy
-make lint
+# Quality
+make test               # Run tests (core + matter)
+make lint               # Clippy
+make fmt                # Format
+make dev                # Format + lint + test
 ```
 
-### Available Make Targets
+## Project Status
 
-```bash
-make help          # Show all targets
-make build         # Build thermos-core
-make build-esp32   # Build ESP32 firmware
-make flash         # Flash to ESP32
-make monitor       # Open serial monitor
-make flash-monitor # Flash and monitor
-make test          # Run tests
-make dev           # Format, lint, test
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+- [x] Core hysteresis algorithm with tests
+- [x] ESP32-C6 firmware with Embassy async runtime
+- [x] 1-Wire and I2C sensor support
+- [x] Multi-zone relay control (1-16 zones)
+- [x] Matter commissioning (BLE + WiFi)
+- [x] Thermostat cluster with heating and cooling
+- [x] HomeKit / Google Home / Alexa integration via Matter
+- [x] Atomic zone state management (lock-free)
+- [x] Flash persistence with wear-leveling (fabrics + zone state)
+- [x] Factory reset and zone state reset
+- [x] Dual-radio support (ESP32-C6 WiFi + ESP32-H2 BLE)
+- [ ] MQTT telemetry in Matter mode (blocked by socket pool size)
+- [ ] OTA firmware updates
 
 ## License
 
-MIT License - see LICENSE file for details
+Licensed under either of
 
-## Acknowledgments
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
-- Original Python implementation: [Thermos](https://github.com/truncj/thermos)
-- ESP32 HAL: [esp-hal](https://github.com/esp-rs/esp-hal)
-- Async runtime: [Embassy](https://embassy.dev/)
-
-## Roadmap
-
-- [x] ESP32-C6 bare-metal support with Embassy
-- [x] WiFi and MQTT integration
-- [x] NVS flash persistence
-- [x] I2C BME280 sensor support
-- [x] 1-Wire via RMT peripheral
-- [ ] Matter integration via rs-matter (see [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md))
-- [ ] Web UI for configuration
-- [ ] Home Assistant integration
+at your option.

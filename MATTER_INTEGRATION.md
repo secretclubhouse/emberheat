@@ -1,559 +1,279 @@
-# Matter Protocol Integration Guide
-
-This document describes how to add Matter/HomeKit support to thermos-rust using the modern **rs-matter** pure Rust implementation.
+# Matter Integration Architecture
 
 ## Overview
 
-Matter (formerly Project CHIP) is an open-source connectivity standard for smart home devices. It enables integration with Apple HomeKit, Google Home, Amazon Alexa, and other ecosystems.
+Thermos-Rust integrates with the Matter smart home protocol to expose each heating zone as a Matter Thermostat device. The implementation uses [rs-matter](https://github.com/project-chip/rs-matter) with Embassy on ESP32-C6, supporting commissioning via BLE and control via HomeKit, Google Home, Alexa, and other Matter controllers.
 
-## Current Status
+## Crate Structure
 
-> ⚠️ **Matter is NOT functional.** The current codebase contains only a stub implementation.
+### `thermos-matter` (no_std library)
 
-**Raspberry Pi (`thermos-linux` / legacy `src/`):** The `src/matter/mod.rs` contains a **stub implementation** that logs warnings and waits indefinitely. It does not provide any actual Matter functionality.
-
-**ESP32 (`thermos-esp32`):** Matter integration is **planned** using the `rs-matter` pure Rust library, which provides native support for Embassy async executor and bare-metal ESP32 hardware. This is not yet implemented.
-
-## Recommended Approach: rs-matter
-
-### Why rs-matter Instead of Connected Home IP?
-
-The previous Matter integration attempt used C++ FFI bindings to the Connected Home IP SDK, which proved complex and difficult to maintain. As of 2025, **rs-matter** provides a superior alternative:
-
-| Feature | rs-matter (Modern) | Connected Home IP (Legacy) |
-|---------|-------------------|---------------------------|
-| **Language** | Pure Rust | C++ with FFI bindings |
-| **Build complexity** | Cargo dependency | ~300MB SDK, GLib, C++ compiler |
-| **Embedded support** | `no_std` compatible | Linux-focused |
-| **Async runtime** | Executor agnostic (Embassy ✅) | Complex integration |
-| **ESP32 support** | First-class with examples | Requires ESP-IDF wrapper |
-| **Maintenance** | Active development, on crates.io | Complex build scripts |
-| **Dependencies** | Minimal | GLib, pkg-config, pthread, stdc++ |
-
-**Conclusion:** Use `rs-matter` for new implementations. The C++ FFI approach documented in previous versions of this file is **deprecated**.
-
-## Integration Timeline
-
-Matter integration should be implemented **after** the ESP32 MVP is functional:
+Platform-agnostic Matter types and state management:
 
 ```
-✅ Week 1: Platform-agnostic core extraction (COMPLETE)
-→ Week 2: ESP32 platform layer (GPIO, sensors, NVS storage, WiFi)
-→ Week 3: MQTT integration for temperature history
-→ Week 4: Testing and refinement on ESP32 hardware
-→ Week 5-6: Add rs-matter integration ← Matter implementation
+thermos-matter/src/
+├── lib.rs       # Module exports
+├── types.rs     # MatterTemperature, SystemMode, etc.
+├── state.rs     # ZoneThermostatState (atomic operations + dirty tracking)
+├── cluster.rs   # Thermostat cluster (0x0201) attribute hooks
+├── handler.rs   # Matter handler traits
+└── device.rs    # Device info and endpoint mapping
 ```
 
-## ESP32 Matter Integration (Weeks 5-6)
+### `thermos-esp32/src/matter/` (ESP32-specific)
 
-### Prerequisites
+Platform integration connecting Matter state to hardware:
 
-- ESP32-C6 hardware (recommended - has Thread radio for Matter-over-Thread)
-- Working `thermos-esp32` binary with:
-  - Embassy executor running
-  - WiFi connectivity established
-  - Temperature sensor reading
-  - GPIO relay control
-  - NVS state persistence
-  - Basic MQTT logging (optional, can coexist)
-
-### Step 1: Add rs-matter Dependency
-
-Update `thermos-esp32/Cargo.toml`:
-
-```toml
-[dependencies]
-thermos-core = { path = "../thermos-core" }
-embassy-executor = { workspace = true }
-embassy-net = "0.5"
-embassy-time = { workspace = true }
-esp-hal = "1.0"
-esp-wifi = "0.11"
-esp-backtrace = "0.14"
-
-# Matter support (optional feature)
-rs-matter = { version = "0.1", optional = true }
-
-# MQTT support (can coexist with Matter)
-rust-mqtt = { version = "0.3", optional = true }
-
-[features]
-default = ["mqtt"]
-matter = ["rs-matter"]
-full = ["mqtt", "matter"]  # Both protocols
+```
+thermos-esp32/src/matter/
+├── mod.rs           # Module exports
+├── stack.rs         # Matter stack setup, cluster handlers, endpoint config
+├── zones.rs         # ZoneStateStore - compile-time sized zone storage
+├── bridge.rs        # MatterBridge - connects Matter state to control loops
+└── mqtt_bridge.rs   # MQTT in Matter mode (currently disabled)
 ```
 
-### Step 2: Matter Device Configuration
+### `thermos-esp32/src/persistence/` (Flash storage)
 
-Create `thermos-esp32/src/matter_device.rs`:
+```
+thermos-esp32/src/persistence/
+├── mod.rs           # Module exports
+├── flash_store.rs   # FlashKvBlobStore - sequential-storage wrapper
+├── types.rs         # PersistedZoneState (5 bytes per zone)
+├── task.rs          # Background persistence task (checks every 5s)
+└── reset.rs         # Factory reset and zone state reset
+```
+
+## Data Flow
+
+### Setting Temperature via Matter
+
+```
+Matter Controller (e.g., Apple Home)
+    │
+    ▼
+Matter Stack (rs-matter-embassy)
+    │  BLE commissioning → WiFi operational
+    ▼
+Thermostat Cluster Write Handler (stack.rs)
+    │  Writes to OccupiedHeatingSetpoint (attr 0x0012)
+    ▼
+ZoneThermostatState::set_heating_setpoint()
+    │  Atomic store (portable-atomic) + sets dirty flag
+    ▼
+Persistence Task (every 5s)              MatterBridge::get_matter_setpoint()
+    │  Checks dirty flag, writes flash       │  Reads atomic state
+    ▼                                        ▼
+Flash (sequential-storage)               Control Loop
+                                             │  Applies hysteresis with new target
+                                             ▼
+                                         GPIO Relay ON/OFF
+```
+
+### Reporting Temperature to Matter
+
+```
+Temperature Sensor (1-Wire / I2C / Mock)
+    │
+    ▼
+Control Loop reads sensor
+    │
+    ▼
+MatterBridge::update_matter_from_control_loop()
+    │  Updates atomic state with current temp
+    ▼
+ZoneThermostatState::set_current_temp()
+    │  Atomic store
+    ▼
+Thermostat Cluster Read Handler (stack.rs)
+    │  Reads LocalTemperature (attr 0x0000)
+    ▼
+Matter Stack reports to controller
+```
+
+## Endpoint Configuration
+
+Each zone maps to a Matter endpoint:
+
+```
+Thermostat Device (Endpoint 0 = Root Node)
+├── Root: BasicInformation, GeneralCommissioning,
+│         NetworkCommissioning, OperationalCredentials
+│
+├── Endpoint 1 = Zone 0 - Thermostat + Identify + Binding +
+│                         ThermostatUIConfig + Descriptor
+├── Endpoint 2 = Zone 1
+└── ...
+```
+
+Device type: `0x0301` (Thermostat)
+
+## Clusters Implemented
+
+### Thermostat Cluster (0x0201)
+
+**Feature Map: 0x03** (HEAT + COOL)
+
+| Attribute | ID | Type | Access | Range |
+|-----------|-----|------|--------|-------|
+| LocalTemperature | 0x0000 | Nullable i16 | Read | 0.01°C units |
+| AbsMinHeatSetpointLimit | 0x0003 | i16 | Read | 7°C (700) |
+| AbsMaxHeatSetpointLimit | 0x0004 | i16 | Read | 30°C (3000) |
+| AbsMinCoolSetpointLimit | 0x0005 | i16 | Read | 10°C (1000) |
+| AbsMaxCoolSetpointLimit | 0x0006 | i16 | Read | 35°C (3500) |
+| OccupiedCoolingSetpoint | 0x0011 | i16 | Read/Write | 10-35°C |
+| OccupiedHeatingSetpoint | 0x0012 | i16 | Read/Write | 7-30°C |
+| MinHeatSetpointLimit | 0x0015 | i16 | Read/Write | Adjustable |
+| MaxHeatSetpointLimit | 0x0016 | i16 | Read/Write | Adjustable |
+| MinCoolSetpointLimit | 0x0017 | i16 | Read/Write | Adjustable |
+| MaxCoolSetpointLimit | 0x0018 | i16 | Read/Write | Adjustable |
+| ControlSequenceOfOperation | 0x001B | enum8 | Read | CoolingAndHeating (0x04) |
+| SystemMode | 0x001C | enum8 | Read/Write | Off (0) / Heat (4) / Cool (3) |
+| ThermostatRunningState | 0x0029 | bitmap16 | Read | Heating/cooling active |
+
+### Supporting Clusters
+
+| Cluster | ID | Purpose |
+|---------|-----|---------|
+| Identify | 0x0003 | Device identification (HomeKit requirement) |
+| Binding | 0x001E | External sensor support (HomeKit requirement) |
+| Thermostat UI Config | 0x0204 | Temperature display format |
+| Descriptor | 0x001D | Device type (0x0301) and cluster lists |
+
+## Key Types
+
+### `MatterTemperature` (thermos-matter/src/types.rs)
+
+Matter uses temperatures in 0.01°C units as integers:
 
 ```rust
-use rs_matter::data_model::cluster_basic_information::BasicInfoConfig;
-use rs_matter::data_model::cluster_on_off;
-use rs_matter::data_model::device_types::DEV_TYPE_ON_OFF_LIGHT;
-use rs_matter::data_model::objects::{Endpoint, Node};
-use rs_matter::data_model::system_model::descriptor;
-use rs_matter::Matter;
-use rs_matter::MATTER_PORT;
+pub struct MatterTemperature(i16);
 
-use thermos_core::{HeatingState, TemperatureReading, ThermostatState};
-
-/// Matter Thermostat Cluster ID
-const CLUSTER_THERMOSTAT: u32 = 0x0201;
-
-/// Thermostat attributes
-const ATTR_LOCAL_TEMPERATURE: u16 = 0x0000;        // int16 (centi-°C)
-const ATTR_OCCUPIED_HEATING_SETPOINT: u16 = 0x0012; // int16 (centi-°C)
-const ATTR_SYSTEM_MODE: u16 = 0x001C;               // enum8
-const ATTR_THERMOSTAT_RUNNING_STATE: u16 = 0x0029;  // bitmap8
-
-/// System mode values
-const MODE_OFF: u8 = 0x00;
-const MODE_HEAT: u8 = 0x04;
-
-/// Running state bitmap
-const RUNNING_STATE_IDLE: u8 = 0x00;
-const RUNNING_STATE_HEATING: u8 = 0x01;
-
-pub struct MatterThermostat {
-    endpoint_id: u16,
-    state: ThermostatState,
-}
-
-impl MatterThermostat {
-    pub fn new(endpoint_id: u16, zone_name: String) -> Self {
-        Self {
-            endpoint_id,
-            state: ThermostatState::default(),
-        }
+impl MatterTemperature {
+    pub fn from_celsius(celsius: f32) -> Self {
+        Self((celsius * 100.0) as i16)
     }
 
-    /// Update local temperature reading
-    pub fn update_temperature(&mut self, reading: TemperatureReading) {
-        self.state.current_temp = reading.celsius;
-        // Convert to centi-degrees for Matter
-        let centi_c = (reading.celsius * 100.0) as i16;
-        // Update Matter attribute (implementation depends on rs-matter API)
-    }
-
-    /// Update target setpoint (called from HomeKit/Google Home)
-    pub fn set_target_temperature(&mut self, centi_c: i16) {
-        let temp_c = (centi_c as f32) / 100.0;
-        self.state.target_temp = temp_c;
-    }
-
-    /// Update heating state
-    pub fn update_heating_state(&mut self, heating: HeatingState) {
-        self.state.target_state = heating;
-        let running_state = match heating {
-            HeatingState::Heat => RUNNING_STATE_HEATING,
-            HeatingState::Off => RUNNING_STATE_IDLE,
-        };
-        // Update Matter attribute
-    }
-
-    /// Get current state for control loop
-    pub fn get_state(&self) -> &ThermostatState {
-        &self.state
-    }
-}
-
-pub struct MatterConfig {
-    pub vendor_id: u16,
-    pub product_id: u16,
-    pub device_name: String,
-    pub serial_number: String,
-}
-
-impl Default for MatterConfig {
-    fn default() -> Self {
-        Self {
-            vendor_id: 0xFFF1,  // Test vendor ID
-            product_id: 0x8001, // Thermostat
-            device_name: "Thermos Thermostat".to_string(),
-            serial_number: "THERMO-001".to_string(),
-        }
+    pub fn to_celsius(&self) -> f32 {
+        self.0 as f32 / 100.0
     }
 }
 ```
 
-### Step 3: Matter Server Task
+### `SystemMode` (thermos-matter/src/types.rs)
 
-Create `thermos-esp32/src/matter_server.rs`:
+Maps to Matter Thermostat SystemMode attribute:
 
 ```rust
-use embassy_executor::Spawner;
-use embassy_net::Stack;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
-use rs_matter::Matter;
-
-use crate::matter_device::{MatterConfig, MatterThermostat};
-use thermos_core::TemperatureReading;
-
-/// Messages from control loop to Matter server
-pub enum MatterMessage {
-    TemperatureUpdate(TemperatureReading),
-    HeatingStateChanged(bool),
-}
-
-/// Channel for communication between control loop and Matter
-pub static MATTER_CHANNEL: Channel<CriticalSectionRawMutex, MatterMessage, 8> = 
-    Channel::new();
-
-#[embassy_executor::task]
-pub async fn matter_server_task(
-    stack: &'static Stack<esp_wifi::wifi::WifiDevice<'static>>,
-    config: MatterConfig,
-) {
-    log::info!("Starting Matter server");
-
-    // Initialize Matter stack
-    let matter = Matter::new(
-        config.vendor_id,
-        config.product_id,
-        &config.device_name,
-    );
-
-    // Create thermostat endpoint
-    let mut thermostat = MatterThermostat::new(1, "Zone1".to_string());
-
-    // Print commissioning QR code
-    let qr_code = matter.get_qr_code();
-    log::info!("Matter QR Code: {}", qr_code);
-    log::info!("Pairing code: {}", matter.get_pairing_code());
-
-    // Main Matter event loop
-    loop {
-        embassy_futures::select::select(
-            // Handle Matter protocol events
-            matter.run(),
-            // Handle updates from control loop
-            async {
-                match MATTER_CHANNEL.receive().await {
-                    MatterMessage::TemperatureUpdate(reading) => {
-                        thermostat.update_temperature(reading);
-                    }
-                    MatterMessage::HeatingStateChanged(heating) => {
-                        let state = if heating {
-                            thermos_core::HeatingState::Heat
-                        } else {
-                            thermos_core::HeatingState::Off
-                        };
-                        thermostat.update_heating_state(state);
-                    }
-                }
-            }
-        ).await;
-    }
+pub enum SystemMode {
+    Off = 0,
+    Cool = 3,
+    Heat = 4,
 }
 ```
 
-### Step 4: Integrate with Main Application
+### `ZoneThermostatState` (thermos-matter/src/state.rs)
 
-Update `thermos-esp32/src/main.rs`:
+Lock-free state shared between Matter stack, control loop, and persistence task:
 
 ```rust
-use embassy_executor::Spawner;
-use embassy_net::Stack;
-use embassy_time::{Duration, Ticker};
-
-use thermos_core::{apply_hysteresis_control, HysteresisConfig, ThermostatState};
-
-#[cfg(feature = "matter")]
-use crate::matter_server::{matter_server_task, MatterConfig, MatterMessage, MATTER_CHANNEL};
-
-#[cfg(feature = "mqtt")]
-use crate::mqtt::{mqtt_logger_task, MqttConfig};
-
-#[embassy_executor::main]
-async fn main(spawner: Spawner) {
-    // Initialize hardware (WiFi, sensors, GPIO, NVS storage)
-    // ... hardware setup code ...
-
-    // Spawn Matter server (optional feature)
-    #[cfg(feature = "matter")]
-    {
-        let matter_config = MatterConfig::default();
-        spawner.spawn(matter_server_task(stack, matter_config)).unwrap();
-        log::info!("Matter server started");
-    }
-
-    // Spawn MQTT logger (optional feature)
-    #[cfg(feature = "mqtt")]
-    {
-        let mqtt_config = MqttConfig::default();
-        spawner.spawn(mqtt_logger_task(mqtt_client, mqtt_config)).unwrap();
-        log::info!("MQTT logger started");
-    }
-
-    // Main control loop (uses thermos-core logic)
-    spawner.spawn(thermostat_control_task(
-        sensor,
-        gpio_pin,
-        storage,
-    )).unwrap();
-
-    // Keep main task alive
-    loop {
-        embassy_time::Timer::after(Duration::from_secs(60)).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn thermostat_control_task(
-    mut sensor: impl TemperatureSensor,
-    mut gpio: impl OutputPin,
-    mut storage: impl StateStorage,
-) {
-    let hysteresis = HysteresisConfig::default();
-    let mut state = storage.load_state("Zone1").await
-        .unwrap_or_default();
-
-    let mut ticker = embassy_time::Ticker::every(Duration::from_secs(6));
-
-    loop {
-        ticker.next().await;
-
-        // Read temperature
-        match sensor.read_temperature().await {
-            Ok(reading) => {
-                let new_relay_state = apply_hysteresis_control(
-                    reading.celsius,
-                    state.target_temp,
-                    state.target_state,
-                    state.current_relay_state,
-                    &hysteresis,
-                );
-
-                // Update GPIO
-                match new_relay_state {
-                    RelayState::On => gpio.set_low()?,
-                    RelayState::Off => gpio.set_high()?,
-                }
-
-                state.current_relay_state = new_relay_state;
-                state.current_temp = reading.celsius;
-
-                // Notify Matter server
-                #[cfg(feature = "matter")]
-                {
-                    MATTER_CHANNEL.send(MatterMessage::TemperatureUpdate(reading)).await;
-                    if state.current_relay_state != previous_state {
-                        let heating = matches!(state.current_relay_state, RelayState::On);
-                        MATTER_CHANNEL.send(MatterMessage::HeatingStateChanged(heating)).await;
-                    }
-                }
-
-                // Save state to NVS
-                storage.save_state("Zone1", &state).await.ok();
-            }
-            Err(e) => {
-                log::error!("Sensor error: {:?}", e);
-            }
-        }
-    }
+pub struct ZoneThermostatState {
+    current_temp: AtomicI16,       // In 0.01°C units
+    heating_setpoint: AtomicI16,   // In 0.01°C units
+    cooling_setpoint: AtomicI16,   // In 0.01°C units
+    system_mode: AtomicU8,         // SystemMode as u8
+    running_state: AtomicU16,      // ThermostatRunningState bitmap
+    dirty: AtomicBool,             // Needs persistence
 }
 ```
 
-### Step 5: Build and Flash
+**Why atomics?** The Matter stack, control loop, and persistence task run as separate Embassy tasks. Atomics provide safe concurrent access without mutexes, which is important for real-time control loops that shouldn't block.
 
-```bash
-# Build with Matter support
-cd thermos-esp32
-cargo build --release --features matter
+## Flash Persistence
 
-# Flash to ESP32-C6
-espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+### Layout
 
-# Or with both MQTT and Matter
-cargo build --release --features full
-```
+Uses `sequential-storage` for flash wear-leveling:
 
-### Step 6: Commission the Device
+- **Partition:** 0x310000 - 0x320000 (64KB)
+- **Keys 0x0000-0x0FFF:** Reserved for Matter (fabrics, network credentials)
+- **Keys 0x1000+:** Zone states (0x1000 = Zone 0, 0x1001 = Zone 1, etc.)
 
-1. **Watch the serial output** for the QR code and pairing code:
-   ```
-   Matter QR Code: MT:Y.K9042C00KA0648G00
-   Pairing code: 34970112332
-   ```
-
-2. **Use a Matter controller** to commission:
-   - **Apple Home App**: Add Accessory → Scan QR Code
-   - **Google Home App**: Add Device → Matter → Scan QR Code
-   - **chip-tool**: `chip-tool pairing qrcode 1 MT:Y.K9042C00KA0648G00`
-
-3. **Control the thermostat**:
-   - "Hey Siri, set the temperature to 72"
-   - "Ok Google, what's the temperature in the living room?"
-   - Adjust setpoint in Home app UI
-
-## Matter Thermostat Cluster Details
-
-### Cluster 0x0201: Thermostat
-
-| Attribute ID | Name | Type | Access | Description |
-|-------------|------|------|--------|-------------|
-| 0x0000 | LocalTemperature | int16 | Read | Current temp (centi-°C) |
-| 0x0012 | OccupiedHeatingSetpoint | int16 | Read/Write | Heat setpoint (centi-°C) |
-| 0x001C | SystemMode | enum8 | Read/Write | Off(0x00) or Heat(0x04) |
-| 0x0029 | ThermostatRunningState | bitmap8 | Read | Bit 0 = heating active |
-
-### Temperature Conversion
-
-Matter uses **centi-degrees Celsius** (hundredths of a degree):
+### Persisted Zone State
 
 ```rust
-// Celsius to centi-degrees
-let centi_c = (temp_c * 100.0) as i16;
-// Example: 21.5°C → 2150
-
-// Centi-degrees to Celsius
-let temp_c = (centi_c as f32) / 100.0;
-// Example: 2150 → 21.5°C
-```
-
-### Commissioning Credentials
-
-The QR code encodes:
-- **Vendor ID**: 0xFFF1 (test vendor, change for production)
-- **Product ID**: 0x8001 (custom thermostat)
-- **Discriminator**: 12-bit value for device identification
-- **Setup Passcode**: Numeric code for pairing
-
-## Raspberry Pi Matter Support (Future)
-
-**Status:** Not currently planned for immediate implementation.
-
-**Rationale:** 
-- `rs-matter` is optimized for embedded/no_std environments
-- Linux support in `rs-matter` is still maturing
-- Raspberry Pi deployment works well with existing MQTT/Prometheus architecture
-
-**Future Path:**
-- Monitor `rs-matter` development for improved Linux/std support
-- Consider integration when `rs-matter` provides stable std platform layer
-- Would use same trait-based architecture via `thermos-core`
-
-The legacy C++ FFI approach (Connected Home IP SDK) is **not recommended** due to build complexity and maintenance burden.
-
-## Architecture Benefits
-
-### Shared Core Logic
-
-Both MQTT and Matter use the same control algorithm from `thermos-core`:
-
-```rust
-// thermos-core/src/control.rs (platform-agnostic)
-pub fn apply_hysteresis_control(
-    current_temp_c: f32,
-    target_temp_c: f32,
-    target_state: HeatingState,
-    current_relay_state: RelayState,
-    hysteresis: &HysteresisConfig,
-) -> RelayState {
-    // Same logic for MQTT, Matter, standalone operation
+struct PersistedZoneState {
+    heating_setpoint: i16,   // 2 bytes
+    cooling_setpoint: i16,   // 2 bytes
+    system_mode: u8,         // 1 byte
 }
+// Total: 5 bytes per zone
 ```
 
-### Optional Features
+Current temperature and relay state are ephemeral and not persisted.
 
-Use Cargo features to enable/disable protocols:
+### Persistence Flow
 
-```bash
-# MQTT only (minimal)
-cargo build --features mqtt
+1. Matter controller writes a new setpoint
+2. `ZoneThermostatState` updates atomically and sets dirty flag
+3. Background task (every 5s) checks dirty flags
+4. Dirty zones are serialized and written to flash
+5. On startup, `load_all_zones()` restores saved state before Matter task starts
 
-# Matter only
-cargo build --features matter
+### Factory Reset
 
-# Both protocols
-cargo build --features full
+- **Full reset** (`factory_reset()`): Erases entire flash partition + resets Matter stack. All pairings lost.
+- **Zone reset** (`reset_zone_states()`): Resets zone setpoints/modes to defaults. Matter pairing preserved.
+- Triggered via GPIO 9 button (hold 5 seconds).
 
-# Neither (standalone operation)
-cargo build --no-default-features
-```
+## Radio Modes
 
-### Coexistence
+### Single Radio (default)
 
-MQTT and Matter can run simultaneously:
-- **Matter**: Control interface (setpoint changes, mode)
-- **MQTT**: Data logging (temperature history, state changes)
-- **Control loop**: Runs independently, updates both protocols
+ESP32-C6's built-in WiFi and BLE time-share the radio:
+- BLE active during commissioning
+- WiFi active during normal operation
+- Managed by rs-matter-embassy coexistence layer
 
-## ESP32 Hardware Requirements
+### Dual Radio
 
-### Recommended: ESP32-C6
+ESP32-C6 handles WiFi, external ESP32-H2 handles BLE over UART HCI:
+- Better performance (no time-sharing)
+- Requires additional H2 module connected via UART (115200 baud)
+- Build with `make build-matter-dual-radio`
 
-- **Thread radio**: Native Matter-over-Thread support
-- **WiFi 6**: Matter-over-WiFi fallback
-- **RISC-V**: Better Rust toolchain support than Xtensa
-- **Low power**: Suitable for battery operation
-- **Price**: ~$3-5 per module
+## Configuration
 
-### Alternative: ESP32-C3
+### Matter Credentials (thermos-esp32/src/config.rs)
 
-- **WiFi only**: Matter-over-WiFi (no Thread)
-- **RISC-V**: Good Rust support
-- **Lower cost**: ~$2-3 per module
-- **Limitation**: No Thread mesh networking
-
-## Testing and Debugging
-
-### Matter Development Tools
-
-1. **chip-tool** - Command-line Matter controller
-   ```bash
-   chip-tool thermostat read local-temperature 1 1
-   chip-tool thermostat write occupied-heating-setpoint 2100 1 1
-   ```
-
-2. **Apple Home App** - iOS/macOS HomeKit integration
-3. **Google Home App** - Android/web Google Home integration
-4. **Python Matter Controller** - Custom automation scripts
-
-### Debugging Tips
-
-**Enable verbose logging:**
 ```rust
-// In main.rs
-esp_println::logger::init_logger(log::LevelFilter::Debug);
+pub const MATTER_DISCRIMINATOR: u16 = 3840;
+pub const MATTER_PASSCODE: u32 = 20202021;
+pub const MATTER_VENDOR_ID: u16 = 0xFFF1;  // Test vendor ID
+pub const MATTER_PRODUCT_ID: u16 = 0x8001;
+pub const MATTER_DEVICE_NAME: &str = "Thermos Multi-Zone";
 ```
 
-**Monitor Matter commissioning:**
-```bash
-espflash flash --monitor
-# Watch for:
-# - "Matter QR Code: ..." 
-# - "Device commissioned successfully"
-# - "Received setpoint change: 2100"
-```
+Supports up to 5 Matter fabrics (`max-fabrics-5`).
 
-**Check network connectivity:**
-- Ensure ESP32 has valid IP address
-- Matter uses port 5540 (UDP)
-- HomeKit uses mDNS for discovery
+## Known Limitations
 
-## Resources
+1. **MQTT disabled in Matter mode** — rs-matter-embassy socket pool (4 sockets) is fully consumed by Matter UDP, DHCP, and DNS, leaving no room for TCP. Requires forking rs-matter-embassy to increase `ENET_MIN_SOCKET_SET`.
 
-- **rs-matter GitHub**: [github.com/project-chip/rs-matter](https://github.com/project-chip/rs-matter)
-- **Matter Specification**: [CSA IoT Downloads](https://csa-iot.org/developer-resource/specifications-download-request/)
-- **ESP32 Rust**: [esp-rs.github.io/book](https://esp-rs.github.io/book/)
-- **Embassy**: [embassy.dev](https://embassy.dev)
-- **Matter Developer Portal**: [developers.home.google.com/matter](https://developers.home.google.com/matter)
+2. **Dependencies on forks** — Uses sysgrok/rs-matter (next branch) for Embassy 0.5+ compatibility and secretclubhouse/rs-matter-embassy (stack-public branch) for TCP stack access.
 
-## Summary
+## Design Decisions
 
-**Current approach (2025+):**
-- ✅ Use `rs-matter` pure Rust library
-- ✅ Target ESP32-C6 with Embassy executor
-- ✅ Implement in `thermos-esp32` binary
-- ✅ Share control logic via `thermos-core`
-- ✅ Coexist with MQTT for data logging
+### Why Lock-Free Atomics?
 
-**Deprecated approach (pre-2025):**
-- ❌ C++ FFI to Connected Home IP SDK
-- ❌ Complex build scripts and dependencies
-- ❌ Linux-focused Raspberry Pi implementation
+The control loop runs every 5 seconds and must not be delayed. Using a mutex could cause priority inversion if the Matter stack holds the lock during a long operation. Atomics guarantee the control loop never blocks.
 
-The modern pure Rust approach aligns with the Embassy migration, reduces complexity, and provides better embedded platform support.
+### Why Compile-Time Zone Count?
+
+`no_std` environment without an allocator. All zone state must be statically allocated. The const generic `N` in `ZoneStateStore<N>` ensures the array is sized at compile time.
+
+### Why Separate Crates?
+
+- `thermos-matter` can be tested on the host without ESP32 toolchain
+- Clean dependency boundaries (Matter types don't depend on hardware)
+- `thermos-core` remains pure control logic, testable anywhere
