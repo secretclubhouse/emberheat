@@ -7,7 +7,7 @@
 
 All core implementation is complete and builds successfully:
 
-- [x] Dirty flag in `ZoneThermostatState` (thermos-matter)
+- [x] Dirty flag in `ZoneThermostatState` (emberheat-matter)
 - [x] `PersistedZoneState` type with serialization
 - [x] `FlashKvBlobStore` implementing `KvBlobStore` trait
 - [x] `load_all_zones()` function - loads zone state at startup
@@ -24,7 +24,7 @@ All core implementation is complete and builds successfully:
 
 **Problem:** The `run_persist_task()` is implemented but not actually running. The Matter stack takes ownership of the `FlashKvBlobStore`, so we can't also give it to the persist task.
 
-**Location:** `thermos-esp32/src/main.rs` (matter_main_task functions)
+**Location:** `emberheat-esp32/src/main.rs` (matter_main_task functions)
 
 **Options:**
 
@@ -58,7 +58,7 @@ let user_task = async {
 
 **Problem:** The GPIO button check at boot is documented but not implemented.
 
-**Location:** `thermos-esp32/src/main.rs` (early in startup, before loading state)
+**Location:** `emberheat-esp32/src/main.rs` (early in startup, before loading state)
 
 **Implementation:**
 ```rust
@@ -99,7 +99,7 @@ if check_factory_reset_button(&reset_button).await {
 
 **Problem:** When HomeKit sends a factory reset command, we should clear our persistence data too.
 
-**Location:** `thermos-esp32/src/matter/stack.rs`
+**Location:** `emberheat-esp32/src/matter/stack.rs`
 
 **Challenge:** rs-matter-embassy may have a callback or hook for factory reset events. Need to investigate the API.
 
@@ -131,15 +131,15 @@ Current implementation logs errors but continues. Consider:
 
 | File | Purpose |
 |------|---------|
-| `thermos-esp32/src/persistence/mod.rs` | Module exports |
-| `thermos-esp32/src/persistence/types.rs` | `PersistedZoneState` |
-| `thermos-esp32/src/persistence/flash_store.rs` | `FlashKvBlobStore` |
-| `thermos-esp32/src/persistence/task.rs` | `run_persist_task`, `load_all_zones` |
-| `thermos-esp32/src/persistence/reset.rs` | Factory reset functions |
-| `thermos-esp32/src/config.rs` | Partition constants (lines 44-68) |
-| `thermos-esp32/src/main.rs` | Integration (lines 505-540) |
-| `thermos-esp32/src/matter/stack.rs` | `matter_task` with KvBlobStore |
-| `thermos-matter/src/state.rs` | Dirty flag methods |
+| `emberheat-esp32/src/persistence/mod.rs` | Module exports |
+| `emberheat-esp32/src/persistence/types.rs` | `PersistedZoneState` |
+| `emberheat-esp32/src/persistence/flash_store.rs` | `FlashKvBlobStore` |
+| `emberheat-esp32/src/persistence/task.rs` | `run_persist_task`, `load_all_zones` |
+| `emberheat-esp32/src/persistence/reset.rs` | Factory reset functions |
+| `emberheat-esp32/src/config.rs` | Partition constants (lines 44-68) |
+| `emberheat-esp32/src/main.rs` | Integration (lines 505-540) |
+| `emberheat-esp32/src/matter/stack.rs` | `matter_task` with KvBlobStore |
+| `emberheat-matter/src/state.rs` | Dirty flag methods |
 
 ## Quick Start for Continuing
 

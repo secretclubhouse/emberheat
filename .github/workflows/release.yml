@@ -66,28 +66,28 @@ jobs:
 
       - name: Build release binary (cross)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }} -p thermos-linux
+        run: cross build --release --target ${{ matrix.target }} -p emberheat-linux
 
       - name: Build release binary (native)
         if: ${{ !matrix.cross }}
-        run: cargo build --release --target ${{ matrix.target }} -p thermos-linux
+        run: cargo build --release --target ${{ matrix.target }} -p emberheat-linux
 
       - name: Strip binary
-        run: strip target/${{ matrix.target }}/release/thermos-linux || true
+        run: strip target/${{ matrix.target }}/release/emberheat-linux || true
 
       - name: Create archive
         run: |
           cd target/${{ matrix.target }}/release
-          tar czf thermos-linux-${{ matrix.target }}.tar.gz thermos-linux
-          sha256sum thermos-linux-${{ matrix.target }}.tar.gz > thermos-linux-${{ matrix.target }}.tar.gz.sha256
+          tar czf emberheat-linux-${{ matrix.target }}.tar.gz emberheat-linux
+          sha256sum emberheat-linux-${{ matrix.target }}.tar.gz > emberheat-linux-${{ matrix.target }}.tar.gz.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: thermos-linux-${{ matrix.target }}
+          name: emberheat-linux-${{ matrix.target }}
           path: |
-            target/${{ matrix.target }}/release/thermos-linux-${{ matrix.target }}.tar.gz
-            target/${{ matrix.target }}/release/thermos-linux-${{ matrix.target }}.tar.gz.sha256
+            target/${{ matrix.target }}/release/emberheat-linux-${{ matrix.target }}.tar.gz
+            target/${{ matrix.target }}/release/emberheat-linux-${{ matrix.target }}.tar.gz.sha256
 
   # Create GitHub release with all artifacts
   release:
@@ -127,30 +127,30 @@ jobs:
           prerelease: false
           files: release-assets/*
           body: |
-            ## Thermos-Rust ${{ steps.version.outputs.version }}
+            ## EmberHeat ${{ steps.version.outputs.version }}
 
             Multi-zone thermostat system for Raspberry Pi.
 
             ### Installation
 
             Download the appropriate binary for your Raspberry Pi model:
-            - **Raspberry Pi 2/3/4 (32-bit)**: `thermos-linux-armv7-unknown-linux-gnueabihf.tar.gz`
-            - **Raspberry Pi 3/4 (64-bit)**: `thermos-linux-aarch64-unknown-linux-gnu.tar.gz`
-            - **x86_64 Linux**: `thermos-linux-x86_64-unknown-linux-gnu.tar.gz`
+            - **Raspberry Pi 2/3/4 (32-bit)**: `emberheat-linux-armv7-unknown-linux-gnueabihf.tar.gz`
+            - **Raspberry Pi 3/4 (64-bit)**: `emberheat-linux-aarch64-unknown-linux-gnu.tar.gz`
+            - **x86_64 Linux**: `emberheat-linux-x86_64-unknown-linux-gnu.tar.gz`
 
             ### Quick Start
 
             ```bash
             # Download and extract (example for 64-bit Pi)
-            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/thermos-linux-aarch64-unknown-linux-gnu.tar.gz
-            tar xzf thermos-linux-aarch64-unknown-linux-gnu.tar.gz
+            wget https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/emberheat-linux-aarch64-unknown-linux-gnu.tar.gz
+            tar xzf emberheat-linux-aarch64-unknown-linux-gnu.tar.gz
 
             # Make executable and install
-            chmod +x thermos-linux
-            sudo mv thermos-linux /usr/local/bin/
+            chmod +x emberheat-linux
+            sudo mv emberheat-linux /usr/local/bin/
 
             # Run
-            thermos-linux --config /path/to/config.json
+            emberheat-linux --config /path/to/config.json
             ```
 
             ### Changes

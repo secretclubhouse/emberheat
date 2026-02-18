@@ -1,13 +1,13 @@
-# Testing Guide for Thermos-Rust
+# Testing Guide for EmberHeat
 
-This document explains how to run tests for the multi-platform thermos-rust project.
+This document explains how to run tests for the multi-platform emberheat project.
 
 ## Overview
 
-The Thermos-Rust project is organized as a workspace with three crates:
-- **thermos-core** - Platform-agnostic core library (unit tests only)
-- **thermos-linux** - Linux/Raspberry Pi implementation (mock and hardware tests)
-- **thermos-esp32** - ESP32-C6 bare-metal implementation (on-device testing)
+The EmberHeat project is organized as a workspace with three crates:
+- **emberheat-core** - Platform-agnostic core library (unit tests only)
+- **emberheat-linux** - Linux/Raspberry Pi implementation (mock and hardware tests)
+- **emberheat-esp32** - ESP32-C6 bare-metal implementation (on-device testing)
 
 The project includes comprehensive mocking infrastructure that allows tests to run on any platform without requiring actual Raspberry Pi GPIO hardware, temperature sensors, or Redis.
 
@@ -20,7 +20,7 @@ The project uses `serial_test` for Matter device tests to prevent global state l
 Simulates GPIO operations without requiring rppal or Linux:
 
 ```rust
-use thermos_rust::mocks::MockGpioController;
+use emberheat::mocks::MockGpioController;
 
 let gpio = MockGpioController::new();
 gpio.init_relay(23).unwrap();
@@ -40,7 +40,7 @@ assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::On);
 Simulates temperature sensor readings:
 
 ```rust
-use thermos_rust::mocks::MockTemperatureSensor;
+use emberheat::mocks::MockTemperatureSensor;
 
 let sensor = MockTemperatureSensor::new("test-sensor", 22.5);
 let reading = sensor.read_temperature().await.unwrap();
@@ -67,8 +67,8 @@ assert_eq!(sensor.get_read_count(), 2);
 In-memory state persistence without Redis:
 
 ```rust
-use thermos_rust::mocks::MockStateManager;
-use thermos_rust::persistence::ThermostatState;
+use emberheat::mocks::MockStateManager;
+use emberheat::persistence::ThermostatState;
 
 let manager = MockStateManager::new();
 let state = ThermostatState::default();
@@ -89,18 +89,18 @@ assert_eq!(manager.get_load_count(), 1);
 
 ## Running Tests
 
-### thermos-core (cross-platform)
+### emberheat-core (cross-platform)
 
 ```bash
 # Run core library tests (works anywhere)
-cargo test -p thermos-core
+cargo test -p emberheat-core
 ```
 
-### thermos-linux (Raspberry Pi)
+### emberheat-linux (Raspberry Pi)
 
 ```bash
 # Full tests (requires Raspberry Pi)
-cargo test -p thermos-linux
+cargo test -p emberheat-linux
 
 # Mock-only tests (works on any platform)
 cargo test --test mock_integration_tests
@@ -113,16 +113,16 @@ cargo test mock_sensor
 cargo test mock_state
 ```
 
-### thermos-esp32 (bare-metal)
+### emberheat-esp32 (bare-metal)
 
 ESP32 tests run on-device since it's a no_std environment:
 
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 
 # Build and flash with monitoring
 cargo build --release
-espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+espflash flash --monitor target/riscv32imac-unknown-none-elf/release/emberheat-esp32
 
 # Use defmt for embedded logging/assertions
 ```
@@ -133,7 +133,7 @@ On non-Linux platforms, the `rppal` crate won't compile. To run tests:
 
 ```bash
 # Core library tests work everywhere
-cargo test -p thermos-core
+cargo test -p emberheat-core
 
 # Mock integration tests work everywhere
 cargo test --test mock_integration_tests
@@ -172,7 +172,7 @@ cargo test --test mock_integration_tests
 
 ## Test Coverage by Component
 
-### thermos-linux
+### emberheat-linux
 
 | Component | Unit Tests | Mock Tests | Integration Tests | Hardware Tests |
 |-----------|------------|------------|-------------------|----------------|
@@ -183,7 +183,7 @@ cargo test --test mock_integration_tests
 | Config | ✓ | N/A | ✓ | N/A |
 | Metrics | ✓ | N/A | ✓ | N/A |
 
-### thermos-core
+### emberheat-core
 
 | Component | Unit Tests |
 |-----------|------------|
@@ -191,7 +191,7 @@ cargo test --test mock_integration_tests
 | control | ✓ |
 | config | ✓ |
 
-### thermos-esp32
+### emberheat-esp32
 
 | Component | On-Device Tests |
 |-----------|-----------------|
@@ -207,7 +207,7 @@ cargo test --test mock_integration_tests
 ### Example: Testing Hysteresis Logic
 
 ```rust
-use thermos_rust::mocks::{MockGpioController, MockTemperatureSensor, MockStateManager};
+use emberheat::mocks::{MockGpioController, MockTemperatureSensor, MockStateManager};
 
 #[tokio::test]
 async fn test_thermostat_hysteresis() {

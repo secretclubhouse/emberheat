@@ -1,34 +1,34 @@
-# Claude Code Instructions for Thermos-Rust
+# Claude Code Instructions for EmberHeat
 
 ## Project Overview
 
-Thermos-Rust is a multi-zone thermostat system for hydronic heating, written in Rust for ESP32-C6.
+EmberHeat is a multi-zone thermostat system for hydronic heating, written in Rust for ESP32-C6.
 
 **Primary Platform:** ESP32-C6 (bare-metal, no_std)
 **Language:** Rust 2021 edition
-**Architecture:** Cargo workspace with `thermos-core`, `thermos-matter`, and `thermos-esp32`
+**Architecture:** Cargo workspace with `emberheat-core`, `emberheat-matter`, and `emberheat-esp32`
 
-> **Note:** `thermos-linux` (Raspberry Pi implementation) is preserved but not actively developed.
+> **Note:** `emberheat-linux` (Raspberry Pi implementation) is preserved but not actively developed.
 
 ## Project Structure
 
 ```
-thermos-rust/
-├── thermos-core/           # Platform-agnostic core library (no_std)
+emberheat/
+├── emberheat-core/         # Platform-agnostic core library (no_std)
 │   └── src/
 │       ├── types.rs        # HeatingState, TemperatureReading, etc.
 │       ├── sensor.rs       # TemperatureSensor trait
 │       ├── gpio.rs         # GpioManager trait
 │       ├── persistence.rs  # StateStorage trait
 │       └── control.rs      # Hysteresis control algorithm
-├── thermos-matter/         # Matter protocol types and cluster definitions (no_std)
+├── emberheat-matter/       # Matter protocol types and cluster definitions (no_std)
 │   └── src/
 │       ├── types.rs        # Matter temperature/mode types
 │       ├── state.rs        # ZoneThermostatState with atomic operations
 │       ├── cluster.rs      # Thermostat cluster (0x0201) hooks
 │       ├── handler.rs      # Matter handler traits
 │       └── device.rs       # Device info and endpoint mapping
-├── thermos-esp32/          # ESP32-C6 implementation (active)
+├── emberheat-esp32/        # ESP32-C6 implementation (active)
 │   └── src/
 │       ├── main.rs         # Embassy entry point
 │       ├── config.rs       # Zone configuration (NUM_ZONES, ZONE_CONFIGS)
@@ -41,15 +41,15 @@ thermos-rust/
 │       └── matter/         # Matter integration
 │           ├── zones.rs    # Zone state storage
 │           └── bridge.rs   # Bridge between Matter and control loop
-└── thermos-linux/          # Linux implementation (preserved, not active)
+└── emberheat-linux/        # Linux implementation (preserved, not active)
 ```
 
 ## Build Commands
 
-Default commands only include `thermos-core` and `thermos-esp32`:
+Default commands only include `emberheat-core` and `emberheat-esp32`:
 
 ```bash
-# Build thermos-core
+# Build emberheat-core
 make build
 
 # Build ESP32 firmware
@@ -61,17 +61,17 @@ make flash
 # Flash and monitor
 make flash-monitor
 
-# Run tests (thermos-core and thermos-matter)
+# Run tests (emberheat-core and emberheat-matter)
 make test
 
 # Format, lint, test
 make dev
 ```
 
-To work on `thermos-linux` explicitly:
+To work on `emberheat-linux` explicitly:
 ```bash
-cargo build -p thermos-linux
-cargo test -p thermos-linux
+cargo build -p emberheat-linux
+cargo test -p emberheat-linux
 ```
 
 ## Critical Concepts
@@ -80,7 +80,7 @@ cargo test -p thermos-linux
 
 The number of heating zones is configurable (1-16 supported). To change:
 
-1. Edit `thermos-esp32/src/config.rs`
+1. Edit `emberheat-esp32/src/config.rs`
 2. Set `NUM_ZONES` to desired value
 3. Ensure `ZONE_CONFIGS` array has exactly `NUM_ZONES` entries
 4. Rebuild firmware
@@ -90,14 +90,14 @@ The number of heating zones is configurable (1-16 supported). To change:
 - Ensure sufficient GPIO pins available (~15-20 usable on ESP32-C6)
 - Memory overhead is ~1-2KB per zone (not typically a constraint)
 
-Zone states are stored in `thermos-esp32/src/matter/zones.rs` and sized at compile time based on `NUM_ZONES`.
+Zone states are stored in `emberheat-esp32/src/matter/zones.rs` and sized at compile time based on `NUM_ZONES`.
 
 ### Hysteresis Control
 
 Core temperature control algorithm (prevents relay chatter):
 
 ```rust
-// Constants in thermos-core/src/control.rs
+// Constants in emberheat-core/src/control.rs
 const HYSTERESIS_UPPER_THRESHOLD_C: f32 = 0.5;   // Turn OFF at target+0.5°C
 const HYSTERESIS_LOWER_THRESHOLD_C: f32 = -0.5;  // Turn ON at target-0.5°C
 const DEFAULT_TARGET_TEMP_C: f32 = 21.1;         // 70°F
@@ -135,7 +135,7 @@ Temperature readings are validated:
 - Log errors appropriately
 
 ### no_std Compatibility
-- `thermos-core` must remain no_std compatible
+- `emberheat-core` must remain no_std compatible
 - Use `heapless` collections instead of `std` collections
 - No allocations in hot paths
 
@@ -146,7 +146,7 @@ Temperature readings are validated:
 ## Testing
 
 ```bash
-# Run thermos-core and thermos-matter tests
+# Run emberheat-core and emberheat-matter tests
 make test
 
 # Verbose output
@@ -160,7 +160,7 @@ make lint
 
 ### Adding a Sensor Type (ESP32)
 
-1. Create `thermos-esp32/src/sensor_*.rs`
+1. Create `emberheat-esp32/src/sensor_*.rs`
 2. Implement sensor using Embassy async and embedded-hal-async
 3. Add to main control loop in `main.rs`
 
@@ -168,7 +168,7 @@ make lint
 
 ⚠️ **CRITICAL**: Changes affect heating behavior
 
-1. Review constants in `thermos-core/src/control.rs`
+1. Review constants in `emberheat-core/src/control.rs`
 2. Write tests for edge cases
 3. Test with hardware before deploying
 4. Document rationale in commit message
@@ -186,19 +186,19 @@ refactor: extract sensor error handling
 ### Before Committing
 Pre-commit hook runs automatically:
 - `cargo fmt` - formatting
-- `cargo clippy -p thermos-core` - linting
-- `cargo test -p thermos-core` - tests
+- `cargo clippy -p emberheat-core` - linting
+- `cargo test -p emberheat-core` - tests
 
 ## Key Dependencies
 
-**thermos-core (no_std):**
+**emberheat-core (no_std):**
 - `serde` - Serialization
 - `heapless` - No-std collections
 
-**thermos-matter (no_std):**
+**emberheat-matter (no_std):**
 - `portable-atomic` - Cross-platform atomics for state management
 
-**thermos-esp32:**
+**emberheat-esp32:**
 - `esp-hal` - ESP32 HAL
 - `embassy-executor` - Async runtime
 - `esp-hal-rmt-onewire` - 1-Wire via RMT

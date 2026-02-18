@@ -65,11 +65,11 @@ Before starting implementation:
 ## Task 1: Add bt-hci Dependency and Feature Flag
 
 **Files:**
-- Modify: `thermos-esp32/Cargo.toml`
+- Modify: `emberheat-esp32/Cargo.toml`
 
 **Step 1: Add bt-hci as optional dependency**
 
-In `thermos-esp32/Cargo.toml`, add after the `esp-hal-rmt-onewire` dependency:
+In `emberheat-esp32/Cargo.toml`, add after the `esp-hal-rmt-onewire` dependency:
 
 ```toml
 # BLE HCI over UART for external controller (ESP32-H2)
@@ -82,19 +82,19 @@ In the `[features]` section, add:
 
 ```toml
 # Enable external BLE controller over UART HCI (ESP32-H2 co-processor)
-# Requires Matter feature. Use: cargo build -p thermos-esp32 --features "matter,external-ble"
+# Requires Matter feature. Use: cargo build -p emberheat-esp32 --features "matter,external-ble"
 external-ble = ["dep:bt-hci", "matter"]
 ```
 
 **Step 3: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32 --features "matter,external-ble"`
+Run: `cargo check -p emberheat-esp32 --features "matter,external-ble"`
 Expected: Compiles without errors
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/Cargo.toml
+git add emberheat-esp32/Cargo.toml
 git commit -m "feat(matter): add bt-hci dependency for external BLE controller"
 ```
 
@@ -103,7 +103,7 @@ git commit -m "feat(matter): add bt-hci dependency for external BLE controller"
 ## Task 2: Add UART HCI Configuration Constants
 
 **Files:**
-- Modify: `thermos-esp32/src/config.rs`
+- Modify: `emberheat-esp32/src/config.rs`
 
 **Step 1: Add HCI UART configuration constants**
 
@@ -139,13 +139,13 @@ pub const HCI_UART_CTS_PIN: u8 = 7;
 
 **Step 2: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32 --features "matter,external-ble"`
+Run: `cargo check -p emberheat-esp32 --features "matter,external-ble"`
 Expected: Compiles without errors
 
 **Step 3: Commit**
 
 ```bash
-git add thermos-esp32/src/config.rs
+git add emberheat-esp32/src/config.rs
 git commit -m "feat(matter): add HCI UART pin configuration for dual-radio"
 ```
 
@@ -154,11 +154,11 @@ git commit -m "feat(matter): add HCI UART pin configuration for dual-radio"
 ## Task 3: Create DualRadioDriver Module
 
 **Files:**
-- Create: `thermos-esp32/src/dual_radio.rs`
+- Create: `emberheat-esp32/src/dual_radio.rs`
 
 **Step 1: Create the dual_radio module with driver implementation**
 
-Create `thermos-esp32/src/dual_radio.rs`:
+Create `emberheat-esp32/src/dual_radio.rs`:
 
 ```rust
 //! Dual-radio driver for ESP32-C6 (WiFi) + ESP32-H2 (BLE over UART HCI)
@@ -291,7 +291,7 @@ impl BleDriver for DualRadioDriver<'_, '_> {
 
 **Step 2: Register module in main.rs**
 
-Add to `thermos-esp32/src/main.rs` after the other module declarations:
+Add to `emberheat-esp32/src/main.rs` after the other module declarations:
 
 ```rust
 #[cfg(feature = "external-ble")]
@@ -300,13 +300,13 @@ mod dual_radio;
 
 **Step 3: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32 --features "matter,external-ble"`
+Run: `cargo check -p emberheat-esp32 --features "matter,external-ble"`
 Expected: Compiles without errors
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/dual_radio.rs thermos-esp32/src/main.rs
+git add emberheat-esp32/src/dual_radio.rs emberheat-esp32/src/main.rs
 git commit -m "feat(matter): add DualRadioDriver for external BLE over UART"
 ```
 
@@ -315,11 +315,11 @@ git commit -m "feat(matter): add DualRadioDriver for external BLE over UART"
 ## Task 4: Add Dual-Radio Matter Task
 
 **Files:**
-- Modify: `thermos-esp32/src/matter/stack.rs`
+- Modify: `emberheat-esp32/src/matter/stack.rs`
 
 **Step 1: Add dual-radio matter task function**
 
-Add at the end of `thermos-esp32/src/matter/stack.rs`, before the `#[cfg(test)]` block:
+Add at the end of `emberheat-esp32/src/matter/stack.rs`, before the `#[cfg(test)]` block:
 
 ```rust
 /// Run the Matter stack with dual-radio (C6 WiFi + H2 BLE)
@@ -427,13 +427,13 @@ use rs_matter_embassy::wireless::BleDriver;
 
 **Step 3: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32 --features "matter,external-ble"`
+Run: `cargo check -p emberheat-esp32 --features "matter,external-ble"`
 Expected: Compiles without errors
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/stack.rs
+git add emberheat-esp32/src/matter/stack.rs
 git commit -m "feat(matter): add matter_task_dual_radio for external BLE"
 ```
 
@@ -442,7 +442,7 @@ git commit -m "feat(matter): add matter_task_dual_radio for external BLE"
 ## Task 5: Update main.rs for Dual-Radio Initialization
 
 **Files:**
-- Modify: `thermos-esp32/src/main.rs`
+- Modify: `emberheat-esp32/src/main.rs`
 
 **Step 1: Add dual-radio imports**
 
@@ -574,13 +574,13 @@ In the `#[cfg(feature = "matter")]` block in `main()`, replace the existing Matt
 
 **Step 4: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32 --features "matter,external-ble"`
+Run: `cargo check -p emberheat-esp32 --features "matter,external-ble"`
 Expected: Compiles without errors
 
 **Step 5: Commit**
 
 ```bash
-git add thermos-esp32/src/main.rs
+git add emberheat-esp32/src/main.rs
 git commit -m "feat(matter): add dual-radio initialization in main"
 ```
 
@@ -590,12 +590,12 @@ git commit -m "feat(matter): add dual-radio initialization in main"
 
 **Step 1: Build firmware with dual-radio feature**
 
-Run: `cargo build -p thermos-esp32 --features "matter,external-ble" --release`
+Run: `cargo build -p emberheat-esp32 --features "matter,external-ble" --release`
 Expected: Build succeeds
 
 **Step 2: Flash to ESP32-C6**
 
-Run: `espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32`
+Run: `espflash flash --monitor target/riscv32imac-unknown-none-elf/release/emberheat-esp32`
 Expected: Firmware flashes and boots, showing "Mode: Dual-radio" in logs
 
 **Step 3: Verify HCI communication**
@@ -629,10 +629,10 @@ git commit -m "fix(matter): address issues found during dual-radio testing"
 
 ## Verification Checklist
 
-- [ ] `cargo check -p thermos-esp32 --features "matter"` still compiles (single-radio)
-- [ ] `cargo check -p thermos-esp32 --features "matter,external-ble"` compiles (dual-radio)
-- [ ] `cargo test -p thermos-core` passes
-- [ ] `cargo test -p thermos-matter` passes
+- [ ] `cargo check -p emberheat-esp32 --features "matter"` still compiles (single-radio)
+- [ ] `cargo check -p emberheat-esp32 --features "matter,external-ble"` compiles (dual-radio)
+- [ ] `cargo test -p emberheat-core` passes
+- [ ] `cargo test -p emberheat-matter` passes
 - [ ] Firmware boots and shows dual-radio mode in logs
 - [ ] BLE advertising visible on phone
 - [ ] Matter commissioning completes with Home Assistant or HomeKit

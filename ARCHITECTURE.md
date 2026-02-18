@@ -1,6 +1,6 @@
-# Thermos-Rust Architecture
+# EmberHeat Architecture
 
-This document describes the internal architecture and design decisions of Thermos-Rust.
+This document describes the internal architecture and design decisions of EmberHeat.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ This document describes the internal architecture and design decisions of Thermo
 
 ## Overview
 
-Thermos-Rust is a multi-zone thermostat control system built with Rust, designed for:
+EmberHeat is a multi-zone thermostat control system built with Rust, designed for:
 
 - **Safety**: Memory safety and thread safety via Rust's type system
 - **Performance**: Low resource usage suitable for Raspberry Pi and ESP32
@@ -29,14 +29,14 @@ Thermos-Rust is a multi-zone thermostat control system built with Rust, designed
 The project is organized as a Cargo workspace with three crates:
 
 ```
-thermos-rust/
-├── thermos-core/       # Platform-agnostic core library (no_std compatible)
-├── thermos-linux/      # Linux/Raspberry Pi implementation  
-├── thermos-esp32/      # ESP32-C6 bare-metal implementation
+emberheat/
+├── emberheat-core/       # Platform-agnostic core library (no_std compatible)
+├── emberheat-linux/      # Linux/Raspberry Pi implementation  
+├── emberheat-esp32/      # ESP32-C6 bare-metal implementation
 └── src/                # Legacy single-crate (being migrated)
 ```
 
-### thermos-core
+### emberheat-core
 
 Platform-agnostic library containing shared types and control logic. Designed to be `no_std` compatible for embedded use.
 
@@ -48,7 +48,7 @@ Platform-agnostic library containing shared types and control logic. Designed to
 - `apply_hysteresis_control()` - Control algorithm
 - `HysteresisConfig` - Configuration types
 
-### thermos-linux
+### emberheat-linux
 
 Full-featured implementation for Raspberry Pi with:
 - Tokio async runtime
@@ -58,7 +58,7 @@ Full-featured implementation for Raspberry Pi with:
 - Redis state persistence
 - Prometheus metrics export
 
-### thermos-esp32
+### emberheat-esp32
 
 Bare-metal `no_std` implementation for ESP32-C6 with:
 - Embassy async executor
@@ -71,10 +71,10 @@ Bare-metal `no_std` implementation for ESP32-C6 with:
 
 ## Module Structure
 
-### thermos-core (platform-agnostic)
+### emberheat-core (platform-agnostic)
 
 ```
-thermos-core/src/
+emberheat-core/src/
 ├── lib.rs              # Library exports
 ├── types.rs            # HeatingState, RelayState, TemperatureReading
 ├── sensor.rs           # TemperatureSensor trait
@@ -84,10 +84,10 @@ thermos-core/src/
 └── config.rs           # HysteresisConfig, ZoneConfig
 ```
 
-### thermos-linux (Raspberry Pi)
+### emberheat-linux (Raspberry Pi)
 
 ```
-thermos-linux/src/
+emberheat-linux/src/
 ├── main.rs             # Tokio entry point, orchestration
 ├── config/mod.rs       # JSON config loading, validation
 ├── devices/mod.rs      # Thermostat bridge, control loops
@@ -103,10 +103,10 @@ thermos-linux/src/
     └── state_mock.rs
 ```
 
-### thermos-esp32 (bare-metal)
+### emberheat-esp32 (bare-metal)
 
 ```
-thermos-esp32/src/
+emberheat-esp32/src/
 ├── main.rs             # Embassy entry point
 ├── lib.rs              # Library exports
 ├── gpio_impl.rs        # esp-hal GPIO implementation
@@ -141,7 +141,7 @@ src/
 
 ### Module Responsibilities
 
-#### thermos-core
+#### emberheat-core
 
 | Module | Responsibility | Dependencies |
 |--------|----------------|--------------|
@@ -152,7 +152,7 @@ src/
 | `control` | Hysteresis algorithm | None |
 | `config` | Configuration types | `serde` |
 
-#### thermos-linux
+#### emberheat-linux
 
 | Module | Responsibility | Dependencies |
 |--------|----------------|--------------|
@@ -164,7 +164,7 @@ src/
 | `metrics` | Prometheus export | `prometheus` |
 | `mocks` | Test infrastructure | `embassy_time` |
 
-#### thermos-esp32
+#### emberheat-esp32
 
 | Module | Responsibility | Dependencies |
 |--------|----------------|--------------|
@@ -236,7 +236,7 @@ HomeKit Controller
 
 ### Threading Architecture
 
-Thermos-Rust uses Tokio's async runtime with multiple concurrent tasks:
+EmberHeat uses Tokio's async runtime with multiple concurrent tasks:
 
 ```
 Main Thread (Tokio)

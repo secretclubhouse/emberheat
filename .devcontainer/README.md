@@ -1,6 +1,6 @@
-# Thermos-Rust Development Container
+# EmberHeat Development Container
 
-This directory contains the VSCode DevContainer configuration for developing Thermos-Rust in a consistent, reproducible Linux environment.
+This directory contains the VSCode DevContainer configuration for developing EmberHeat in a consistent, reproducible Linux environment.
 
 ## What's Included
 
@@ -228,7 +228,7 @@ cargo run -- /path/to/config.json
 RUST_LOG=debug cargo run
 
 # Run with trace logging for specific module
-RUST_LOG=thermos_rust::devices=trace cargo run
+RUST_LOG=emberheat::devices=trace cargo run
 ```
 
 ### Monitoring

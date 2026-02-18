@@ -1295,6 +1295,106 @@ dependencies = [
 ]
 
 [[package]]
+name = "emberheat-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "heapless 0.9.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.17",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "emberheat-esp32"
+version = "0.1.0"
+dependencies = [
+ "bme280",
+ "bt-hci",
+ "embassy-executor",
+ "embassy-futures",
+ "embassy-net",
+ "embassy-sync 0.7.2",
+ "embassy-time 0.5.0",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "embedded-io-async 0.6.1",
+ "embedded-storage",
+ "embedded-storage-async",
+ "emberheat-core",
+ "emberheat-matter",
+ "esp-alloc",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-hal-rmt-onewire",
+ "esp-println",
+ "esp-radio",
+ "esp-rtos",
+ "esp-storage",
+ "fugit",
+ "heapless 0.9.2",
+ "log",
+ "rs-matter",
+ "rs-matter-embassy",
+ "rust-mqtt",
+ "sequential-storage",
+ "serde",
+ "serde-json-core",
+ "static_cell",
+ "tokio",
+]
+
+[[package]]
+name = "emberheat-linux"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "emberheat-core",
+ "futures",
+ "heapless 0.9.2",
+ "lazy_static",
+ "mockall",
+ "pretty_assertions",
+ "prometheus",
+ "qrcode",
+ "redis",
+ "reqwest",
+ "rppal",
+ "serde",
+ "serde_json",
+ "serial_test",
+ "signal-hook",
+ "signal-hook-tokio",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+ "tokio-test",
+ "tokio-util",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "emberheat-matter"
+version = "0.1.0"
+dependencies = [
+ "embassy-futures",
+ "embassy-sync 0.7.2",
+ "heapless 0.9.2",
+ "log",
+ "rs-matter",
+ "tokio",
+]
+
+[[package]]
 name = "embuild"
 version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4416,106 +4516,6 @@ checksum = "c13547615a44dc9c452a8a534638acdf07120d4b6847c8178705da06306a3057"
 dependencies = [
  "unicode-linebreak",
  "unicode-width 0.2.2",
-]
-
-[[package]]
-name = "thermos-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "heapless 0.9.2",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "thermos-esp32"
-version = "0.1.0"
-dependencies = [
- "bme280",
- "bt-hci",
- "embassy-executor",
- "embassy-futures",
- "embassy-net",
- "embassy-sync 0.7.2",
- "embassy-time 0.5.0",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
- "embedded-io-async 0.6.1",
- "embedded-storage",
- "embedded-storage-async",
- "esp-alloc",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-hal-rmt-onewire",
- "esp-println",
- "esp-radio",
- "esp-rtos",
- "esp-storage",
- "fugit",
- "heapless 0.9.2",
- "log",
- "rs-matter",
- "rs-matter-embassy",
- "rust-mqtt",
- "sequential-storage",
- "serde",
- "serde-json-core",
- "static_cell",
- "thermos-core",
- "thermos-matter",
- "tokio",
-]
-
-[[package]]
-name = "thermos-linux"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "futures",
- "heapless 0.9.2",
- "lazy_static",
- "mockall",
- "pretty_assertions",
- "prometheus",
- "qrcode",
- "redis",
- "reqwest",
- "rppal",
- "serde",
- "serde_json",
- "serial_test",
- "signal-hook",
- "signal-hook-tokio",
- "tempfile",
- "thermos-core",
- "thiserror 2.0.17",
- "tokio",
- "tokio-test",
- "tokio-util",
- "toml",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "thermos-matter"
-version = "0.1.0"
-dependencies = [
- "embassy-futures",
- "embassy-sync 0.7.2",
- "heapless 0.9.2",
- "log",
- "rs-matter",
- "tokio",
 ]
 
 [[package]]

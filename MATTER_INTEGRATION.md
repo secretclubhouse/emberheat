@@ -2,16 +2,16 @@
 
 ## Overview
 
-Thermos-Rust integrates with the Matter smart home protocol to expose each heating zone as a Matter Thermostat device. The implementation uses [rs-matter](https://github.com/project-chip/rs-matter) with Embassy on ESP32-C6, supporting commissioning via BLE and control via HomeKit, Google Home, Alexa, and other Matter controllers.
+EmberHeat integrates with the Matter smart home protocol to expose each heating zone as a Matter Thermostat device. The implementation uses [rs-matter](https://github.com/project-chip/rs-matter) with Embassy on ESP32-C6, supporting commissioning via BLE and control via HomeKit, Google Home, Alexa, and other Matter controllers.
 
 ## Crate Structure
 
-### `thermos-matter` (no_std library)
+### `emberheat-matter` (no_std library)
 
 Platform-agnostic Matter types and state management:
 
 ```
-thermos-matter/src/
+emberheat-matter/src/
 ├── lib.rs       # Module exports
 ├── types.rs     # MatterTemperature, SystemMode, etc.
 ├── state.rs     # ZoneThermostatState (atomic operations + dirty tracking)
@@ -20,12 +20,12 @@ thermos-matter/src/
 └── device.rs    # Device info and endpoint mapping
 ```
 
-### `thermos-esp32/src/matter/` (ESP32-specific)
+### `emberheat-esp32/src/matter/` (ESP32-specific)
 
 Platform integration connecting Matter state to hardware:
 
 ```
-thermos-esp32/src/matter/
+emberheat-esp32/src/matter/
 ├── mod.rs           # Module exports
 ├── stack.rs         # Matter stack setup, cluster handlers, endpoint config
 ├── zones.rs         # ZoneStateStore - compile-time sized zone storage
@@ -33,10 +33,10 @@ thermos-esp32/src/matter/
 └── mqtt_bridge.rs   # MQTT in Matter mode (currently disabled)
 ```
 
-### `thermos-esp32/src/persistence/` (Flash storage)
+### `emberheat-esp32/src/persistence/` (Flash storage)
 
 ```
-thermos-esp32/src/persistence/
+emberheat-esp32/src/persistence/
 ├── mod.rs           # Module exports
 ├── flash_store.rs   # FlashKvBlobStore - sequential-storage wrapper
 ├── types.rs         # PersistedZoneState (5 bytes per zone)
@@ -142,7 +142,7 @@ Device type: `0x0301` (Thermostat)
 
 ## Key Types
 
-### `MatterTemperature` (thermos-matter/src/types.rs)
+### `MatterTemperature` (emberheat-matter/src/types.rs)
 
 Matter uses temperatures in 0.01°C units as integers:
 
@@ -160,7 +160,7 @@ impl MatterTemperature {
 }
 ```
 
-### `SystemMode` (thermos-matter/src/types.rs)
+### `SystemMode` (emberheat-matter/src/types.rs)
 
 Maps to Matter Thermostat SystemMode attribute:
 
@@ -172,7 +172,7 @@ pub enum SystemMode {
 }
 ```
 
-### `ZoneThermostatState` (thermos-matter/src/state.rs)
+### `ZoneThermostatState` (emberheat-matter/src/state.rs)
 
 Lock-free state shared between Matter stack, control loop, and persistence task:
 
@@ -244,14 +244,14 @@ ESP32-C6 handles WiFi, external ESP32-H2 handles BLE over UART HCI:
 
 ## Configuration
 
-### Matter Credentials (thermos-esp32/src/config.rs)
+### Matter Credentials (emberheat-esp32/src/config.rs)
 
 ```rust
 pub const MATTER_DISCRIMINATOR: u16 = 3840;
 pub const MATTER_PASSCODE: u32 = 20202021;
 pub const MATTER_VENDOR_ID: u16 = 0xFFF1;  // Test vendor ID
 pub const MATTER_PRODUCT_ID: u16 = 0x8001;
-pub const MATTER_DEVICE_NAME: &str = "Thermos Multi-Zone";
+pub const MATTER_DEVICE_NAME: &str = "EmberHeat Multi-Zone";
 ```
 
 Supports up to 5 Matter fabrics (`max-fabrics-5`).
@@ -274,6 +274,6 @@ The control loop runs every 5 seconds and must not be delayed. Using a mutex cou
 
 ### Why Separate Crates?
 
-- `thermos-matter` can be tested on the host without ESP32 toolchain
+- `emberheat-matter` can be tested on the host without ESP32 toolchain
 - Clean dependency boundaries (Matter types don't depend on hardware)
-- `thermos-core` remains pure control logic, testable anywhere
+- `emberheat-core` remains pure control logic, testable anywhere

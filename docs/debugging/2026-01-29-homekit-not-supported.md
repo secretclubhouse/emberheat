@@ -119,7 +119,7 @@ The error came from rs-matter's attribute filtering, NOT our handler. rs-matter 
 
 ## Solution
 
-Added global attributes to `THERMOSTAT_ATTRIBUTES` in `thermos-esp32/src/matter/stack.rs`:
+Added global attributes to `THERMOSTAT_ATTRIBUTES` in `emberheat-esp32/src/matter/stack.rs`:
 
 ```rust
 const THERMOSTAT_ATTRIBUTES: &[Attribute] = &[

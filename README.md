@@ -1,4 +1,4 @@
-# Thermos-Rust
+# EmberHeat
 
 A Matter-enabled multi-zone thermostat system for hydronic heating, written in Rust for ESP32-C6. Controls heating zones via HomeKit, Google Home, and other Matter-compatible controllers.
 
@@ -8,12 +8,12 @@ A Matter-enabled multi-zone thermostat system for hydronic heating, written in R
 
 | Crate | Purpose | Platform |
 |-------|---------|----------|
-| `thermos-core` | Core control logic, traits, types | `no_std` compatible |
-| `thermos-matter` | Matter protocol types and cluster definitions | `no_std` compatible |
-| `thermos-esp32` | ESP32-C6 firmware (active) | ESP32-C6 bare-metal |
-| `thermos-linux` | Raspberry Pi implementation (preserved) | Linux |
+| `emberheat-core` | Core control logic, traits, types | `no_std` compatible |
+| `emberheat-matter` | Matter protocol types and cluster definitions | `no_std` compatible |
+| `emberheat-esp32` | ESP32-C6 firmware (active) | ESP32-C6 bare-metal |
+| `emberheat-linux` | Raspberry Pi implementation (preserved) | Linux |
 
-### Core Library (`thermos-core`)
+### Core Library (`emberheat-core`)
 
 Platform-agnostic library containing:
 - **Temperature types** with Celsius/Fahrenheit conversion
@@ -21,7 +21,7 @@ Platform-agnostic library containing:
 - **Trait definitions** for sensors, GPIO, and state persistence
 - **Sensor validation** (3°C - 37°C range)
 
-### Matter Integration (`thermos-matter`)
+### Matter Integration (`emberheat-matter`)
 
 Smart home protocol support via [rs-matter](https://github.com/project-chip/rs-matter):
 - **Thermostat Cluster** (0x0201) with heating and cooling support
@@ -30,7 +30,7 @@ Smart home protocol support via [rs-matter](https://github.com/project-chip/rs-m
 - **Lock-free design** using portable-atomic for real-time safety
 - **Dirty flag tracking** for efficient flash persistence
 
-### ESP32 Implementation (`thermos-esp32`)
+### ESP32 Implementation (`emberheat-esp32`)
 
 Active firmware for ESP32-C6:
 - **Embassy async runtime** for cooperative multitasking
@@ -44,7 +44,7 @@ Active firmware for ESP32-C6:
 - **MQTT logging** for monitoring
 - **Matter bridge** connecting protocol state to control loops
 
-### Linux Implementation (`thermos-linux`)
+### Linux Implementation (`emberheat-linux`)
 
 Preserved but not actively developed. Uses:
 - `sysfs_gpio` for GPIO control
@@ -78,7 +78,7 @@ make build-matter-dual-radio
 # Flash Matter firmware and monitor serial output
 make flash-monitor-matter
 
-# Run tests (thermos-core + thermos-matter)
+# Run tests (emberheat-core + emberheat-matter)
 make test
 ```
 
@@ -100,7 +100,7 @@ The device supports up to 5 Matter fabrics simultaneously (HomeKit (2) + Google 
 
 ### Zone Configuration
 
-Edit `thermos-esp32/src/config.rs` to configure zones (1-16 supported):
+Edit `emberheat-esp32/src/config.rs` to configure zones (1-16 supported):
 
 ```rust
 pub const NUM_ZONES: usize = 7;
@@ -195,7 +195,7 @@ make lint       # Clippy lints
 
 ```bash
 # Core
-make build              # Build thermos-core
+make build              # Build emberheat-core
 make build-esp32        # Build ESP32 firmware (MQTT mode, no Matter)
 
 # Matter

@@ -1,6 +1,6 @@
 #!/bin/sh
 #
-# Git pre-commit hook for Thermos-Rust
+# Git pre-commit hook for EmberHeat
 #
 # This hook runs before every commit to ensure code quality.
 # It checks formatting, linting, and tests.
@@ -10,50 +10,50 @@
 
 set -e
 
-echo "🔍 Running pre-commit checks..."
+echo "Running pre-commit checks..."
 echo ""
 
 # Check if we're in the root of the repository
 if [ ! -f "Cargo.toml" ]; then
-    echo "❌ Error: Must be run from repository root"
+    echo "Error: Must be run from repository root"
     exit 1
 fi
 
 # 1. Check formatting
-echo "📝 Checking code formatting..."
+echo "Checking code formatting..."
 if ! cargo fmt -- --check; then
     echo ""
-    echo "❌ Code formatting check failed!"
+    echo "Code formatting check failed!"
     echo "   Run: cargo fmt"
     echo "   Then try committing again."
     exit 1
 fi
-echo "✅ Formatting check passed"
+echo "Formatting check passed"
 echo ""
 
-# 2. Run Clippy (thermos-core only - ESP32 requires cross-compilation)
-echo "🔎 Running Clippy (linter)..."
-if ! cargo clippy --all-targets --all-features -p thermos-core -- -D warnings; then
+# 2. Run Clippy (emberheat-core only - ESP32 requires cross-compilation)
+echo "Running Clippy (linter)..."
+if ! cargo clippy --all-targets -p emberheat-core -- -D warnings; then
     echo ""
-    echo "❌ Clippy found issues!"
+    echo "Clippy found issues!"
     echo "   Fix the warnings above and try again."
     exit 1
 fi
-echo "✅ Clippy passed"
+echo "Clippy passed"
 echo ""
 
-# 3. Run tests (thermos-core only)
-echo "🧪 Running tests..."
-if ! cargo test --quiet -p thermos-core; then
+# 3. Run tests (emberheat-core only)
+echo "Running tests..."
+if ! cargo test --quiet -p emberheat-core; then
     echo ""
-    echo "❌ Tests failed!"
+    echo "Tests failed!"
     echo "   Fix the failing tests and try again."
     exit 1
 fi
-echo "✅ Tests passed"
+echo "Tests passed"
 echo ""
 
-echo "✅ All pre-commit checks passed! Proceeding with commit..."
+echo "All pre-commit checks passed! Proceeding with commit..."
 echo ""
 
 exit 0

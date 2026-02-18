@@ -4,7 +4,7 @@
 
 **Goal:** Build a heating-only thermostat cluster implementation for rs-matter that can be integrated with the ESP32 multi-zone thermostat from Phase 1.
 
-**Architecture:** Implement Matter Thermostat Cluster (0x0201) as a standalone Rust module with heating-only attributes, designed to integrate with rs-matter on ESP32-C6. The cluster will bridge Matter commands to thermos-core's hysteresis control.
+**Architecture:** Implement Matter Thermostat Cluster (0x0201) as a standalone Rust module with heating-only attributes, designed to integrate with rs-matter on ESP32-C6. The cluster will bridge Matter commands to emberheat-core's hysteresis control.
 
 **Tech Stack:** rs-matter, esp-hal 1.0, Embassy async runtime
 
@@ -149,7 +149,7 @@ bitmap Feature : bitmap32 {
 **What was done:**
 - Added `rs-matter` with `rustcrypto` feature to Cargo.toml
 - Note: rs-matter-stack has embassy-time version conflicts, using rs-matter directly
-- Created `thermos-esp32/src/matter/mod.rs` module structure
+- Created `emberheat-esp32/src/matter/mod.rs` module structure
 
 ---
 
@@ -185,12 +185,12 @@ bitmap Feature : bitmap32 {
 ### Task 4: Import Thermostat Cluster and Create Hooks Trait
 
 **Files:**
-- Create: `thermos-esp32/src/matter/cluster.rs`
-- Modify: `thermos-esp32/src/matter/mod.rs`
+- Create: `emberheat-esp32/src/matter/cluster.rs`
+- Modify: `emberheat-esp32/src/matter/mod.rs`
 
 **Step 1: Import Thermostat cluster from IDL**
 
-Create `thermos-esp32/src/matter/cluster.rs`:
+Create `emberheat-esp32/src/matter/cluster.rs`:
 ```rust
 //! Thermostat cluster definition imported from Matter IDL
 //!
@@ -236,7 +236,7 @@ pub use self::thermostat::{
 
 **Step 2: Create ThermostatHooks trait**
 
-Add to `thermos-esp32/src/matter/cluster.rs`:
+Add to `emberheat-esp32/src/matter/cluster.rs`:
 ```rust
 use rs_matter::dm::Cluster;
 use rs_matter::error::Error;
@@ -342,13 +342,13 @@ pub use cluster::{
 
 **Step 4: Verify compilation**
 
-Run: `cd thermos-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
+Run: `cd emberheat-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
 Expected: Compiles with rs-matter types
 
 **Step 5: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/
+git add emberheat-esp32/src/matter/
 git commit -m "feat(matter): import thermostat cluster and create ThermostatHooks trait
 
 - Use rs_matter::import!(Thermostat) for IDL-based cluster definition
@@ -362,12 +362,12 @@ git commit -m "feat(matter): import thermostat cluster and create ThermostatHook
 ### Task 5: Implement ThermostatHandler
 
 **Files:**
-- Create: `thermos-esp32/src/matter/handler.rs`
-- Modify: `thermos-esp32/src/matter/mod.rs`
+- Create: `emberheat-esp32/src/matter/handler.rs`
+- Modify: `emberheat-esp32/src/matter/mod.rs`
 
 **Step 1: Create ThermostatHandler struct**
 
-Create `thermos-esp32/src/matter/handler.rs`:
+Create `emberheat-esp32/src/matter/handler.rs`:
 ```rust
 //! Matter Thermostat Cluster handler implementation
 //!
@@ -545,7 +545,7 @@ impl<H: ThermostatHooks> ThermostatHandler<H> {
 
 **Step 2: Implement ZoneThermostatState as ThermostatHooks**
 
-Modify `thermos-esp32/src/matter/state.rs` to implement the hooks trait:
+Modify `emberheat-esp32/src/matter/state.rs` to implement the hooks trait:
 ```rust
 // Add at the end of state.rs
 
@@ -625,13 +625,13 @@ pub use handler::ThermostatHandler;
 
 **Step 4: Verify compilation**
 
-Run: `cd thermos-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
+Run: `cd emberheat-esp32 && WIFI_SSID="test" WIFI_PASSWORD="test" cargo check`
 Expected: Compiles with handler implementation
 
 **Step 5: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/
+git add emberheat-esp32/src/matter/
 git commit -m "feat(matter): implement ThermostatHandler with hooks pattern
 
 - Create ThermostatHandler struct following OnOffHandler pattern
@@ -645,12 +645,12 @@ git commit -m "feat(matter): implement ThermostatHandler with hooks pattern
 ### Task 6: Create Multi-Zone Matter Device
 
 **Files:**
-- Create: `thermos-esp32/src/matter/device.rs`
-- Modify: `thermos-esp32/src/matter/mod.rs`
+- Create: `emberheat-esp32/src/matter/device.rs`
+- Modify: `emberheat-esp32/src/matter/mod.rs`
 
 **Step 1: Define 7-endpoint device structure**
 
-Create `thermos-esp32/src/matter/device.rs`:
+Create `emberheat-esp32/src/matter/device.rs`:
 ```rust
 //! Matter device configuration for 7-zone thermostat
 //!
@@ -709,8 +709,8 @@ impl Default for DeviceInfo {
         Self {
             vendor_id: 0xFFF1,      // Test vendor ID
             product_id: 0x8001,     // Test product ID  
-            device_name: "Thermos 7-Zone",
-            serial_number: "THERMOS-001",
+            device_name: "EmberHeat 7-Zone",
+            serial_number: "EMBERHEAT-001",
         }
     }
 }
@@ -718,7 +718,7 @@ impl Default for DeviceInfo {
 
 **Step 2: Update mod.rs**
 
-Add to `thermos-esp32/src/matter/mod.rs`:
+Add to `emberheat-esp32/src/matter/mod.rs`:
 ```rust
 pub mod device;
 pub use device::{ZONE_STATES, get_zone_state, get_zone_state_by_endpoint, DeviceInfo, NUM_ZONES};
@@ -727,13 +727,13 @@ pub use device::{ZONE_STATES, get_zone_state, get_zone_state_by_endpoint, Device
 **Step 3: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/device.rs thermos-esp32/src/matter/mod.rs
+git add emberheat-esp32/src/matter/device.rs emberheat-esp32/src/matter/mod.rs
 git commit -m "feat(matter): add 7-zone device configuration"
 ```
 
 ---
 
-### Task 7: Bridge Matter State to Thermos-Core ✅ COMPLETED
+### Task 7: Bridge Matter State to EmberHeat-Core ✅ COMPLETED
 
 **Status:** Done - bridge.rs with bidirectional sync functions.
 
@@ -748,34 +748,34 @@ git commit -m "feat(matter): add 7-zone device configuration"
 
 ---
 
-### Task 7.5: Extract thermos-matter Crate
+### Task 7.5: Extract emberheat-matter Crate
 
 **Status:** Pending
 
-**Goal:** Extract the Matter module into a separate `thermos-matter` crate to enable:
-1. Host-based unit testing (can't run thermos-esp32 tests on host due to ESP32 dependencies)
+**Goal:** Extract the Matter module into a separate `emberheat-matter` crate to enable:
+1. Host-based unit testing (can't run emberheat-esp32 tests on host due to ESP32 dependencies)
 2. Optional `std` feature for future non-embedded use cases
 3. Cleaner dependency graph and independent versioning
 
 **Files:**
-- Create: `thermos-matter/Cargo.toml`
-- Create: `thermos-matter/src/lib.rs`
-- Move: `thermos-esp32/src/matter/types.rs` → `thermos-matter/src/types.rs`
-- Move: `thermos-esp32/src/matter/state.rs` → `thermos-matter/src/state.rs`
-- Move: `thermos-esp32/src/matter/cluster.rs` → `thermos-matter/src/cluster.rs`
-- Move: `thermos-esp32/src/matter/handler.rs` → `thermos-matter/src/handler.rs`
-- Move: `thermos-esp32/src/matter/device.rs` → `thermos-matter/src/device.rs`
-- Keep: `thermos-esp32/src/matter/bridge.rs` (integration layer, stays in thermos-esp32)
-- Modify: `thermos-esp32/src/matter/mod.rs` (re-export from thermos-matter)
-- Modify: `thermos-esp32/Cargo.toml` (add thermos-matter dependency)
-- Modify: `Cargo.toml` (add thermos-matter to workspace members)
+- Create: `emberheat-matter/Cargo.toml`
+- Create: `emberheat-matter/src/lib.rs`
+- Move: `emberheat-esp32/src/matter/types.rs` → `emberheat-matter/src/types.rs`
+- Move: `emberheat-esp32/src/matter/state.rs` → `emberheat-matter/src/state.rs`
+- Move: `emberheat-esp32/src/matter/cluster.rs` → `emberheat-matter/src/cluster.rs`
+- Move: `emberheat-esp32/src/matter/handler.rs` → `emberheat-matter/src/handler.rs`
+- Move: `emberheat-esp32/src/matter/device.rs` → `emberheat-matter/src/device.rs`
+- Keep: `emberheat-esp32/src/matter/bridge.rs` (integration layer, stays in emberheat-esp32)
+- Modify: `emberheat-esp32/src/matter/mod.rs` (re-export from emberheat-matter)
+- Modify: `emberheat-esp32/Cargo.toml` (add emberheat-matter dependency)
+- Modify: `Cargo.toml` (add emberheat-matter to workspace members)
 
-**Step 1: Create thermos-matter crate**
+**Step 1: Create emberheat-matter crate**
 
-Create `thermos-matter/Cargo.toml`:
+Create `emberheat-matter/Cargo.toml`:
 ```toml
 [package]
-name = "thermos-matter"
+name = "emberheat-matter"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
@@ -803,7 +803,7 @@ tokio = { version = "1.48", features = ["rt", "macros", "sync", "time"] }
 
 **Step 2: Create lib.rs**
 
-Create `thermos-matter/src/lib.rs`:
+Create `emberheat-matter/src/lib.rs`:
 ```rust
 //! Matter Thermostat Cluster implementation
 //!
@@ -847,7 +847,7 @@ pub use state::{SetpointError, ZoneThermostatState};
 
 **Step 3: Move source files**
 
-Move these files from `thermos-esp32/src/matter/` to `thermos-matter/src/`:
+Move these files from `emberheat-esp32/src/matter/` to `emberheat-matter/src/`:
 - `types.rs`
 - `state.rs`
 - `cluster.rs`
@@ -857,24 +857,24 @@ Move these files from `thermos-esp32/src/matter/` to `thermos-matter/src/`:
 Update imports in moved files:
 - Change `crate::matter::` to `crate::`
 
-**Step 4: Update thermos-esp32**
+**Step 4: Update emberheat-esp32**
 
-Modify `thermos-esp32/Cargo.toml`:
+Modify `emberheat-esp32/Cargo.toml`:
 ```toml
 # Add under [dependencies]
-thermos-matter = { path = "../thermos-matter" }
+emberheat-matter = { path = "../emberheat-matter" }
 ```
 
-Modify `thermos-esp32/src/matter/mod.rs`:
+Modify `emberheat-esp32/src/matter/mod.rs`:
 ```rust
-//! Matter protocol integration for thermos-esp32
+//! Matter protocol integration for emberheat-esp32
 //!
-//! Re-exports thermos-matter and provides the bridge to thermos-core.
+//! Re-exports emberheat-matter and provides the bridge to emberheat-core.
 
 pub mod bridge;
 
-// Re-export everything from thermos-matter
-pub use thermos_matter::*;
+// Re-export everything from emberheat-matter
+pub use emberheat_matter::*;
 
 // Re-export bridge functions
 pub use bridge::{
@@ -883,15 +883,15 @@ pub use bridge::{
 };
 ```
 
-Update `thermos-esp32/src/matter/bridge.rs` imports:
+Update `emberheat-esp32/src/matter/bridge.rs` imports:
 ```rust
 // Change from:
 use crate::matter::device::get_zone_state;
 use crate::matter::types::SystemMode;
 
 // To:
-use thermos_matter::device::get_zone_state;
-use thermos_matter::types::SystemMode;
+use emberheat_matter::device::get_zone_state;
+use emberheat_matter::types::SystemMode;
 ```
 
 **Step 5: Update workspace**
@@ -900,55 +900,55 @@ Modify root `Cargo.toml`:
 ```toml
 [workspace]
 members = [
-    "thermos-core",
-    "thermos-matter",  # Add this
-    "thermos-esp32",
-    "thermos-linux",
+    "emberheat-core",
+    "emberheat-matter",  # Add this
+    "emberheat-esp32",
+    "emberheat-linux",
 ]
 ```
 
 **Step 6: Verify compilation**
 
 ```bash
-# Test thermos-matter builds and tests pass
-cargo test -p thermos-matter
+# Test emberheat-matter builds and tests pass
+cargo test -p emberheat-matter
 
-# Test thermos-esp32 still compiles
-WIFI_SSID=test WIFI_PASSWORD=test cargo check -p thermos-esp32 --target riscv32imac-unknown-none-elf
+# Test emberheat-esp32 still compiles
+WIFI_SSID=test WIFI_PASSWORD=test cargo check -p emberheat-esp32 --target riscv32imac-unknown-none-elf
 ```
 
 **Step 7: Commit**
 
 ```bash
-git add thermos-matter/ Cargo.toml thermos-esp32/
-git commit -m "refactor: extract thermos-matter crate for testability
+git add emberheat-matter/ Cargo.toml emberheat-esp32/
+git commit -m "refactor: extract emberheat-matter crate for testability
 
-- Create thermos-matter crate with no_std default, optional std feature
-- Move types, state, cluster, handler, device modules from thermos-esp32
-- Keep bridge.rs in thermos-esp32 as integration layer
-- Re-export thermos-matter from thermos-esp32 for compatibility
-- Tests now run on host with cargo test -p thermos-matter"
+- Create emberheat-matter crate with no_std default, optional std feature
+- Move types, state, cluster, handler, device modules from emberheat-esp32
+- Keep bridge.rs in emberheat-esp32 as integration layer
+- Re-export emberheat-matter from emberheat-esp32 for compatibility
+- Tests now run on host with cargo test -p emberheat-matter"
 ```
 
 ---
 
 ### Task 8: Verify Unit Tests Pass ✅ BLOCKED (depends on Task 7.5)
 
-**Status:** Blocked - waiting for thermos-matter extraction
+**Status:** Blocked - waiting for emberheat-matter extraction
 
 **Depends on:** Task 7.5
 
 After Task 7.5 is complete:
 
 ```bash
-# Run all thermos-matter tests on host
-cargo test -p thermos-matter
+# Run all emberheat-matter tests on host
+cargo test -p emberheat-matter
 
 # Expected: All tests pass including:
 # - types.rs tests (temperature conversion, enums)
 # - state.rs tests (ZoneThermostatState operations)
 # - device.rs tests (endpoint mapping)
-# - bridge.rs tests remain in thermos-esp32 (they use both crates)
+# - bridge.rs tests remain in emberheat-esp32 (they use both crates)
 ```
 
 ---
@@ -962,7 +962,7 @@ Before proceeding to Phase 3 (Matter stack integration):
 - [ ] State container is thread-safe (atomic operations)
 - [ ] ThermostatHooks trait properly implemented for ZoneThermostatState
 - [ ] ThermostatHandler compiles with rs-matter types
-- [ ] Bridge correctly converts between Matter and thermos-core formats
+- [ ] Bridge correctly converts between Matter and emberheat-core formats
 - [ ] No compilation errors with rs-matter dependencies
 - [ ] Code documented with rustdoc comments
 

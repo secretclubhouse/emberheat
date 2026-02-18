@@ -1,15 +1,15 @@
 [workspace]
 members = [
-    "thermos-core",
-    "thermos-matter",
-    "thermos-linux",
-    "thermos-esp32",
+    "emberheat-core",
+    "emberheat-matter",
+    "emberheat-linux",
+    "emberheat-esp32",
 ]
-# Default to ESP32 development - thermos-linux is kept but not actively developed
+# Default to ESP32 development - emberheat-linux is kept but not actively developed
 default-members = [
-    "thermos-core",
-    "thermos-matter",
-    "thermos-esp32",
+    "emberheat-core",
+    "emberheat-matter",
+    "emberheat-esp32",
 ]
 resolver = "2"
 
@@ -51,4 +51,4 @@ rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next" }
 rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
 openthread = { git = "https://github.com/sysgrok/openthread", branch = "next" }
 # Note: rs-matter-embassy uses secretclubhouse/rs-matter-embassy fork (stack-public branch)
-# in thermos-esp32/Cargo.toml to expose EnetNetif.stack for MQTT TCP support with Matter
+# in emberheat-esp32/Cargo.toml to expose EnetNetif.stack for MQTT TCP support with Matter

@@ -4,7 +4,7 @@
 
 **Goal:** Make the number of thermostat zones configurable so users can run 1-7 zones without code changes.
 
-**Architecture:** Move zone count configuration to `thermos-esp32/src/config.rs` as the single source of truth. The `thermos-matter` crate will accept the zone states as a parameter rather than owning a hardcoded static array. Use const generics and conditional compilation where needed.
+**Architecture:** Move zone count configuration to `emberheat-esp32/src/config.rs` as the single source of truth. The `emberheat-matter` crate will accept the zone states as a parameter rather than owning a hardcoded static array. Use const generics and conditional compilation where needed.
 
 **Tech Stack:** Rust const generics, conditional compilation with `cfg` attributes
 
@@ -14,14 +14,14 @@
 
 The zone count is hardcoded in multiple places:
 
-1. **`thermos-esp32/src/config.rs`** - `NUM_ZONES = 7`, `ZONE_CONFIGS` array
-2. **`thermos-matter/src/device.rs`** - Separate `NUM_ZONES = 7`, static `ZONE_STATES` array
-3. **`thermos-esp32/src/main.rs`** - 7 static cells, 7 task functions, hardcoded GPIO initialization
+1. **`emberheat-esp32/src/config.rs`** - `NUM_ZONES = 7`, `ZONE_CONFIGS` array
+2. **`emberheat-matter/src/device.rs`** - Separate `NUM_ZONES = 7`, static `ZONE_STATES` array
+3. **`emberheat-esp32/src/main.rs`** - 7 static cells, 7 task functions, hardcoded GPIO initialization
 
 ## Design Decisions
 
-1. **Single source of truth**: `thermos-esp32/src/config.rs` owns `NUM_ZONES`
-2. **thermos-matter becomes stateless**: Remove `ZONE_STATES` from thermos-matter; thermos-esp32 owns the static array and passes references
+1. **Single source of truth**: `emberheat-esp32/src/config.rs` owns `NUM_ZONES`
+2. **emberheat-matter becomes stateless**: Remove `ZONE_STATES` from emberheat-matter; emberheat-esp32 owns the static array and passes references
 3. **Maximum 7 zones**: Keep compile-time max of 7 to avoid dynamic allocation
 4. **Conditional task spawning**: Use `if NUM_ZONES >= N` guards in main.rs
 
@@ -29,21 +29,21 @@ The zone count is hardcoded in multiple places:
 
 ## Implementation Tasks
 
-### Task 1: Remove Static State from thermos-matter
+### Task 1: Remove Static State from emberheat-matter
 
 **Files:**
-- Modify: `thermos-matter/src/device.rs`
-- Modify: `thermos-matter/src/lib.rs`
+- Modify: `emberheat-matter/src/device.rs`
+- Modify: `emberheat-matter/src/lib.rs`
 
 **Step 1: Update device.rs to remove ZONE_STATES and accept external state**
 
-Replace `thermos-matter/src/device.rs` with:
+Replace `emberheat-matter/src/device.rs` with:
 
 ```rust
 //! Matter device configuration for multi-zone thermostat
 //!
 //! Provides endpoint constants and helper functions for zone/endpoint mapping.
-//! The actual zone states are owned by the application (thermos-esp32).
+//! The actual zone states are owned by the application (emberheat-esp32).
 
 /// Matter endpoint number for root node (device info, descriptors)
 pub const ROOT_ENDPOINT: u16 = 0;
@@ -114,8 +114,8 @@ impl DeviceInfo {
         Self {
             vendor_id: 0xFFF1,  // Test vendor ID (for development)
             product_id: 0x8001, // Test product ID
-            device_name: "Thermos Multi-Zone",
-            serial_number: "THERMOS-001",
+            device_name: "EmberHeat Multi-Zone",
+            serial_number: "EMBERHEAT-001",
             num_zones,
         }
     }
@@ -179,7 +179,7 @@ mod tests {
 
 **Step 2: Update lib.rs exports**
 
-Modify `thermos-matter/src/lib.rs` to remove old exports and add new ones:
+Modify `emberheat-matter/src/lib.rs` to remove old exports and add new ones:
 
 ```rust
 // Change the device re-exports from:
@@ -198,34 +198,34 @@ pub use device::{
 
 **Step 3: Run tests**
 
-Run: `cargo test -p thermos-matter`
+Run: `cargo test -p emberheat-matter`
 Expected: All tests pass
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-matter/
+git add emberheat-matter/
 git commit -m "refactor(matter): remove static ZONE_STATES, make zone count configurable
 
-- Remove hardcoded NUM_ZONES and ZONE_STATES from thermos-matter
+- Remove hardcoded NUM_ZONES and ZONE_STATES from emberheat-matter
 - Add MAX_ZONES constant (7) as upper limit
 - Update endpoint conversion functions to accept num_zones parameter
 - DeviceInfo now takes num_zones in constructor
-- Zone states will be owned by thermos-esp32"
+- Zone states will be owned by emberheat-esp32"
 ```
 
 ---
 
-### Task 2: Create Zone States in thermos-esp32
+### Task 2: Create Zone States in emberheat-esp32
 
 **Files:**
-- Create: `thermos-esp32/src/matter/zones.rs`
-- Modify: `thermos-esp32/src/matter/mod.rs`
-- Modify: `thermos-esp32/src/matter/bridge.rs`
+- Create: `emberheat-esp32/src/matter/zones.rs`
+- Modify: `emberheat-esp32/src/matter/mod.rs`
+- Modify: `emberheat-esp32/src/matter/bridge.rs`
 
 **Step 1: Create zones.rs with static zone states**
 
-Create `thermos-esp32/src/matter/zones.rs`:
+Create `emberheat-esp32/src/matter/zones.rs`:
 
 ```rust
 //! Zone state storage for Matter integration
@@ -233,7 +233,7 @@ Create `thermos-esp32/src/matter/zones.rs`:
 //! Owns the static ZoneThermostatState array, sized according to config.
 
 use crate::config::NUM_ZONES;
-use thermos_matter::state::ZoneThermostatState;
+use emberheat_matter::state::ZoneThermostatState;
 
 /// Static state for all configured zones
 ///
@@ -269,7 +269,7 @@ pub fn get_zone_state(index: usize) -> Option<&'static ZoneThermostatState> {
 ///
 /// Reference to the zone state, or `None` if endpoint is not a valid zone.
 pub fn get_zone_state_by_endpoint(endpoint: u16) -> Option<&'static ZoneThermostatState> {
-    thermos_matter::endpoint_to_zone_index(endpoint, NUM_ZONES)
+    emberheat_matter::endpoint_to_zone_index(endpoint, NUM_ZONES)
         .and_then(get_zone_state)
 }
 
@@ -308,18 +308,18 @@ mod tests {
 
 **Step 2: Update matter/mod.rs**
 
-Modify `thermos-esp32/src/matter/mod.rs`:
+Modify `emberheat-esp32/src/matter/mod.rs`:
 
 ```rust
-//! Matter protocol integration for thermos-esp32
+//! Matter protocol integration for emberheat-esp32
 //!
-//! Re-exports thermos-matter and provides the bridge to thermos-core.
+//! Re-exports emberheat-matter and provides the bridge to emberheat-core.
 
 pub mod bridge;
 pub mod zones;
 
-// Re-export everything from thermos-matter
-pub use thermos_matter::*;
+// Re-export everything from emberheat-matter
+pub use emberheat_matter::*;
 
 // Re-export local zone state functions
 pub use zones::{get_zone_state, get_zone_state_by_endpoint, ZONE_STATES};
@@ -333,17 +333,17 @@ pub use bridge::{
 
 **Step 3: Update bridge.rs to use local zones**
 
-Modify `thermos-esp32/src/matter/bridge.rs` imports:
+Modify `emberheat-esp32/src/matter/bridge.rs` imports:
 
 ```rust
 // Change from:
-use thermos_matter::device::get_zone_state;
-use thermos_matter::types::SystemMode;
+use emberheat_matter::device::get_zone_state;
+use emberheat_matter::types::SystemMode;
 
 // To:
 use crate::config::NUM_ZONES;
 use crate::matter::zones::get_zone_state;
-use thermos_matter::types::SystemMode;
+use emberheat_matter::types::SystemMode;
 ```
 
 Also update the test imports in the same file:
@@ -359,14 +359,14 @@ mod tests {
 
 **Step 4: Verify compilation**
 
-Run: `WIFI_SSID=test WIFI_PASSWORD=test cargo check -p thermos-esp32 --target riscv32imac-unknown-none-elf`
+Run: `WIFI_SSID=test WIFI_PASSWORD=test cargo check -p emberheat-esp32 --target riscv32imac-unknown-none-elf`
 Expected: Compiles successfully
 
 **Step 5: Commit**
 
 ```bash
-git add thermos-esp32/src/matter/
-git commit -m "feat(esp32): move ZONE_STATES to thermos-esp32, sized by NUM_ZONES
+git add emberheat-esp32/src/matter/
+git commit -m "feat(esp32): move ZONE_STATES to emberheat-esp32, sized by NUM_ZONES
 
 - Create zones.rs with ZONE_STATES array sized by config::NUM_ZONES
 - Update bridge.rs to use local zone state functions
@@ -378,7 +378,7 @@ git commit -m "feat(esp32): move ZONE_STATES to thermos-esp32, sized by NUM_ZONE
 ### Task 3: Make main.rs Zone Initialization Conditional
 
 **Files:**
-- Modify: `thermos-esp32/src/main.rs`
+- Modify: `emberheat-esp32/src/main.rs`
 
 **Step 1: Add conditional compilation for static cells**
 
@@ -463,7 +463,7 @@ pub const NUM_ZONES: usize = 3;
 
 And trim ZONE_CONFIGS to 3 entries.
 
-Run: `WIFI_SSID=test WIFI_PASSWORD=test cargo check -p thermos-esp32 --target riscv32imac-unknown-none-elf`
+Run: `WIFI_SSID=test WIFI_PASSWORD=test cargo check -p emberheat-esp32 --target riscv32imac-unknown-none-elf`
 Expected: Compiles with no warnings about unused zones
 
 Restore to 7 zones after testing.
@@ -471,7 +471,7 @@ Restore to 7 zones after testing.
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/main.rs
+git add emberheat-esp32/src/main.rs
 git commit -m "feat(esp32): conditional zone initialization based on NUM_ZONES
 
 - Only initialize GPIO, sensors, and state for configured zones
@@ -484,12 +484,12 @@ git commit -m "feat(esp32): conditional zone initialization based on NUM_ZONES
 ### Task 4: Update Documentation and Tests
 
 **Files:**
-- Modify: `thermos-esp32/src/config.rs`
-- Modify: `thermos-matter/src/lib.rs` (doc comments)
+- Modify: `emberheat-esp32/src/config.rs`
+- Modify: `emberheat-matter/src/lib.rs` (doc comments)
 
 **Step 1: Update config.rs documentation**
 
-Update the module doc comment in `thermos-esp32/src/config.rs`:
+Update the module doc comment in `emberheat-esp32/src/config.rs`:
 
 ```rust
 //! Multi-Zone Thermostat Configuration
@@ -533,13 +533,13 @@ fn test_num_zones() {
 
 **Step 3: Run all tests**
 
-Run: `cargo test -p thermos-core -p thermos-matter`
+Run: `cargo test -p emberheat-core -p emberheat-matter`
 Expected: All tests pass
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/config.rs thermos-matter/
+git add emberheat-esp32/src/config.rs emberheat-matter/
 git commit -m "docs: update documentation for configurable zone count
 
 - Update config.rs module docs with zone configuration instructions
@@ -570,9 +570,9 @@ Skip - marked as optional future work.
 
 Before considering this complete:
 
-- [ ] `cargo test -p thermos-matter` passes
-- [ ] `cargo test -p thermos-core` passes  
-- [ ] `cargo check -p thermos-esp32 --target riscv32imac-unknown-none-elf` succeeds
+- [ ] `cargo test -p emberheat-matter` passes
+- [ ] `cargo test -p emberheat-core` passes  
+- [ ] `cargo check -p emberheat-esp32 --target riscv32imac-unknown-none-elf` succeeds
 - [ ] Setting `NUM_ZONES = 3` and reducing `ZONE_CONFIGS` to 3 entries compiles
 - [ ] Setting `NUM_ZONES = 7` with full `ZONE_CONFIGS` compiles
 - [ ] Flash and boot with 7 zones works (existing behavior)
@@ -586,9 +586,9 @@ After implementation:
 
 | Component | Change |
 |-----------|--------|
-| `thermos-matter` | No longer owns zone states; provides helper functions only |
-| `thermos-esp32/config.rs` | Single source of truth for `NUM_ZONES` |
-| `thermos-esp32/matter/zones.rs` | New file owning `ZONE_STATES` array |
-| `thermos-esp32/main.rs` | Conditional initialization based on `NUM_ZONES` |
+| `emberheat-matter` | No longer owns zone states; provides helper functions only |
+| `emberheat-esp32/config.rs` | Single source of truth for `NUM_ZONES` |
+| `emberheat-esp32/matter/zones.rs` | New file owning `ZONE_STATES` array |
+| `emberheat-esp32/main.rs` | Conditional initialization based on `NUM_ZONES` |
 
 To configure zone count, users edit one constant in `config.rs` and ensure `ZONE_CONFIGS` array matches.

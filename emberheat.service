@@ -1,0 +1,38 @@
+[Unit]
+Description=EmberHeat Multi-Zone Thermostat
+Documentation=https://github.com/secretclubhouse/emberheat
+After=network-online.target redis.service
+Wants=network-online.target
+Requires=redis.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/emberheat
+# Config file is automatically discovered at /etc/emberheat/config.json
+# Or specify explicitly: /opt/emberheat/emberheat-linux /etc/emberheat/config.json
+ExecStart=/opt/emberheat/emberheat-linux
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=emberheat
+
+# Environment
+Environment="RUST_LOG=info"
+Environment="RUST_BACKTRACE=1"
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security settings (adjust as needed)
+# PrivateTmp=yes
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=yes
+# ReadWritePaths=/opt/emberheat/config
+
+[Install]
+WantedBy=multi-user.target

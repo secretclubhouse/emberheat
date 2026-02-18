@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This directory contains the CI/CD workflows for the Thermos-Rust project.
+This directory contains the CI/CD workflows for the EmberHeat project.
 
 ## Workflows
 
@@ -62,10 +62,10 @@ rust: [stable, nightly]
   - Uses layer caching for faster builds
 
 **Artifacts**:
-- `thermos-rust-armv7-unknown-linux-gnueabihf.tar.gz` (+ `.sha256`)
-- `thermos-rust-aarch64-unknown-linux-gnu.tar.gz` (+ `.sha256`)
-- `thermos-rust-x86_64-unknown-linux-gnu.tar.gz` (+ `.sha256`)
-- Docker images: `ghcr.io/OWNER/thermos-rust:VERSION`
+- `emberheat-armv7-unknown-linux-gnueabihf.tar.gz` (+ `.sha256`)
+- `emberheat-aarch64-unknown-linux-gnu.tar.gz` (+ `.sha256`)
+- `emberheat-x86_64-unknown-linux-gnu.tar.gz` (+ `.sha256`)
+- Docker images: `ghcr.io/OWNER/emberheat:VERSION`
 
 ### 3. Dependencies (`dependencies.yml`)
 
@@ -287,7 +287,7 @@ Solution: Clear and rebuild cache
 
 Add to README.md:
 ```markdown
-[![CI](https://github.com/OWNER/thermos-rust/workflows/CI/badge.svg)](https://github.com/OWNER/thermos-rust/actions?query=workflow%3ACI)
+[![CI](https://github.com/OWNER/emberheat/workflows/CI/badge.svg)](https://github.com/OWNER/emberheat/actions?query=workflow%3ACI)
 ```
 
 ### Release Status

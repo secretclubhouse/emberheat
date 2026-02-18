@@ -1,6 +1,6 @@
 # MQTT and Matter Integration
 
-This document explains how MQTT telemetry works alongside Matter smart home control in thermos-esp32, and the architectural decisions made to solve concurrency issues.
+This document explains how MQTT telemetry works alongside Matter smart home control in emberheat-esp32, and the architectural decisions made to solve concurrency issues.
 
 ## Overview
 

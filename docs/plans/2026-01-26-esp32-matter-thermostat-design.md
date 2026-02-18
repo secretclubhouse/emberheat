@@ -6,7 +6,7 @@
 
 ## Overview
 
-Complete the thermos-rust project by building a production-ready 7-zone heating thermostat on ESP32-C6 with Matter smart home integration and MQTT state reporting.
+Complete the emberheat project by building a production-ready 7-zone heating thermostat on ESP32-C6 with Matter smart home integration and MQTT state reporting.
 
 ## Goals
 
@@ -42,13 +42,13 @@ Complete the thermos-rust project by building a production-ready 7-zone heating 
 └─────────────────────┬───────────────────────────────┘
                       │
 ┌─────────────────────▼───────────────────────────────┐
-│                 thermos-esp32                        │
+│                 emberheat-esp32                        │
 │  ┌───────────┐  ┌───────────┐  ┌───────────────┐   │
 │  │ DS18B20   │  │ GPIO      │  │ MQTT Logger   │   │
 │  │ (RMT)     │  │ (Relay)   │  │               │   │
 │  └───────────┘  └───────────┘  └───────────────┘   │
 │                       │                             │
-│            thermos-core (hysteresis)                │
+│            emberheat-core (hysteresis)                │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -62,7 +62,7 @@ Complete the thermos-rust project by building a production-ready 7-zone heating 
 - Simpler deployment than distributed controllers
 
 **Matter library choice: rs-matter-embassy**
-- Specifically designed for Embassy async runtime (already used by thermos-esp32)
+- Specifically designed for Embassy async runtime (already used by emberheat-esp32)
 - Provides WiFi Matter stack with BLE commissioning
 - Supports ESP32 chips with heap allocation strategy
 - Repository: https://github.com/sysgrok/rs-matter-embassy
@@ -155,7 +155,7 @@ let temp_c = (centi_c as f32) / 100.0;
 **Goal:** Get 7-zone control working reliably before adding Matter.
 
 **Tasks:**
-- [ ] Refactor thermos-esp32 for multi-zone support
+- [ ] Refactor emberheat-esp32 for multi-zone support
 - [ ] Configure 7 DS18B20 sensors on shared 1-Wire bus  
 - [ ] Configure 7 relay GPIO outputs
 - [ ] Independent hysteresis control loop per zone
@@ -194,14 +194,14 @@ let temp_c = (centi_c as f32) / 100.0;
 - [ ] Configure WiFi Matter stack
 - [ ] Configure BLE commissioning (trouble library)
 - [ ] Create 7 endpoints with thermostat cluster each
-- [ ] Bridge: Matter setpoint → thermos-core target_temp
-- [ ] Bridge: thermos-core state → Matter attributes
+- [ ] Bridge: Matter setpoint → emberheat-core target_temp
+- [ ] Bridge: emberheat-core state → Matter attributes
 - [ ] Handle concurrent Matter + MQTT operation
 
 **Validation:**
 - Device commissions via BLE
 - Appears in Apple Home with 7 thermostats
-- Setpoint changes from Home app reach thermos-core
+- Setpoint changes from Home app reach emberheat-core
 - Temperature readings appear in Home app
 
 ### Phase 4: End-to-End Testing & Hardening
@@ -259,21 +259,21 @@ C) **Hybrid: C6 + H2 co-processor**
 
 ## Integration Points
 
-### Matter → Thermos
+### Matter → EmberHeat
 
 When HomeKit/Google sends a setpoint change:
 1. rs-matter receives attribute write for `OccupiedHeatingSetpoint`
 2. Convert centi-degrees to Celsius
-3. Update thermos-core `target_temp` for zone
+3. Update emberheat-core `target_temp` for zone
 4. Trigger hysteresis recalculation
 5. Update relay if needed
 6. Persist to NVS
 7. Publish to MQTT
 
-### Thermos → Matter
+### EmberHeat → Matter
 
 When temperature changes or relay toggles:
-1. Sensor read updates thermos-core `current_temp`
+1. Sensor read updates emberheat-core `current_temp`
 2. Hysteresis may toggle relay
 3. Convert Celsius to centi-degrees
 4. Update Matter `LocalTemperature` attribute
@@ -284,10 +284,10 @@ When temperature changes or relay toggles:
 ### MQTT Topics (existing pattern)
 
 ```
-thermos/zone1/temperature  → 21.5
-thermos/zone1/target       → 22.0
-thermos/zone1/heating      → on|off
-thermos/zone1/mode         → heat|off
+emberheat/zone1/temperature  → 21.5
+emberheat/zone1/target       → 22.0
+emberheat/zone1/heating      → on|off
+emberheat/zone1/mode         → heat|off
 ```
 
 ## Testing Instructions
@@ -306,22 +306,22 @@ thermos/zone1/mode         → heat|off
 
 This validates the 7-zone control logic without requiring real sensors.
 
-1. Enable mock mode in `thermos-esp32/src/config.rs`:
+1. Enable mock mode in `emberheat-esp32/src/config.rs`:
    ```rust
    pub const USE_MOCK_SENSORS: bool = true;
    ```
 
 2. Build and flash:
    ```bash
-   cd thermos-esp32
+   cd emberheat-esp32
    WIFI_SSID="your_network" WIFI_PASSWORD="your_password" \
      cargo build --release --target riscv32imac-unknown-none-elf
-   espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+   espflash flash --monitor target/riscv32imac-unknown-none-elf/release/emberheat-esp32
    ```
 
 3. Expected serial output:
    ```
-   [INFO] Thermos ESP32 Multi-Zone Thermostat starting...
+   [INFO] EmberHeat ESP32 Multi-Zone Thermostat starting...
    [INFO] Initializing 7 zones with mock sensors
    [INFO] [Zone1] Starting control loop
    [INFO] [Zone2] Starting control loop
@@ -385,7 +385,7 @@ This validates the 7-zone control logic without requiring real sensors.
 **Build fails with esp-hal errors:**
 - The `esp-hal-rmt-onewire` crate has compatibility issues
 - Use mock sensors until dependency is updated
-- Check `thermos-esp32/Cargo.toml` for `onewire-rmt` feature
+- Check `emberheat-esp32/Cargo.toml` for `onewire-rmt` feature
 
 **Relay not switching:**
 - Relays are active-low (GPIO LOW = relay ON)

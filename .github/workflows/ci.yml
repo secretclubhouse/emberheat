@@ -38,8 +38,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt -- --check
 
-      - name: Run Clippy (thermos-core only - ESP32 requires cross-compilation)
-        run: cargo clippy --all-targets --all-features -p thermos-core -- -D warnings
+      - name: Run Clippy (emberheat-core only - ESP32 requires cross-compilation)
+        run: cargo clippy --all-targets --all-features -p emberheat-core -- -D warnings
 
   # Run tests
   test:
@@ -65,11 +65,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build thermos-core
-        run: cargo build --verbose -p thermos-core
+      - name: Build emberheat-core
+        run: cargo build --verbose -p emberheat-core
 
       - name: Run tests
-        run: cargo test -p thermos-core
+        run: cargo test -p emberheat-core
 
   # Security audit
   security-audit:
@@ -116,7 +116,7 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate coverage
-        run: cargo llvm-cov --all-features -p thermos-core --lcov --output-path lcov.info
+        run: cargo llvm-cov --all-features -p emberheat-core --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4

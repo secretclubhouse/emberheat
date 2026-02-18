@@ -2,7 +2,7 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Refactor thermos-esp32 from single-zone to 7-zone thermostat with independent control loops, MQTT reporting, and NVS persistence.
+**Goal:** Refactor emberheat-esp32 from single-zone to 7-zone thermostat with independent control loops, MQTT reporting, and NVS persistence.
 
 **Architecture:** Each zone gets its own Embassy task running an independent hysteresis control loop. All zones share the same 1-Wire bus (single GPIO) but each has its own relay GPIO. Zone configuration is compile-time via a const array. MQTT already supports zone parameter, NVS persistence needs implementation.
 
@@ -23,12 +23,12 @@ Before starting, ensure:
 ## Task 1: Create Zone Configuration Types
 
 **Files:**
-- Create: `thermos-esp32/src/zone.rs`
-- Modify: `thermos-esp32/src/lib.rs`
+- Create: `emberheat-esp32/src/zone.rs`
+- Modify: `emberheat-esp32/src/lib.rs`
 
 **Step 1: Create the zone configuration module**
 
-Create `thermos-esp32/src/zone.rs`:
+Create `emberheat-esp32/src/zone.rs`:
 
 ```rust
 //! Zone configuration for multi-zone thermostat
@@ -123,7 +123,7 @@ impl Default for ZoneState {
 
 **Step 2: Export from lib.rs**
 
-Add to `thermos-esp32/src/lib.rs`:
+Add to `emberheat-esp32/src/lib.rs`:
 
 ```rust
 pub mod zone;
@@ -134,7 +134,7 @@ pub use zone::{ZoneConfig, ZoneState, SensorType, MAX_ZONES};
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 cargo check --target riscv32imac-unknown-none-elf
 ```
 
@@ -143,7 +143,7 @@ Expected: Compiles without errors
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/zone.rs thermos-esp32/src/lib.rs
+git add emberheat-esp32/src/zone.rs emberheat-esp32/src/lib.rs
 git commit -m "feat(esp32): add zone configuration types for multi-zone support"
 ```
 
@@ -152,16 +152,16 @@ git commit -m "feat(esp32): add zone configuration types for multi-zone support"
 ## Task 2: Implement NVS Persistence
 
 **Files:**
-- Modify: `thermos-esp32/src/persistence_nvs.rs`
-- Modify: `thermos-esp32/Cargo.toml` (if needed)
+- Modify: `emberheat-esp32/src/persistence_nvs.rs`
+- Modify: `emberheat-esp32/Cargo.toml` (if needed)
 
 **Step 1: Read current stub implementation**
 
-Review `thermos-esp32/src/persistence_nvs.rs` to understand current structure.
+Review `emberheat-esp32/src/persistence_nvs.rs` to understand current structure.
 
 **Step 2: Implement actual NVS storage**
 
-Replace `thermos-esp32/src/persistence_nvs.rs` with:
+Replace `emberheat-esp32/src/persistence_nvs.rs` with:
 
 ```rust
 //! NVS (Non-Volatile Storage) persistence for ESP32
@@ -174,7 +174,7 @@ use embassy_sync::blocking_mutex::Mutex;
 use esp_hal::nvs::{Nvs, NvsPartition};
 use heapless::String;
 use serde::{Deserialize, Serialize};
-use thermos_core::{PersistenceError, StateStorage, ThermostatState};
+use emberheat_core::{PersistenceError, StateStorage, ThermostatState};
 
 /// NVS storage key prefix
 const KEY_PREFIX: &str = "zone_";
@@ -302,7 +302,7 @@ impl Default for NvsStorage {
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 cargo check --target riscv32imac-unknown-none-elf
 ```
 
@@ -311,7 +311,7 @@ Expected: Compiles (may have warnings about unused imports, that's OK)
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/persistence_nvs.rs
+git add emberheat-esp32/src/persistence_nvs.rs
 git commit -m "feat(esp32): implement in-memory NVS storage for zone state persistence"
 ```
 
@@ -320,12 +320,12 @@ git commit -m "feat(esp32): implement in-memory NVS storage for zone state persi
 ## Task 3: Create Multi-Sensor Manager
 
 **Files:**
-- Create: `thermos-esp32/src/sensors.rs`
-- Modify: `thermos-esp32/src/lib.rs`
+- Create: `emberheat-esp32/src/sensors.rs`
+- Modify: `emberheat-esp32/src/lib.rs`
 
 **Step 1: Create sensor manager that handles multiple DS18B20 on one bus**
 
-Create `thermos-esp32/src/sensors.rs`:
+Create `emberheat-esp32/src/sensors.rs`:
 
 ```rust
 //! Multi-sensor manager for 1-Wire bus
@@ -340,7 +340,7 @@ use esp_hal::gpio::GpioPin;
 use esp_hal::rmt::Channel;
 use esp_hal_rmt_onewire::{OneWireBus, Ds18b20, RomCode};
 use heapless::Vec;
-use thermos_core::{SensorError, TemperatureReading, TemperatureSensor};
+use emberheat_core::{SensorError, TemperatureReading, TemperatureSensor};
 
 use crate::zone::SensorType;
 
@@ -473,7 +473,7 @@ impl TemperatureSensor for MockSensor {
 
 **Step 2: Export from lib.rs**
 
-Add to `thermos-esp32/src/lib.rs`:
+Add to `emberheat-esp32/src/lib.rs`:
 
 ```rust
 pub mod sensors;
@@ -484,7 +484,7 @@ pub use sensors::{SharedOneWireBus, Ds18b20Sensor, MockSensor};
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 cargo check --target riscv32imac-unknown-none-elf
 ```
 
@@ -493,7 +493,7 @@ Expected: May have errors due to esp-hal-rmt-onewire API differences. Adjust as 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/sensors.rs thermos-esp32/src/lib.rs
+git add emberheat-esp32/src/sensors.rs emberheat-esp32/src/lib.rs
 git commit -m "feat(esp32): add multi-sensor manager for shared 1-Wire bus"
 ```
 
@@ -502,12 +502,12 @@ git commit -m "feat(esp32): add multi-sensor manager for shared 1-Wire bus"
 ## Task 4: Create Zone Controller
 
 **Files:**
-- Create: `thermos-esp32/src/controller.rs`
-- Modify: `thermos-esp32/src/lib.rs`
+- Create: `emberheat-esp32/src/controller.rs`
+- Modify: `emberheat-esp32/src/lib.rs`
 
 **Step 1: Create the zone controller that runs the control loop**
 
-Create `thermos-esp32/src/controller.rs`:
+Create `emberheat-esp32/src/controller.rs`:
 
 ```rust
 //! Zone controller for thermostat control loop
@@ -515,7 +515,7 @@ Create `thermos-esp32/src/controller.rs`:
 //! Runs independent control loops for each heating zone.
 
 use embassy_time::{Duration, Ticker};
-use thermos_core::{
+use emberheat_core::{
     apply_hysteresis_control, HysteresisConfig, HeatingState, RelayState,
     TemperatureSensor, DEFAULT_TEMP_C,
 };
@@ -634,7 +634,7 @@ pub async fn run_zone_control_loop<S: TemperatureSensor>(
 
 **Step 2: Export from lib.rs**
 
-Add to `thermos-esp32/src/lib.rs`:
+Add to `emberheat-esp32/src/lib.rs`:
 
 ```rust
 pub mod controller;
@@ -645,14 +645,14 @@ pub use controller::run_zone_control_loop;
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 cargo check --target riscv32imac-unknown-none-elf
 ```
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/controller.rs thermos-esp32/src/lib.rs
+git add emberheat-esp32/src/controller.rs emberheat-esp32/src/lib.rs
 git commit -m "feat(esp32): add zone controller with hysteresis control loop"
 ```
 
@@ -661,12 +661,12 @@ git commit -m "feat(esp32): add zone controller with hysteresis control loop"
 ## Task 5: Define 7-Zone Configuration
 
 **Files:**
-- Create: `thermos-esp32/src/config.rs`
-- Modify: `thermos-esp32/src/lib.rs`
+- Create: `emberheat-esp32/src/config.rs`
+- Modify: `emberheat-esp32/src/lib.rs`
 
 **Step 1: Create zone configuration with placeholder sensor addresses**
 
-Create `thermos-esp32/src/config.rs`:
+Create `emberheat-esp32/src/config.rs`:
 
 ```rust
 //! Zone configuration for the 7-zone thermostat
@@ -746,7 +746,7 @@ pub const WIFI_PASSWORD: &str = env!("WIFI_PASSWORD");
 
 /// MQTT configuration
 pub const MQTT_BROKER: &str = "mqtt://192.168.1.100:1883"; // Update for your broker
-pub const MQTT_CLIENT_ID: &str = "thermos-esp32";
+pub const MQTT_CLIENT_ID: &str = "emberheat-esp32";
 
 /// Use mock sensors instead of real hardware (for testing)
 pub const USE_MOCK_SENSORS: bool = false;
@@ -757,7 +757,7 @@ pub const MOCK_TEMPERATURE_C: f32 = 20.0;
 
 **Step 2: Export from lib.rs**
 
-Add to `thermos-esp32/src/lib.rs`:
+Add to `emberheat-esp32/src/lib.rs`:
 
 ```rust
 pub mod config;
@@ -767,14 +767,14 @@ pub mod config;
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 WIFI_SSID="test" WIFI_PASSWORD="test" cargo check --target riscv32imac-unknown-none-elf
 ```
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/config.rs thermos-esp32/src/lib.rs
+git add emberheat-esp32/src/config.rs emberheat-esp32/src/lib.rs
 git commit -m "feat(esp32): add 7-zone configuration with placeholder sensor addresses"
 ```
 
@@ -783,7 +783,7 @@ git commit -m "feat(esp32): add 7-zone configuration with placeholder sensor add
 ## Task 6: Refactor main.rs for Multi-Zone
 
 **Files:**
-- Modify: `thermos-esp32/src/main.rs`
+- Modify: `emberheat-esp32/src/main.rs`
 
 **Step 1: Read current main.rs to understand structure**
 
@@ -806,7 +806,7 @@ Due to the complexity, implement this incrementally:
 At the top of `main.rs`, update imports:
 
 ```rust
-use thermos_esp32::{
+use emberheat_esp32::{
     config::{ZONE_CONFIGS, NUM_ZONES, ONEWIRE_PIN, USE_MOCK_SENSORS, MOCK_TEMPERATURE_C},
     controller::run_zone_control_loop,
     gpio_impl::Esp32GpioPin,
@@ -829,14 +829,14 @@ This is a significant refactor - implement step by step, testing compilation at 
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 WIFI_SSID="test" WIFI_PASSWORD="test" cargo build --target riscv32imac-unknown-none-elf --release
 ```
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/main.rs
+git add emberheat-esp32/src/main.rs
 git commit -m "feat(esp32): refactor main.rs for 7-zone thermostat operation"
 ```
 
@@ -845,11 +845,11 @@ git commit -m "feat(esp32): refactor main.rs for 7-zone thermostat operation"
 ## Task 7: Add Sensor Scan Utility
 
 **Files:**
-- Create: `thermos-esp32/src/bin/scan_sensors.rs`
+- Create: `emberheat-esp32/src/bin/scan_sensors.rs`
 
 **Step 1: Create a binary to scan and print sensor addresses**
 
-Create `thermos-esp32/src/bin/scan_sensors.rs`:
+Create `emberheat-esp32/src/bin/scan_sensors.rs`:
 
 ```rust
 //! Sensor scanning utility
@@ -868,7 +868,7 @@ use esp_backtrace as _;
 use esp_hal::prelude::*;
 use log::info;
 
-use thermos_esp32::config::ONEWIRE_PIN;
+use emberheat_esp32::config::ONEWIRE_PIN;
 
 #[esp_hal::main]
 async fn main(_spawner: Spawner) {
@@ -896,7 +896,7 @@ async fn main(_spawner: Spawner) {
 
 **Step 2: Add binary target to Cargo.toml**
 
-Add to `thermos-esp32/Cargo.toml`:
+Add to `emberheat-esp32/Cargo.toml`:
 
 ```toml
 [[bin]]
@@ -908,14 +908,14 @@ path = "src/bin/scan_sensors.rs"
 
 Run:
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 cargo build --bin scan_sensors --target riscv32imac-unknown-none-elf --release
 ```
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/bin/scan_sensors.rs thermos-esp32/Cargo.toml
+git add emberheat-esp32/src/bin/scan_sensors.rs emberheat-esp32/Cargo.toml
 git commit -m "feat(esp32): add sensor scan utility for discovering DS18B20 addresses"
 ```
 
@@ -924,7 +924,7 @@ git commit -m "feat(esp32): add sensor scan utility for discovering DS18B20 addr
 ## Task 8: Integration Testing with Mock Sensors
 
 **Files:**
-- Modify: `thermos-esp32/src/config.rs` (set USE_MOCK_SENSORS = true)
+- Modify: `emberheat-esp32/src/config.rs` (set USE_MOCK_SENSORS = true)
 - Test on hardware
 
 **Step 1: Enable mock sensors for testing**
@@ -937,10 +937,10 @@ pub const USE_MOCK_SENSORS: bool = true;
 **Step 2: Build and flash**
 
 ```bash
-cd thermos-esp32
+cd emberheat-esp32
 WIFI_SSID="YourSSID" WIFI_PASSWORD="YourPassword" \
   cargo build --release --target riscv32imac-unknown-none-elf
-espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+espflash flash --monitor target/riscv32imac-unknown-none-elf/release/emberheat-esp32
 ```
 
 **Step 3: Verify output**
@@ -959,7 +959,7 @@ pub const USE_MOCK_SENSORS: bool = false;
 ```
 
 ```bash
-git add thermos-esp32/src/config.rs
+git add emberheat-esp32/src/config.rs
 git commit -m "test(esp32): verify 7-zone operation with mock sensors"
 ```
 
@@ -989,7 +989,7 @@ Replace placeholder addresses in `ZONE_CONFIGS` with discovered addresses.
 ```bash
 WIFI_SSID="YourSSID" WIFI_PASSWORD="YourPassword" \
   cargo build --release --target riscv32imac-unknown-none-elf
-espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp32
+espflash flash --monitor target/riscv32imac-unknown-none-elf/release/emberheat-esp32
 ```
 
 **Step 4: Verify operation**
@@ -1001,7 +1001,7 @@ espflash flash --monitor target/riscv32imac-unknown-none-elf/release/thermos-esp
 **Step 5: Commit configuration**
 
 ```bash
-git add thermos-esp32/src/config.rs
+git add emberheat-esp32/src/config.rs
 git commit -m "feat(esp32): configure real DS18B20 sensor addresses for 7 zones"
 ```
 

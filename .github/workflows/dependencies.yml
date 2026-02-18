@@ -20,7 +20,7 @@ jobs:
       - name: Update dependencies
         run: |
           cargo update
-          cargo test -p thermos-core -p thermos-linux
+          cargo test -p emberheat-core -p emberheat-linux
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v7

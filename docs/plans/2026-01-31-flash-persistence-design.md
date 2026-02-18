@@ -26,7 +26,7 @@ Persist both Matter commissioning data and thermostat zone setpoints across powe
 │                      Application Layer                       │
 ├─────────────────────┬───────────────────────────────────────┤
 │   Matter Stack      │         Thermostat Control            │
-│   (rs-matter)       │         (thermos-esp32)               │
+│   (rs-matter)       │         (emberheat-esp32)               │
 │                     │                                       │
 │   - Fabrics         │   - Zone setpoints                    │
 │   - BasicInfo       │   - System mode                       │
@@ -37,7 +37,7 @@ Persist both Matter commissioning data and thermostat zone setpoints across powe
           └───────────┬───────────────┘
                       ▼
           ┌───────────────────────┐
-          │   FlashKvBlobStore    │  (new, in thermos-esp32)
+          │   FlashKvBlobStore    │  (new, in emberheat-esp32)
           │   - load/store/remove │
           └───────────┬───────────┘
                       │
@@ -63,7 +63,7 @@ Persist both Matter commissioning data and thermostat zone setpoints across powe
 | 0x0001 | Matter BasicInfo | rs-matter |
 | 0x0002 | Matter Networks | rs-matter |
 | 0x0003 - 0x0FFF | Reserved for future rs-matter use | - |
-| 0x1000 - 0x100F | Zone 0-15 setpoints | thermos-esp32 |
+| 0x1000 - 0x100F | Zone 0-15 setpoints | emberheat-esp32 |
 
 ### Zone Key Calculation
 
@@ -98,7 +98,7 @@ Total for 7 zones: 35 bytes
 
 ### 1. FlashKvBlobStore
 
-**Location:** `thermos-esp32/src/persistence/flash_store.rs`
+**Location:** `emberheat-esp32/src/persistence/flash_store.rs`
 
 Implements `rs_matter_stack::persist::KvBlobStore` trait using `sequential-storage::map`.
 
@@ -123,7 +123,7 @@ impl KvBlobStore for FlashKvBlobStore {
 
 ### 2. Dirty Flag Mechanism
 
-**Location:** `thermos-matter/src/state.rs`
+**Location:** `emberheat-matter/src/state.rs`
 
 Add to `ZoneThermostatState`:
 
@@ -157,7 +157,7 @@ pub fn set_occupied_heating_setpoint(&self, value: i16) -> Result<(), SetpointEr
 
 ### 3. Background Persist Task
 
-**Location:** `thermos-esp32/src/persistence/task.rs`
+**Location:** `emberheat-esp32/src/persistence/task.rs`
 
 ```rust
 const PERSIST_CHECK_INTERVAL_SECS: u64 = 5;
@@ -183,7 +183,7 @@ pub async fn persist_task(store: &'static FlashKvBlobStore) -> ! {
 
 ### 4. Startup Loading
 
-**Location:** `thermos-esp32/src/main.rs`
+**Location:** `emberheat-esp32/src/main.rs`
 
 ```rust
 async fn main(spawner: Spawner) {
@@ -267,20 +267,20 @@ const PERSIST_PARTITION_SIZE: u32 = 0x10000;  // 64KB
 
 | File | Change |
 |------|--------|
-| `thermos-matter/src/state.rs` | Add `dirty: AtomicBool` field and methods |
-| `thermos-esp32/src/matter/stack.rs` | Replace `DummyKvBlobStore` with `FlashKvBlobStore` |
-| `thermos-esp32/src/main.rs` | Add storage init, zone loading, spawn persist task |
-| `thermos-esp32/Cargo.toml` | Add `sequential-storage` and `embedded-storage-async` deps |
-| `thermos-esp32/src/config.rs` | Add persistence partition constants |
+| `emberheat-matter/src/state.rs` | Add `dirty: AtomicBool` field and methods |
+| `emberheat-esp32/src/matter/stack.rs` | Replace `DummyKvBlobStore` with `FlashKvBlobStore` |
+| `emberheat-esp32/src/main.rs` | Add storage init, zone loading, spawn persist task |
+| `emberheat-esp32/Cargo.toml` | Add `sequential-storage` and `embedded-storage-async` deps |
+| `emberheat-esp32/src/config.rs` | Add persistence partition constants |
 
 ## New Files
 
 | File | Purpose |
 |------|---------|
-| `thermos-esp32/src/persistence/mod.rs` | Module exports |
-| `thermos-esp32/src/persistence/flash_store.rs` | `FlashKvBlobStore` implementation |
-| `thermos-esp32/src/persistence/task.rs` | Background persist task |
-| `thermos-esp32/src/persistence/types.rs` | `PersistedZoneState` struct |
+| `emberheat-esp32/src/persistence/mod.rs` | Module exports |
+| `emberheat-esp32/src/persistence/flash_store.rs` | `FlashKvBlobStore` implementation |
+| `emberheat-esp32/src/persistence/task.rs` | Background persist task |
+| `emberheat-esp32/src/persistence/types.rs` | `PersistedZoneState` struct |
 
 ## Write Frequency Analysis
 
@@ -321,7 +321,7 @@ Factory reset clears all persisted data, returning the device to out-of-box stat
 
 ### Implementation
 
-**Location:** `thermos-esp32/src/persistence/reset.rs`
+**Location:** `emberheat-esp32/src/persistence/reset.rs`
 
 ```rust
 use sequential_storage::erase_all;
@@ -361,7 +361,7 @@ pub async fn factory_reset(
 
 Hold a designated button during power-on to trigger factory reset.
 
-**Location:** `thermos-esp32/src/main.rs` (early in startup)
+**Location:** `emberheat-esp32/src/main.rs` (early in startup)
 
 ```rust
 /// GPIO pin for factory reset button (directly to GND when pressed)
@@ -414,11 +414,11 @@ async fn main(spawner: Spawner) {
 
 The Matter specification defines a `FactoryReset` command in the General Commissioning cluster. The rs-matter stack will call into our code when this command is received.
 
-**Location:** `thermos-esp32/src/matter/stack.rs`
+**Location:** `emberheat-esp32/src/matter/stack.rs`
 
 ```rust
 // Hook into rs-matter's factory reset handling
-impl FactoryResetHandler for ThermosMatterHandler {
+impl FactoryResetHandler for EmberHeatMatterHandler {
     async fn factory_reset(&self) -> Result<(), Error> {
         // Use the same reset function
         factory_reset(
@@ -454,8 +454,8 @@ During factory reset, provide visual/audio feedback if available:
 
 | File | Change |
 |------|--------|
-| `thermos-esp32/src/persistence/reset.rs` | New: `factory_reset()` function |
-| `thermos-esp32/src/persistence/mod.rs` | Export reset module |
-| `thermos-esp32/src/main.rs` | Add boot-time reset button check |
-| `thermos-esp32/src/matter/stack.rs` | Hook Matter FactoryReset command |
-| `thermos-esp32/src/config.rs` | Add `FACTORY_RESET_PIN` constant |
+| `emberheat-esp32/src/persistence/reset.rs` | New: `factory_reset()` function |
+| `emberheat-esp32/src/persistence/mod.rs` | Export reset module |
+| `emberheat-esp32/src/main.rs` | Add boot-time reset button check |
+| `emberheat-esp32/src/matter/stack.rs` | Hook Matter FactoryReset command |
+| `emberheat-esp32/src/config.rs` | Add `FACTORY_RESET_PIN` constant |

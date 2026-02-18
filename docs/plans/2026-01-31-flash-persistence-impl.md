@@ -15,11 +15,11 @@
 ## Task 1: Add Dirty Flag to ZoneThermostatState
 
 **Files:**
-- Modify: `thermos-matter/src/state.rs`
+- Modify: `emberheat-matter/src/state.rs`
 
 **Step 1: Add AtomicBool import and dirty field**
 
-In `thermos-matter/src/state.rs`, add `AtomicBool` to the imports at line 12:
+In `emberheat-matter/src/state.rs`, add `AtomicBool` to the imports at line 12:
 
 ```rust
 use core::sync::atomic::{AtomicBool, AtomicI16, AtomicU16, AtomicU8, Ordering};
@@ -227,14 +227,14 @@ fn test_dirty_flag_not_set_on_heating_state_update() {
 
 **Step 7: Run tests**
 
-Run: `cargo test -p thermos-matter`
+Run: `cargo test -p emberheat-matter`
 
 Expected: All tests pass, including new dirty flag tests.
 
 **Step 8: Commit**
 
 ```bash
-git add thermos-matter/src/state.rs
+git add emberheat-matter/src/state.rs
 git commit -m "feat(matter): add dirty flag to ZoneThermostatState for persistence"
 ```
 
@@ -243,11 +243,11 @@ git commit -m "feat(matter): add dirty flag to ZoneThermostatState for persisten
 ## Task 2: Add sequential-storage Dependency
 
 **Files:**
-- Modify: `thermos-esp32/Cargo.toml`
+- Modify: `emberheat-esp32/Cargo.toml`
 
 **Step 1: Add sequential-storage dependency**
 
-Add to `[dependencies]` section in `thermos-esp32/Cargo.toml` (after `embedded-storage`):
+Add to `[dependencies]` section in `emberheat-esp32/Cargo.toml` (after `embedded-storage`):
 
 ```toml
 # Sequential flash storage with wear leveling
@@ -257,14 +257,14 @@ embedded-storage-async = "0.4"
 
 **Step 2: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32`
+Run: `cargo check -p emberheat-esp32`
 
 Expected: Compiles without errors.
 
 **Step 3: Commit**
 
 ```bash
-git add thermos-esp32/Cargo.toml
+git add emberheat-esp32/Cargo.toml
 git commit -m "chore(esp32): add sequential-storage dependency for flash persistence"
 ```
 
@@ -273,24 +273,24 @@ git commit -m "chore(esp32): add sequential-storage dependency for flash persist
 ## Task 3: Create Persistence Module Structure
 
 **Files:**
-- Create: `thermos-esp32/src/persistence/mod.rs`
-- Create: `thermos-esp32/src/persistence/types.rs`
-- Modify: `thermos-esp32/src/lib.rs`
+- Create: `emberheat-esp32/src/persistence/mod.rs`
+- Create: `emberheat-esp32/src/persistence/types.rs`
+- Modify: `emberheat-esp32/src/lib.rs`
 
 **Step 1: Create persistence module directory**
 
-Run: `mkdir -p /Users/josh/Code/thermos-rust/thermos-esp32/src/persistence`
+Run: `mkdir -p /Users/josh/Code/emberheat/emberheat-esp32/src/persistence`
 
 **Step 2: Create types.rs with PersistedZoneState**
 
-Create `thermos-esp32/src/persistence/types.rs`:
+Create `emberheat-esp32/src/persistence/types.rs`:
 
 ```rust
 //! Persistence data types
 //!
 //! Defines the data structures for persisted state.
 
-use thermos_matter::types::SystemMode;
+use emberheat_matter::types::SystemMode;
 
 /// Key base for zone data in KvBlobStore
 /// Keys 0x0000-0x0FFF are reserved for rs-matter
@@ -321,7 +321,7 @@ impl PersistedZoneState {
     pub const SIZE: usize = 5;
 
     /// Create from ZoneThermostatState
-    pub fn from_zone_state(state: &thermos_matter::state::ZoneThermostatState) -> Self {
+    pub fn from_zone_state(state: &emberheat_matter::state::ZoneThermostatState) -> Self {
         Self {
             heating_setpoint: state.get_occupied_heating_setpoint(),
             cooling_setpoint: state.get_occupied_cooling_setpoint(),
@@ -332,7 +332,7 @@ impl PersistedZoneState {
     /// Apply to ZoneThermostatState
     ///
     /// Silently ignores validation errors (uses defaults for invalid values).
-    pub fn apply_to_zone_state(&self, state: &thermos_matter::state::ZoneThermostatState) {
+    pub fn apply_to_zone_state(&self, state: &emberheat_matter::state::ZoneThermostatState) {
         let _ = state.set_occupied_heating_setpoint(self.heating_setpoint);
         let _ = state.set_occupied_cooling_setpoint(self.cooling_setpoint);
         if let Some(mode) = SystemMode::from_u8(self.system_mode) {
@@ -367,8 +367,8 @@ impl PersistedZoneState {
 impl Default for PersistedZoneState {
     fn default() -> Self {
         Self {
-            heating_setpoint: thermos_matter::types::defaults::OCCUPIED_HEATING_SETPOINT,
-            cooling_setpoint: thermos_matter::types::defaults::OCCUPIED_COOLING_SETPOINT,
+            heating_setpoint: emberheat_matter::types::defaults::OCCUPIED_HEATING_SETPOINT,
+            cooling_setpoint: emberheat_matter::types::defaults::OCCUPIED_COOLING_SETPOINT,
             system_mode: SystemMode::Heat as u8,
         }
     }
@@ -423,7 +423,7 @@ mod tests {
 
 **Step 3: Create mod.rs**
 
-Create `thermos-esp32/src/persistence/mod.rs`:
+Create `emberheat-esp32/src/persistence/mod.rs`:
 
 ```rust
 //! Flash persistence for Matter and thermostat state
@@ -441,7 +441,7 @@ pub use types::{zone_key, PersistedZoneState, ZONE_KEY_BASE};
 
 **Step 4: Add persistence module to lib.rs**
 
-In `thermos-esp32/src/lib.rs`, add the module declaration after `pub mod persistence_nvs;`:
+In `emberheat-esp32/src/lib.rs`, add the module declaration after `pub mod persistence_nvs;`:
 
 ```rust
 pub mod persistence;
@@ -455,15 +455,15 @@ pub use persistence::{PersistedZoneState, ZONE_KEY_BASE};
 
 **Step 5: Run tests**
 
-Run: `cargo test -p thermos-esp32 --lib`
+Run: `cargo test -p emberheat-esp32 --lib`
 
 Expected: Tests pass.
 
 **Step 6: Commit**
 
 ```bash
-git add thermos-esp32/src/persistence/
-git add thermos-esp32/src/lib.rs
+git add emberheat-esp32/src/persistence/
+git add emberheat-esp32/src/lib.rs
 git commit -m "feat(esp32): add persistence module with PersistedZoneState type"
 ```
 
@@ -472,12 +472,12 @@ git commit -m "feat(esp32): add persistence module with PersistedZoneState type"
 ## Task 4: Implement FlashKvBlobStore
 
 **Files:**
-- Create: `thermos-esp32/src/persistence/flash_store.rs`
-- Modify: `thermos-esp32/src/persistence/mod.rs`
+- Create: `emberheat-esp32/src/persistence/flash_store.rs`
+- Modify: `emberheat-esp32/src/persistence/mod.rs`
 
 **Step 1: Create flash_store.rs**
 
-Create `thermos-esp32/src/persistence/flash_store.rs`:
+Create `emberheat-esp32/src/persistence/flash_store.rs`:
 
 ```rust
 //! Flash-backed KvBlobStore implementation
@@ -700,7 +700,7 @@ where
 
 **Step 2: Update mod.rs to export flash_store**
 
-Update `thermos-esp32/src/persistence/mod.rs`:
+Update `emberheat-esp32/src/persistence/mod.rs`:
 
 ```rust
 //! Flash persistence for Matter and thermostat state
@@ -720,14 +720,14 @@ pub use types::{zone_key, PersistedZoneState, ZONE_KEY_BASE};
 
 **Step 3: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32`
+Run: `cargo check -p emberheat-esp32`
 
 Expected: Compiles without errors.
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/persistence/
+git add emberheat-esp32/src/persistence/
 git commit -m "feat(esp32): implement FlashKvBlobStore with KvBlobStore trait"
 ```
 
@@ -736,11 +736,11 @@ git commit -m "feat(esp32): implement FlashKvBlobStore with KvBlobStore trait"
 ## Task 5: Add Persistence Constants to Config
 
 **Files:**
-- Modify: `thermos-esp32/src/config.rs`
+- Modify: `emberheat-esp32/src/config.rs`
 
 **Step 1: Add persistence constants**
 
-Add these constants near the top of `thermos-esp32/src/config.rs` (after `ONEWIRE_PIN`):
+Add these constants near the top of `emberheat-esp32/src/config.rs` (after `ONEWIRE_PIN`):
 
 ```rust
 // ============================================================================
@@ -776,14 +776,14 @@ pub const FACTORY_RESET_HOLD_SECS: u64 = 5;
 
 **Step 2: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32`
+Run: `cargo check -p emberheat-esp32`
 
 Expected: Compiles without errors.
 
 **Step 3: Commit**
 
 ```bash
-git add thermos-esp32/src/config.rs
+git add emberheat-esp32/src/config.rs
 git commit -m "feat(esp32): add persistence and factory reset configuration constants"
 ```
 
@@ -792,12 +792,12 @@ git commit -m "feat(esp32): add persistence and factory reset configuration cons
 ## Task 6: Implement Background Persist Task
 
 **Files:**
-- Create: `thermos-esp32/src/persistence/task.rs`
-- Modify: `thermos-esp32/src/persistence/mod.rs`
+- Create: `emberheat-esp32/src/persistence/task.rs`
+- Modify: `emberheat-esp32/src/persistence/mod.rs`
 
 **Step 1: Create task.rs**
 
-Create `thermos-esp32/src/persistence/task.rs`:
+Create `emberheat-esp32/src/persistence/task.rs`:
 
 ```rust
 //! Background persistence task
@@ -911,7 +911,7 @@ where
 
 **Step 2: Update mod.rs**
 
-Update `thermos-esp32/src/persistence/mod.rs`:
+Update `emberheat-esp32/src/persistence/mod.rs`:
 
 ```rust
 //! Flash persistence for Matter and thermostat state
@@ -933,14 +933,14 @@ pub use types::{zone_key, PersistedZoneState, ZONE_KEY_BASE};
 
 **Step 3: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32`
+Run: `cargo check -p emberheat-esp32`
 
 Expected: Compiles without errors.
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/persistence/
+git add emberheat-esp32/src/persistence/
 git commit -m "feat(esp32): add background persist task and zone loading"
 ```
 
@@ -949,12 +949,12 @@ git commit -m "feat(esp32): add background persist task and zone loading"
 ## Task 7: Implement Factory Reset
 
 **Files:**
-- Create: `thermos-esp32/src/persistence/reset.rs`
-- Modify: `thermos-esp32/src/persistence/mod.rs`
+- Create: `emberheat-esp32/src/persistence/reset.rs`
+- Modify: `emberheat-esp32/src/persistence/mod.rs`
 
 **Step 1: Create reset.rs**
 
-Create `thermos-esp32/src/persistence/reset.rs`:
+Create `emberheat-esp32/src/persistence/reset.rs`:
 
 ```rust
 //! Factory reset functionality
@@ -967,7 +967,7 @@ use rs_matter::Matter;
 
 use crate::config::NUM_ZONES;
 use crate::matter::zones::ZONE_STATES;
-use thermos_matter::types::{defaults, SystemMode};
+use emberheat_matter::types::{defaults, SystemMode};
 
 use super::flash_store::FlashKvBlobStore;
 
@@ -1057,7 +1057,7 @@ where
 
 **Step 2: Update mod.rs**
 
-Update `thermos-esp32/src/persistence/mod.rs`:
+Update `emberheat-esp32/src/persistence/mod.rs`:
 
 ```rust
 //! Flash persistence for Matter and thermostat state
@@ -1081,14 +1081,14 @@ pub use types::{zone_key, PersistedZoneState, ZONE_KEY_BASE};
 
 **Step 3: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32`
+Run: `cargo check -p emberheat-esp32`
 
 Expected: Compiles without errors.
 
 **Step 4: Commit**
 
 ```bash
-git add thermos-esp32/src/persistence/
+git add emberheat-esp32/src/persistence/
 git commit -m "feat(esp32): add factory reset and zone reset functions"
 ```
 
@@ -1097,11 +1097,11 @@ git commit -m "feat(esp32): add factory reset and zone reset functions"
 ## Task 8: Update lib.rs Exports
 
 **Files:**
-- Modify: `thermos-esp32/src/lib.rs`
+- Modify: `emberheat-esp32/src/lib.rs`
 
 **Step 1: Update lib.rs with full persistence exports**
 
-Update the persistence-related lines in `thermos-esp32/src/lib.rs`:
+Update the persistence-related lines in `emberheat-esp32/src/lib.rs`:
 
 Find the line:
 ```rust
@@ -1118,14 +1118,14 @@ pub use persistence::{
 
 **Step 2: Verify it compiles**
 
-Run: `cargo check -p thermos-esp32`
+Run: `cargo check -p emberheat-esp32`
 
 Expected: Compiles without errors.
 
 **Step 3: Commit**
 
 ```bash
-git add thermos-esp32/src/lib.rs
+git add emberheat-esp32/src/lib.rs
 git commit -m "chore(esp32): export all persistence module public items"
 ```
 
@@ -1134,13 +1134,13 @@ git commit -m "chore(esp32): export all persistence module public items"
 ## Task 9: Integration - Replace DummyKvBlobStore in stack.rs
 
 **Files:**
-- Modify: `thermos-esp32/src/matter/stack.rs`
+- Modify: `emberheat-esp32/src/matter/stack.rs`
 
 This task requires careful integration with the existing Matter stack code. The changes depend on the current structure of `stack.rs`.
 
 **Step 1: Locate DummyKvBlobStore usage**
 
-Search for `DummyKvBlobStore` in `thermos-esp32/src/matter/stack.rs` and note the context.
+Search for `DummyKvBlobStore` in `emberheat-esp32/src/matter/stack.rs` and note the context.
 
 **Step 2: Add import for FlashKvBlobStore**
 
@@ -1179,7 +1179,7 @@ git commit --allow-empty -m "wip(esp32): placeholder for stack.rs persistence in
 ## Task 10: Integration - Update main.rs Startup Sequence
 
 **Files:**
-- Modify: `thermos-esp32/src/main.rs`
+- Modify: `emberheat-esp32/src/main.rs`
 
 This task integrates persistence into the main startup sequence. The specific changes depend on the current main.rs structure.
 
@@ -1227,7 +1227,7 @@ load_all_zones(&mut store).await;
 
 **Step 1: Check current partition setup**
 
-Run: `ls -la /Users/josh/Code/thermos-rust/thermos-esp32/` to check for existing partition files.
+Run: `ls -la /Users/josh/Code/emberheat/emberheat-esp32/` to check for existing partition files.
 
 **Step 2: Document partition requirements**
 
@@ -1246,8 +1246,8 @@ persist,  data, nvs,     0x310000, 0x10000,
 
 After completing all tasks:
 
-1. **thermos-matter** has dirty flag support in `ZoneThermostatState`
-2. **thermos-esp32** has:
+1. **emberheat-matter** has dirty flag support in `ZoneThermostatState`
+2. **emberheat-esp32** has:
    - `persistence/types.rs` - Data types
    - `persistence/flash_store.rs` - `FlashKvBlobStore` implementing `KvBlobStore`
    - `persistence/task.rs` - Background persist task and zone loading

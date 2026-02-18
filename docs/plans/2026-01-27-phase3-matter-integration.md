@@ -2,12 +2,12 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Integrate rs-matter-embassy with thermos-esp32 to enable Apple Home, Google Home, and Alexa control of the thermostat.
+**Goal:** Integrate rs-matter-embassy with emberheat-esp32 to enable Apple Home, Google Home, and Alexa control of the thermostat.
 
 **Approach:** Start with 1 zone to validate integration, expand to 3 zones for test harness, keep architecture flexible for up to 16 zones.
 
 **Prerequisites:**
-- Phase 2 complete (thermos-matter crate with types, state, handlers)
+- Phase 2 complete (emberheat-matter crate with types, state, handlers)
 - WiFi and MQTT already working on ESP32-C6
 - Test harness available with 3 zones
 
@@ -18,7 +18,7 @@
 Use the **sysgrok forks** of the rs-matter ecosystem, which have been updated for Embassy 0.5+ compatibility:
 
 ```toml
-# In thermos-esp32/Cargo.toml
+# In emberheat-esp32/Cargo.toml
 
 [dependencies]
 rs-matter-embassy = { git = "https://github.com/sysgrok/rs-matter-embassy", features = ["esp", "log"] }
@@ -28,7 +28,7 @@ rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next" }
 rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
 ```
 
-These match existing thermos-esp32 versions:
+These match existing emberheat-esp32 versions:
 - embassy-time 0.5 ✓
 - embassy-executor 0.9 ✓
 - esp-hal 1.0 ✓
@@ -81,7 +81,7 @@ The existing `ZoneThermostatState` with atomic operations already provides threa
 
 ### Design Decision: Thin Wrapper (Option B)
 
-rs-matter-embassy uses a handler chaining pattern. We'll create a thin wrapper in thermos-esp32 that delegates to `ZoneThermostatState`, rather than adapting the existing `ThermostatHandler` in thermos-matter.
+rs-matter-embassy uses a handler chaining pattern. We'll create a thin wrapper in emberheat-esp32 that delegates to `ZoneThermostatState`, rather than adapting the existing `ThermostatHandler` in emberheat-matter.
 
 **Rationale:**
 - Simpler to debug during initial integration
@@ -92,13 +92,13 @@ rs-matter-embassy uses a handler chaining pattern. We'll create a thin wrapper i
 
 | Aspect | Option A: Adapt ThermostatHandler | Option B: Thin Wrapper (chosen) |
 |--------|-----------------------------------|--------------------------------|
-| Code location | thermos-matter | thermos-esp32 |
+| Code location | emberheat-matter | emberheat-esp32 |
 | Abstraction | Higher - our traits | Lower - rs-matter traits directly |
 | Testability | Can unit test on host | Requires ESP32 or mocking |
 | Maintenance | Single handler implementation | May duplicate logic |
 | Flexibility | Works with any Matter stack | Tied to rs-matter-embassy |
 
-**Future refactor path:** Once integration is stable, consider moving handler logic back to thermos-matter by implementing rs-matter's `AsyncHandler` trait on our `ThermostatHandler`. This would enable host-based testing and better separation of concerns.
+**Future refactor path:** Once integration is stable, consider moving handler logic back to emberheat-matter by implementing rs-matter's `AsyncHandler` trait on our `ThermostatHandler`. This would enable host-based testing and better separation of concerns.
 
 ### Handler Pattern
 
@@ -116,7 +116,7 @@ let handler = EmptyHandler
 ## File Structure
 
 ```
-thermos-esp32/src/
+emberheat-esp32/src/
 ├── matter/
 │   ├── mod.rs              # (modify) Add stack module export
 │   ├── bridge.rs           # (existing) Already has sync functions
@@ -153,7 +153,7 @@ pub const MATTER_PASSCODE: u32 = 20202021;   // Default test passcode
 
 #### Task 1: Add rs-matter-embassy Dependencies
 
-**File:** `thermos-esp32/Cargo.toml`
+**File:** `emberheat-esp32/Cargo.toml`
 
 Add dependencies and patch section:
 
@@ -169,7 +169,7 @@ rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next" }
 rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
 ```
 
-**Validation:** `cargo check -p thermos-esp32 --target riscv32imac-unknown-none-elf` compiles
+**Validation:** `cargo check -p emberheat-esp32 --target riscv32imac-unknown-none-elf` compiles
 
 **Commit:** `feat(matter): add rs-matter-embassy dependencies`
 
@@ -177,7 +177,7 @@ rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch =
 
 #### Task 2: Add Matter Configuration Constants
 
-**File:** `thermos-esp32/src/config.rs`
+**File:** `emberheat-esp32/src/config.rs`
 
 Add Matter commissioning configuration:
 
@@ -201,7 +201,7 @@ pub const MATTER_VENDOR_ID: u16 = 0xFFF1;
 pub const MATTER_PRODUCT_ID: u16 = 0x8001;
 
 /// Device name shown during commissioning
-pub const MATTER_DEVICE_NAME: &str = "Thermos Multi-Zone";
+pub const MATTER_DEVICE_NAME: &str = "EmberHeat Multi-Zone";
 ```
 
 **Commit:** `feat(matter): add commissioning configuration constants`
@@ -210,12 +210,12 @@ pub const MATTER_DEVICE_NAME: &str = "Thermos Multi-Zone";
 
 #### Task 3: Create ZoneThermostatHandler
 
-**File:** `thermos-esp32/src/matter/stack.rs` (new file)
+**File:** `emberheat-esp32/src/matter/stack.rs` (new file)
 
 Create thin wrapper that implements rs-matter's handler traits:
 
 ```rust
-//! Matter stack integration for thermos-esp32
+//! Matter stack integration for emberheat-esp32
 //!
 //! Provides the glue between rs-matter-embassy and our zone thermostat states.
 //! This is a thin wrapper - see docs/plans/2026-01-27-phase3-matter-integration.md
@@ -229,8 +229,8 @@ use rs_matter::error::Error;
 use rs_matter::tlv::{FromTLV, TLVElement, ToTLV};
 use rs_matter::transport::exchange::Exchange;
 
-use thermos_matter::ZoneThermostatState;
-use thermos_matter::types::{temperature, SystemMode};
+use emberheat_matter::ZoneThermostatState;
+use emberheat_matter::types::{temperature, SystemMode};
 
 use crate::config::{
     MATTER_DEVICE_NAME, MATTER_DISCRIMINATOR, MATTER_PASSCODE,
@@ -281,9 +281,9 @@ pub fn basic_info_config() -> BasicInfoConfig<'static> {
         hw_ver: 1,
         sw_ver: 1,
         sw_ver_str: "0.1.0",
-        serial_no: "THERMOS-001",
+        serial_no: "EMBERHEAT-001",
         device_name: MATTER_DEVICE_NAME,
-        vendor_name: "Thermos",
+        vendor_name: "EmberHeat",
         product_name: "Multi-Zone Thermostat",
     }
 }
@@ -297,7 +297,7 @@ pub fn basic_info_config() -> BasicInfoConfig<'static> {
 
 #### Task 4: Implement Matter Handler Traits
 
-**File:** `thermos-esp32/src/matter/stack.rs`
+**File:** `emberheat-esp32/src/matter/stack.rs`
 
 Study rs-matter-embassy's handler pattern from `light_wifi.rs` example and implement the required traits for `ZoneThermostatHandler`.
 
@@ -314,7 +314,7 @@ Key methods to implement:
 
 #### Task 5: Create Matter Task Entry Point
 
-**File:** `thermos-esp32/src/matter/stack.rs`
+**File:** `emberheat-esp32/src/matter/stack.rs`
 
 Add the Embassy task that runs the Matter stack:
 
@@ -343,7 +343,7 @@ pub async fn matter_task(/* wifi driver, etc */) {
 
 #### Task 6: Integrate Matter Task in main.rs
 
-**File:** `thermos-esp32/src/main.rs`
+**File:** `emberheat-esp32/src/main.rs`
 
 Spawn the Matter task alongside existing tasks:
 
@@ -365,7 +365,7 @@ Ensure WiFi driver is shared correctly between MQTT and Matter (both need networ
 1. Flash firmware to ESP32-C6
 2. Open Apple Home app (or Google Home / Alexa)
 3. Add accessory → Scan QR code or enter manual code
-4. Verify device appears as "Thermos Multi-Zone"
+4. Verify device appears as "EmberHeat Multi-Zone"
 5. Check current temperature displays
 6. Adjust setpoint → verify relay responds
 7. Toggle mode Off/Heat → verify behavior
@@ -383,7 +383,7 @@ Ensure WiFi driver is shared correctly between MQTT and Matter (both need networ
 
 #### Task 8: Add Handlers for Zones 2-3
 
-**File:** `thermos-esp32/src/matter/stack.rs`
+**File:** `emberheat-esp32/src/matter/stack.rs`
 
 Extend handler chain for endpoints 2 and 3:
 
@@ -395,7 +395,7 @@ let handler = EmptyHandler
     .chain(3, CLUSTER_THERMOSTAT, ZoneThermostatHandler::new(3));
 ```
 
-**File:** `thermos-esp32/src/config.rs`
+**File:** `emberheat-esp32/src/config.rs`
 
 Update zone count:
 ```rust
@@ -424,7 +424,7 @@ pub const NUM_ZONES: usize = 3;
 
 #### Task 10: Generalize Handler Chain Generation
 
-**File:** `thermos-esp32/src/matter/stack.rs`
+**File:** `emberheat-esp32/src/matter/stack.rs`
 
 Create macro or helper to generate handler chains based on `NUM_ZONES`:
 

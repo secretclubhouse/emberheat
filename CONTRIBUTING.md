@@ -1,6 +1,6 @@
-# Contributing to Thermos-Rust
+# Contributing to EmberHeat
 
-Thank you for your interest in contributing to Thermos-Rust! This document provides guidelines for contributing.
+Thank you for your interest in contributing to EmberHeat! This document provides guidelines for contributing.
 
 ## Code of Conduct
 
@@ -11,8 +11,8 @@ Please be respectful and constructive in all interactions.
 1. **Fork the repository** on GitHub
 2. **Clone your fork** locally:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/thermos-rust.git
-   cd thermos-rust
+   git clone https://github.com/YOUR_USERNAME/emberheat.git
+   cd emberheat
    ```
 3. **Set up development environment**:
    ```bash
@@ -23,15 +23,15 @@ Please be respectful and constructive in all interactions.
 
 The project is a Cargo workspace with three crates:
 
-- **thermos-core** - Platform-agnostic core library (no_std compatible)
-- **thermos-esp32** - ESP32-C6 implementation (active development)
-- **thermos-linux** - Linux/Raspberry Pi implementation (preserved, not active)
+- **emberheat-core** - Platform-agnostic core library (no_std compatible)
+- **emberheat-esp32** - ESP32-C6 implementation (active development)
+- **emberheat-linux** - Linux/Raspberry Pi implementation (preserved, not active)
 
-Default build commands only include `thermos-core` and `thermos-esp32`. To work on `thermos-linux`, use explicit package flags:
+Default build commands only include `emberheat-core` and `emberheat-esp32`. To work on `emberheat-linux`, use explicit package flags:
 
 ```bash
-cargo build -p thermos-linux
-cargo test -p thermos-linux
+cargo build -p emberheat-linux
+cargo test -p emberheat-linux
 ```
 
 ## Development Workflow
@@ -54,7 +54,7 @@ git checkout -b fix/bug-description
 ### 3. Test Your Changes
 
 ```bash
-# Run tests (thermos-core)
+# Run tests (emberheat-core)
 make test
 
 # Check code quality
@@ -100,7 +100,7 @@ cargo fmt
 ### Linting
 
 ```bash
-cargo clippy -p thermos-core -- -D warnings
+cargo clippy -p emberheat-core -- -D warnings
 ```
 
 ### Documentation
@@ -143,7 +143,7 @@ mod tests {
 ### Running Tests
 
 ```bash
-# Run thermos-core tests
+# Run emberheat-core tests
 make test
 
 # With verbose output
@@ -199,7 +199,7 @@ Before submitting:
 
 ## Questions?
 
-Open an [Issue](https://github.com/josht/thermos-rust/issues) for questions or discussion.
+Open an [Issue](https://github.com/secretclubhouse/emberheat/issues) for questions or discussion.
 
 ## License
 

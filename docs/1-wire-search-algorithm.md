@@ -375,4 +375,4 @@ pub async fn next(&mut self, ow: &mut OneWire) -> Result<Address, SearchError> {
 
 - [Maxim/Dallas 1-Wire Search Algorithm Application Note](https://www.analog.com/en/technical-articles/1wire-search-algorithm.html)
 - [DS18B20 Datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/DS18B20.pdf)
-- Our implementation: `thermos-esp32/src/onewire_rmt.rs`
+- Our implementation: `emberheat-esp32/src/onewire_rmt.rs`
