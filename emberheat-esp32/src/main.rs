@@ -507,7 +507,7 @@ async fn matter_main_task(
     rng: esp_hal::peripherals::RNG<'static>,
     adc1: esp_hal::peripherals::ADC1<'static>,
     flash: esp_hal::peripherals::FLASH<'static>,
-    user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
+    user_task: matter::MqttBridge,
 ) {
     // Initialize flash storage for persistence
     // BlockingAsync wraps sync flash traits to async (required by sequential-storage)
@@ -531,7 +531,7 @@ async fn matter_main_task_dual_radio(
     rng: esp_hal::peripherals::RNG<'static>,
     adc1: esp_hal::peripherals::ADC1<'static>,
     flash: esp_hal::peripherals::FLASH<'static>,
-    user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
+    user_task: matter::MqttBridge,
 ) {
     // Initialize flash storage for persistence
     // BlockingAsync wraps sync flash traits to async (required by sequential-storage)
@@ -949,10 +949,7 @@ async fn main(spawner: Spawner) {
         .expect("Failed to create MQTT config");
 
         // Create MQTT bridge that runs inside Matter's UserTask
-        // NOTE: MQTT is temporarily disabled - socket set in rs-matter-embassy is too small
-        // (4 sockets: 2 UDP for Matter, 1 DHCP, 1 DNS - no room for TCP)
-        // TODO: Fork rs-matter-embassy to increase ENET_MIN_SOCKET_SET
-        let _mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
+        let mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
 
         // Sync initial temperature to Matter state BEFORE spawning Matter task
         // This ensures HomeKit sees valid LocalTemperature during commissioning
@@ -965,7 +962,7 @@ async fn main(spawner: Spawner) {
             MOCK_TEMPERATURE_C, NUM_ZONES
         );
 
-        // Spawn Matter task (handles WiFi, MQTT disabled due to socket limit)
+        // Spawn Matter task (handles WiFi + MQTT)
         spawner
             .spawn(matter_main_task(
                 controller,
@@ -974,10 +971,10 @@ async fn main(spawner: Spawner) {
                 peripherals.RNG,
                 peripherals.ADC1,
                 peripherals.FLASH,
-                (), // MQTT disabled - socket set full
+                mqtt_bridge,
             ))
             .expect("Failed to spawn Matter task");
-        info!("Matter task spawned (MQTT disabled - socket limit)");
+        info!("Matter task spawned");
     }
 
     // Dual-radio Matter mode (C6 WiFi + H2 BLE over UART)
@@ -1035,8 +1032,7 @@ async fn main(spawner: Spawner) {
         .expect("Failed to create MQTT config");
 
         // Create MQTT bridge that runs inside Matter's UserTask
-        // NOTE: MQTT is temporarily disabled - socket set in rs-matter-embassy is too small
-        let _mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
+        let mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
 
         // Sync initial temperature to Matter state BEFORE spawning Matter task
         // This ensures HomeKit sees valid LocalTemperature during commissioning
@@ -1059,7 +1055,7 @@ async fn main(spawner: Spawner) {
                 peripherals.RNG,
                 peripherals.ADC1,
                 peripherals.FLASH,
-                (), // MQTT disabled - socket set full
+                mqtt_bridge,
             ))
             .expect("Failed to spawn Matter dual-radio task");
         info!("Matter dual-radio task spawned (C6 WiFi + H2 BLE)");
