@@ -58,6 +58,8 @@ use config::{MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID, MQTT_PASSWORD, 
 #[cfg(not(feature = "matter"))]
 use config::{WIFI_PASSWORD, WIFI_SSID};
 use core::fmt::Write as FmtWrite;
+#[cfg(feature = "matter")]
+use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use emberheat_core::{
@@ -502,17 +504,21 @@ async fn matter_main_task(
     controller: &'static EspRadioController<'static>,
     wifi: esp_hal::peripherals::WIFI<'static>,
     bt: esp_hal::peripherals::BT<'static>,
+    rng: esp_hal::peripherals::RNG<'static>,
+    adc1: esp_hal::peripherals::ADC1<'static>,
+    flash: esp_hal::peripherals::FLASH<'static>,
     user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
 ) {
     // Initialize flash storage for persistence
-    let flash = FlashStorage::new();
+    // BlockingAsync wraps sync flash traits to async (required by sequential-storage)
+    let flash = BlockingAsync::new(FlashStorage::new(flash));
     let mut store = FlashKvBlobStore::new(flash, PERSIST_FLASH_RANGE);
 
     // Load persisted zone states before Matter starts
     load_all_zones(&mut store).await;
 
     // Run Matter with flash-backed persistence
-    matter_task(controller, wifi, bt, store, user_task).await
+    matter_task(controller, wifi, bt, rng, adc1, store, user_task).await
 }
 
 #[cfg(feature = "external-ble")]
@@ -522,10 +528,14 @@ async fn matter_main_task_dual_radio(
     wifi: esp_hal::peripherals::WIFI<'static>,
     uart_rx: esp_hal::uart::UartRx<'static, esp_hal::Async>,
     uart_tx: esp_hal::uart::UartTx<'static, esp_hal::Async>,
+    rng: esp_hal::peripherals::RNG<'static>,
+    adc1: esp_hal::peripherals::ADC1<'static>,
+    flash: esp_hal::peripherals::FLASH<'static>,
     user_task: (), // MQTT disabled due to socket limit in rs-matter-embassy
 ) {
     // Initialize flash storage for persistence
-    let flash = FlashStorage::new();
+    // BlockingAsync wraps sync flash traits to async (required by sequential-storage)
+    let flash = BlockingAsync::new(FlashStorage::new(flash));
     let mut store = FlashKvBlobStore::new(flash, PERSIST_FLASH_RANGE);
 
     // Load persisted zone states before Matter starts
@@ -533,7 +543,7 @@ async fn matter_main_task_dual_radio(
 
     // Run Matter with flash-backed persistence
     let driver = DualRadioDriver::new(controller, wifi, uart_rx, uart_tx);
-    matter_task_dual_radio(driver, store, user_task).await
+    matter_task_dual_radio(driver, rng, adc1, store, user_task).await
 }
 
 // =============================================================================
@@ -826,11 +836,6 @@ async fn main(spawner: Spawner) {
     // and our 7 zone tasks + MQTT need memory too
     esp_alloc::heap_allocator!(size: 73728);
 
-    // Initialize random number generator early (required before Matter crypto)
-    // Must be called before esp_rtos::start per rs-matter-embassy example
-    #[cfg(feature = "matter")]
-    rs_matter_embassy::rand::esp::esp_init_rand(esp_hal::rng::Rng::new());
-
     // Initialize esp-rtos scheduler with timer and software interrupt
     let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
@@ -966,6 +971,9 @@ async fn main(spawner: Spawner) {
                 controller,
                 peripherals.WIFI,
                 peripherals.BT,
+                peripherals.RNG,
+                peripherals.ADC1,
+                peripherals.FLASH,
                 (), // MQTT disabled - socket set full
             ))
             .expect("Failed to spawn Matter task");
@@ -1048,6 +1056,9 @@ async fn main(spawner: Spawner) {
                 peripherals.WIFI,
                 uart_rx,
                 uart_tx,
+                peripherals.RNG,
+                peripherals.ADC1,
+                peripherals.FLASH,
                 (), // MQTT disabled - socket set full
             ))
             .expect("Failed to spawn Matter dual-radio task");
