@@ -8,18 +8,7 @@ This directory contains the VSCode DevContainer configuration for developing Emb
 
 - **Base Image**: Debian Trixie with Rust 1.90
 - **Rust Toolchain**: rustc, cargo, rustfmt, clippy, rust-analyzer
-- **C++ Toolchain**: gcc, g++, clang, cmake, ninja-build (for Matter wrapper)
-- **Build Tools**: build-essential, pkg-config, unzip
-- **Matter Build Dependencies**:
-  - `libdbus-1-dev` - D-Bus library (required for Matter networking)
-  - `libglib2.0-dev` - GLib library
-  - `libavahi-client-dev` - Avahi mDNS/DNS-SD
-  - `libreadline-dev` - Readline library
-  - `libgirepository1.0-dev` - GObject introspection
-  - `libcairo2-dev` - Cairo 2D graphics
-  - `libssl-dev` - OpenSSL/TLS support
-  - `default-jre` - Java Runtime (for Matter ZAP code generator)
-- **Python**: Python 3 with pip, venv, and dev headers (for Matter SDK build scripts)
+- **Build Tools**: build-essential, pkg-config
 - **Debugging**: gdb, lldb
 - **Additional Tools**:
   - cargo-watch (automatic recompilation on file changes)
@@ -40,13 +29,10 @@ This directory contains the VSCode DevContainer configuration for developing Emb
 - **Even Better TOML**: TOML file support
 - **Crates**: Cargo dependency management
 - **Resource Monitor**: System resource monitoring
-- **C/C++ Tools**: C++ language support (for Matter wrapper)
-- **CMake Tools**: CMake project support (for Matter SDK)
 
 ### Port Forwarding
 
 - **5540**: Matter server port (UDP)
-- **8080**: Prometheus metrics HTTP endpoint
 
 ## Prerequisites
 
@@ -106,16 +92,7 @@ Once inside the container, verify everything works:
 rustc --version
 cargo --version
 
-# Check C++ toolchain (for Matter wrapper)
-g++ --version
-clang --version
-cmake --version
-
-# Check Redis connectivity
-redis-cli ping
-# Should respond: PONG
-
-# Check project builds (includes C++ wrapper compilation)
+# Check project builds
 cargo build
 
 # Run tests
@@ -133,7 +110,7 @@ RUST_LOG=debug cargo run
 # Check compilation (fast, no binary)
 cargo check
 
-# Build debug version (includes C++ wrapper compilation)
+# Build debug version
 cargo build
 
 # Build release version
@@ -141,47 +118,11 @@ cargo build --release
 
 # Watch mode (auto-rebuild on changes)
 cargo watch -x check
-
-# View C++ compilation output (verbose)
-cargo build -vv 2>&1 | grep -A10 "matter_wrapper"
 ```
 
-### Matter Protocol Wrapper
+### Matter Protocol
 
-The project includes a C++ wrapper for the Matter protocol:
-
-```bash
-# The wrapper is automatically compiled during cargo build
-# Files: src/matter/ffi/matter_wrapper.{h,cpp}
-
-# Currently using stub implementation (no actual Matter SDK)
-# To build with full Matter support, see below
-
-# Verify stub compilation works
-cargo build 2>&1 | grep -i matter
-```
-
-### Building Matter/Connected Home IP
-
-All required dependencies for building Matter are pre-installed in the container. To download and build Matter:
-
-```bash
-# Download Matter source from GitHub (v1.4.2.0)
-make matter-download
-
-# Build Matter libraries (takes 20-30 minutes first time)
-make matter-build
-
-# Copy libraries to lib/ directory for linking
-make matter-libs
-
-# Or do all three steps at once
-make matter-setup
-```
-
-Once built, the Rust application will automatically link against the Matter libraries instead of using stubs.
-
-See [docs/BUILDING_MATTER.md](../docs/BUILDING_MATTER.md) for detailed instructions and troubleshooting.
+The project uses `rs-matter` (pure Rust Matter implementation) for Matter protocol support. No C++ SDK or external build steps are required.
 
 ### Testing
 
@@ -217,30 +158,15 @@ cargo clippy -- -W clippy::pedantic
 
 ### Running the Application
 
-```bash
-# Run with default config
-cargo run
-
-# Run with custom config
-cargo run -- /path/to/config.json
-
-# Run with debug logging
-RUST_LOG=debug cargo run
-
-# Run with trace logging for specific module
-RUST_LOG=emberheat::devices=trace cargo run
-```
-
-### Monitoring
+The primary target is ESP32-C6 (bare-metal). For development:
 
 ```bash
-# Watch Redis state
-redis-cli
-> KEYS thermostat:*
-> GET thermostat:Zone1
+# Run emberheat-core tests
+cargo test -p emberheat-core
 
-# Check metrics endpoint (when app is running)
-curl http://localhost:8080/metrics
+# For ESP32 firmware, build and flash:
+cd emberheat-esp32
+cargo build --release
 ```
 
 ## Important Notes

@@ -26,14 +26,14 @@ EmberHeat is a multi-zone thermostat control system built with Rust, designed fo
 
 ## Workspace Structure
 
-The project is organized as a Cargo workspace with three crates:
+The project is organized as a Cargo workspace with four crates:
 
 ```
 emberheat/
 ├── emberheat-core/       # Platform-agnostic core library (no_std compatible)
-├── emberheat-linux/      # Linux/Raspberry Pi implementation  
-├── emberheat-esp32/      # ESP32-C6 bare-metal implementation
-└── src/                # Legacy single-crate (being migrated)
+├── emberheat-matter/     # Matter protocol types and cluster definitions (no_std)
+├── emberheat-esp32/      # ESP32-C6 bare-metal implementation (active)
+└── emberheat-linux/      # Linux/Raspberry Pi implementation (preserved, not active)
 ```
 
 ### emberheat-core
@@ -118,25 +118,16 @@ emberheat-esp32/src/
 └── mocks.rs            # Test mocks
 ```
 
-### Legacy src/ (being migrated)
+### emberheat-matter (Matter protocol)
 
 ```
-src/
-├── main.rs             # Application entry point
-├── config/mod.rs       # Configuration management
-├── devices/mod.rs      # Hysteresis control, state management
-├── gpio/mod.rs         # GPIO control, relay management
-├── hal/                # Hardware Abstraction Layer
-│   ├── mod.rs          # HAL traits (OutputPin, Platform)
-│   ├── linux.rs        # Linux/rppal implementation
-│   └── stub.rs         # Stub for testing
-├── sensors/
-│   ├── mod.rs          # Sensor trait, composite sensor
-│   └── onewire.rs      # 1-Wire DS18B20 (sysfs)
-├── persistence/mod.rs  # Redis integration
-├── metrics/mod.rs      # Prometheus metrics export
-├── matter/mod.rs       # Matter protocol stub (not implemented)
-└── mocks/              # Test infrastructure
+emberheat-matter/src/
+├── lib.rs              # Library exports
+├── types.rs            # Matter temperature/mode types, defaults
+├── state.rs            # ZoneThermostatState with atomic operations
+├── cluster.rs          # Thermostat cluster (0x0201) definitions and hooks
+├── handler.rs          # Matter handler traits
+└── device.rs           # Device info and endpoint mapping
 ```
 
 ### Module Responsibilities
@@ -177,24 +168,21 @@ src/
 
 ## Data Flow
 
-### Startup Sequence
+### Startup Sequence (ESP32)
 
 ```
 main()
-  ├─> Load configuration (config.json)
-  ├─> Initialize GPIO controller
-  ├─> Initialize Redis state manager
-  ├─> Create thermostat bridge
-  │   ├─> Create thermostat for each zone
-  │   │   ├─> Load persisted state
-  │   │   ├─> Initialize sensors
-  │   │   └─> Initialize GPIO pins
-  │   └─> Initialize VCC controller
-  ├─> Initialize Matter server
-  │   └─> Register thermostat accessories
-  ├─> Start Prometheus metrics server
-  ├─> Spawn control loops (one per zone)
-  └─> Wait for shutdown signal
+  ├─> Load compile-time configuration (config.rs)
+  ├─> Initialize GPIO relay pins
+  ├─> Initialize flash persistence
+  │   └─> Load persisted zone states (setpoints, modes)
+  ├─> Initialize sensors (1-Wire or I2C)
+  ├─> Initialize Matter stack (if matter feature enabled)
+  │   ├─> Set up WiFi via BLE commissioning
+  │   ├─> Register thermostat endpoints (one per zone)
+  │   └─> Start MQTT bridge for telemetry
+  ├─> Spawn control loop tasks (one per zone)
+  └─> Run Embassy executor
 ```
 
 ### Control Loop (Per Zone)
@@ -202,20 +190,16 @@ main()
 ```
 Every 6 seconds:
   ├─> Read temperature from sensor
-  │   ├─> Try 1-Wire sensor
-  │   └─> Fallback to HTTP sensor (if configured)
-  ├─> Validate temperature range
-  │   └─> If invalid: Trigger power cycle
+  │   ├─> 1-Wire via RMT (or I2C BME280)
+  │   └─> Validate range (3°C - 37°C)
+  ├─> Get setpoint from Matter state (if enabled)
   ├─> Apply hysteresis control logic
   │   ├─> Calculate bounds (target ± 0.5°C)
   │   ├─> Determine desired relay state
   │   └─> Update relay if state changed
-  ├─> Update metrics (Prometheus)
-  │   ├─> Current temperature
-  │   ├─> Target temperature
-  │   ├─> Heat status
-  │   └─> Response time
-  └─> Persist state (Redis)
+  ├─> Update Matter state with current temperature
+  ├─> Publish telemetry via MQTT
+  └─> Persist state to flash (on changes)
 ```
 
 ### Matter Integration
@@ -236,13 +220,23 @@ HomeKit Controller
 
 ### Threading Architecture
 
-EmberHeat uses Tokio's async runtime with multiple concurrent tasks:
+**ESP32 (active):** Uses Embassy async executor with cooperative multitasking:
+
+```
+Embassy Executor
+  ├─> Zone Control Task (Zone 1)
+  ├─> Zone Control Task (Zone 2)
+  ├─> Zone Control Task (Zone N)
+  ├─> Matter Stack Task
+  ├─> MQTT Bridge Task
+  └─> Persistence Task
+```
+
+**Linux (preserved):** Uses Tokio async runtime:
 
 ```
 Main Thread (Tokio)
-  ├─> Control Loop Task (Zone 1)
-  ├─> Control Loop Task (Zone 2)
-  ├─> Control Loop Task (Zone N)
+  ├─> Control Loop Task (Zone 1..N)
   ├─> Matter Server Task
   └─> Metrics Server Task
 ```
@@ -300,9 +294,17 @@ struct Thermostat {
 }
 ```
 
-### Persistent State (Redis)
+### Persistent State
 
-State is persisted to Redis on changes:
+**ESP32 (active):** State is persisted to NVS (Non-Volatile Storage) flash:
+
+```rust
+// Key-value pairs stored per zone
+"zone{N}_setpoint" => f32    // Target temperature
+"zone{N}_mode"     => u8     // System mode (Off/Heat)
+```
+
+**Linux (preserved):** State is persisted to Redis:
 
 ```json
 {
@@ -324,7 +326,7 @@ State is persisted to Redis on changes:
 ### State Recovery
 
 On startup, each thermostat:
-1. Attempts to load state from Redis
+1. Attempts to load state from flash (ESP32) or Redis (Linux)
 2. Falls back to defaults if not found
 3. Validates loaded state
 4. Applies state to hardware (GPIO)
@@ -355,7 +357,7 @@ pub enum GpioError {
 |------------|----------|-----------|
 | Sensor read failure | Power cycle + default temp | Sensors can hang, power cycle usually fixes |
 | GPIO error | Log + continue | Critical but recovery possible |
-| Redis error | Log + continue | Can operate without persistence temporarily |
+| Persistence error | Log + continue | Can operate without persistence temporarily |
 | Config error | Fail fast | Invalid config = unsafe operation |
 
 ### Recovery Mechanisms
@@ -370,17 +372,14 @@ pub enum GpioError {
 ```
 
 **Network Failures:**
-- Redis: Queue writes, retry on reconnect
-- HTTP sensors: Fall back to 1-Wire sensor
+- MQTT: Retry with backoff, control loop continues without telemetry
 - Matter: Buffer state changes, resync on reconnect
 
 ## Matter Integration
 
-**Current Status:** Matter support is a **stub implementation** that is not functional. The `src/matter/mod.rs` file logs warnings and waits indefinitely without providing actual Matter protocol support.
+Matter is fully implemented on ESP32-C6 using `rs-matter` (pure Rust). The implementation lives in `emberheat-matter/` (protocol types and cluster definitions) and `emberheat-esp32/src/matter/` (hardware integration). See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for details.
 
-**Future Plan:** Matter integration is planned for ESP32-C6 using the `rs-matter` pure Rust library. See [MATTER_INTEGRATION.md](MATTER_INTEGRATION.md) for implementation details.
-
-### Planned Cluster Implementation (Thermostat 0x0201)
+### Cluster Implementation (Thermostat 0x0201)
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
@@ -391,15 +390,15 @@ pub enum GpioError {
 | ControlSequenceOfOperation | enum8 | Heating only (0x00) |
 | TemperatureDisplayMode | enum8 | Celsius (0x00) |
 
-### Planned Commissioning Flow (not yet implemented)
+### Commissioning Flow
 
 ```
-1. App starts Matter server
-2. Generate QR code + pairing code
-3. User scans QR code in HomeKit
-4. Matter commissioning handshake
-5. Device joins Matter fabric
-6. Thermostats appear in Home app
+1. ESP32 starts Matter stack with BLE commissioning
+2. QR code + pairing code displayed via serial
+3. User scans QR code in HomeKit / Google Home / etc.
+4. Matter commissioning handshake over BLE
+5. Device joins Matter fabric, WiFi credentials transferred
+6. Thermostat zones appear as individual accessories
 ```
 
 ## Design Decisions
@@ -411,40 +410,37 @@ pub enum GpioError {
 - **Concurrency**: Fearless concurrency with ownership system
 - **Reliability**: Type system catches errors at compile time
 
-### Why Tokio + Embassy Hybrid?
+### Why Embassy?
 
-The project uses a hybrid approach combining Tokio and Embassy primitives:
+The project uses Embassy as its primary async runtime:
 
-**Tokio (executor and network):**
-- **Industry standard**: Required by `redis` and `reqwest` crates
-- **Network I/O**: Async TCP, TLS, and HTTP support
-- **Linux optimized**: Best performance on Raspberry Pi
-
-**Embassy (sync and time primitives):**
-- **Portability**: Same primitives work on bare-metal ESP32
+**ESP32 (active):**
+- **Bare-metal async**: Cooperative multitasking without an OS
 - **rs-matter compatible**: rs-matter library uses Embassy primitives
-- **Future-ready**: Enables ESP32-C6 port with minimal changes
+- **Low overhead**: Minimal memory footprint for embedded use
+
+**Linux (preserved):** Uses a hybrid Tokio + Embassy approach:
+- Tokio for network I/O (Redis, HTTP) and OS integration
+- Embassy primitives for portability with ESP32 code
 
 ```rust
 // Time primitives from Embassy
 use embassy_time::{Timer, Duration, Ticker};
 Timer::after(Duration::from_secs(3)).await;
 
-// Sync primitives from Embassy  
+// Sync primitives from Embassy
 use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 ```
 
-**Tokio runtime bridge**: Redis and reqwest operations run on a dedicated
-Tokio runtime, bridged via `tokio::runtime::Handle::block_on()` when called
-from Embassy-based code.
-
-### Why Redis?
+### Why Redis? (Linux only)
 
 - **Simple**: Key-value store, easy to use
 - **Fast**: In-memory, microsecond latency
 - **Reliable**: Persistent storage options
 - **Ubiquitous**: Well-supported, easy to deploy
+
+On ESP32, NVS flash is used instead (no external dependencies).
 
 ### Why Matter (vs HAP)?
 
@@ -492,13 +488,14 @@ from Embassy-based code.
 - Control loop: ~2-5% per zone during sensor read
 - Matter: <1% (event-driven)
 
-### Startup Time
+### Startup Time (ESP32)
 
 - Configuration load: ~10ms
 - GPIO init: ~50ms per pin
-- Redis connect: ~100ms
+- NVS flash init: ~20ms
+- WiFi connect: ~2-5s
 - Matter init: ~500ms
-- Total: ~1s (vs ~5s for Python)
+- Total: ~3-6s
 
 ## Future Improvements
 
@@ -514,10 +511,10 @@ from Embassy-based code.
 
 ### Short Term
 
-- [ ] Complete rs-matter integration (ESP32)
+- [x] Complete rs-matter integration (ESP32)
 - [ ] Web configuration UI
 - [ ] More comprehensive tests
-- [ ] Migrate legacy `src/` to workspace crates
+- [x] Migrate legacy `src/` to workspace crates
 
 ### Long Term
 

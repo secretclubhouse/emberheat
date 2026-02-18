@@ -1,6 +1,6 @@
 # Matter Testing with chip-tool
 
-This guide covers testing the Thermos Matter thermostat using `chip-tool`, the Matter reference CLI.
+This guide covers testing the EmberHeat Matter thermostat using `chip-tool`, the Matter reference CLI.
 
 ## Installation
 

@@ -15,7 +15,7 @@ The project uses `serial_test` for Matter device tests to prevent global state l
 
 ## Mock Components
 
-### 1. MockGpioController (`src/mocks/gpio_mock.rs`)
+### 1. MockGpioController (`emberheat-linux/src/mocks/gpio_mock.rs`)
 
 Simulates GPIO operations without requiring rppal or Linux:
 
@@ -35,7 +35,7 @@ assert_eq!(gpio.get_relay_state(23).unwrap(), RelayState::On);
 - Simulates VCC power cycling with async sleep
 - Thread-safe with Arc<Mutex<>>
 
-### 2. MockTemperatureSensor (`src/mocks/sensor_mock.rs`)
+### 2. MockTemperatureSensor (`emberheat-linux/src/mocks/sensor_mock.rs`)
 
 Simulates temperature sensor readings:
 
@@ -62,7 +62,7 @@ assert_eq!(sensor.get_read_count(), 2);
 - Builder pattern for complex scenarios
 - Implements `TemperatureSensor` trait
 
-### 3. MockStateManager (`src/mocks/state_mock.rs`)
+### 3. MockStateManager (`emberheat-linux/src/mocks/state_mock.rs`)
 
 In-memory state persistence without Redis:
 
@@ -148,13 +148,13 @@ cargo test --test mock_integration_tests
 - **Persistence**: Serialization, state management
 - **Devices**: Heating state conversions, constants
 
-### 2. Mock Tests (in `src/mocks/**/*.rs`)
+### 2. Mock Tests (in `emberheat-linux/src/mocks/`)
 
 - Mock GPIO operations
 - Mock sensor readings
 - Mock state persistence
 
-### 3. Integration Tests (in `tests/mock_integration_tests.rs`)
+### 3. Integration Tests (in `emberheat-linux/tests/mock_integration_tests.rs`)
 
 - Hysteresis control logic simulation
 - Multi-zone scenarios

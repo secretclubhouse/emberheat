@@ -1,6 +1,6 @@
 # MQTT Testing Guide for ESP32-C6 Thermostat
 
-This guide explains how to test the MQTT integration for the Week 3 implementation.
+This guide explains how to test the MQTT integration for the ESP32 thermostat.
 
 ## Prerequisites
 
@@ -223,7 +223,7 @@ espflash monitor
 ```
 ====================================
 EmberHeat ESP32-C6 Thermostat v0.2.0
-Week 3: WiFi + MQTT Integration
+WiFi + MQTT Integration
 ====================================
 WiFi: enabled
 MQTT: enabled
@@ -396,9 +396,9 @@ After verifying MQTT works:
 
 ---
 
-**Week 3 Objectives Completed:**
-- ✅ MQTT client implemented with rust-mqtt
-- ✅ Temperature readings published every 6 seconds
-- ✅ State changes published as events
-- ✅ WiFi connectivity with auto-reconnection
-- ✅ Can monitor temperature history via MQTT subscriber
+**MQTT Integration Status:**
+- MQTT client implemented with rust-mqtt
+- Temperature readings published every 6 seconds
+- State changes published as events
+- WiFi connectivity with auto-reconnection
+- Can monitor temperature history via MQTT subscriber

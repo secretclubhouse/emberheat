@@ -56,26 +56,24 @@ Tests (11 total):
 - ✅ C++ FFI conditional compilation
 - ✅ Error handling
 
-### 3. Existing Matter Tests (`src/matter/mod.rs`)
+### 3. Matter Tests (`emberheat-matter/`)
 
-**Purpose**: Unit tests for Matter protocol implementation.
+**Purpose**: Unit tests for Matter protocol types and cluster definitions.
 
-Existing tests covering:
+Tests covering:
 - Temperature conversion (Celsius ↔ centi-degrees)
-- Matter constants (ports, cluster IDs, device types)
-- Server creation and configuration
-- Endpoint allocation
-- QR code and pairing code generation
+- Matter constants (cluster IDs, device types)
 - System mode mapping
 - Running state flags
+- Zone thermostat state management
 
 **Coverage**:
 - ✅ Matter protocol constants
 - ✅ Temperature conversions
-- ✅ Server initialization
-- ✅ Accessory management
+- ✅ State management
+- ✅ Atomic operations
 
-### 4. Mock Integration Tests (`tests/mock_integration_tests.rs`)
+### 4. Mock Integration Tests (`emberheat-linux/tests/mock_integration_tests.rs`)
 
 **Purpose**: End-to-end testing without hardware dependencies.
 
@@ -126,8 +124,8 @@ open coverage/index.html
 |------|------------|-------|----------|
 | ZAP Configuration | `zap_config_tests.rs` | 11 | Full |
 | Build System | `build_system_tests.rs` | 11 | Full |
-| Matter Protocol | `src/matter/mod.rs` | 20+ | High |
-| Integration | `mock_integration_tests.rs` | 22 | High |
+| Matter Protocol | `emberheat-matter/` | 20+ | High |
+| Integration | `emberheat-linux/tests/mock_integration_tests.rs` | 22 | High |
 | **Total** | | **64+** | **High** |
 
 ## What's Tested
@@ -210,8 +208,7 @@ When making changes to ZAP integration:
 
 1. **Update tests if you modify**:
    - `matter/thermostat.zap` → Update `zap_config_tests.rs`
-   - `build.rs` → Update `build_system_tests.rs`
-   - `src/matter/ffi/matter_wrapper.cpp` → Update `build_system_tests.rs`
+   - Build configuration → Update `build_system_tests.rs`
    - Documentation → Update documentation tests
 
 2. **Run all tests before committing**:
