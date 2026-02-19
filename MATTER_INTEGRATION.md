@@ -30,7 +30,7 @@ emberheat-esp32/src/matter/
 ├── stack.rs         # Matter stack setup, cluster handlers, endpoint config
 ├── zones.rs         # ZoneStateStore - compile-time sized zone storage
 ├── bridge.rs        # MatterBridge - connects Matter state to control loops
-└── mqtt_bridge.rs   # MQTT in Matter mode (currently disabled)
+└── mqtt_bridge.rs   # MQTT as UserTask inside Matter stack
 ```
 
 ### `emberheat-esp32/src/persistence/` (Flash storage)
@@ -142,22 +142,14 @@ Device type: `0x0301` (Thermostat)
 
 ## Key Types
 
-### `MatterTemperature` (emberheat-matter/src/types.rs)
+### Temperature Conversions (emberheat-matter/src/types.rs)
 
 Matter uses temperatures in 0.01°C units as integers:
 
 ```rust
-pub struct MatterTemperature(i16);
-
-impl MatterTemperature {
-    pub fn from_celsius(celsius: f32) -> Self {
-        Self((celsius * 100.0) as i16)
-    }
-
-    pub fn to_celsius(&self) -> f32 {
-        self.0 as f32 / 100.0
-    }
-}
+pub fn celsius_to_matter(temp_c: f32) -> i16;      // 21.5°C → 2150
+pub fn matter_to_celsius(centi_c: i16) -> f32;     // 2150 → 21.5°C
+pub const NULL_TEMPERATURE: i16 = 0x8000;           // i16::MIN = sensor unavailable
 ```
 
 ### `SystemMode` (emberheat-matter/src/types.rs)
@@ -166,9 +158,11 @@ Maps to Matter Thermostat SystemMode attribute:
 
 ```rust
 pub enum SystemMode {
-    Off = 0,
-    Cool = 3,
-    Heat = 4,
+    Off = 0x00,
+    Auto = 0x01,          // Not supported (mapped to Off)
+    Cool = 0x03,
+    Heat = 0x04,
+    EmergencyHeat = 0x05, // Not supported (mapped to Off)
 }
 ```
 
@@ -178,16 +172,18 @@ Lock-free state shared between Matter stack, control loop, and persistence task:
 
 ```rust
 pub struct ZoneThermostatState {
-    current_temp: AtomicI16,       // In 0.01°C units
-    heating_setpoint: AtomicI16,   // In 0.01°C units
-    cooling_setpoint: AtomicI16,   // In 0.01°C units
-    system_mode: AtomicU8,         // SystemMode as u8
-    running_state: AtomicU16,      // ThermostatRunningState bitmap
-    dirty: AtomicBool,             // Needs persistence
+    local_temperature: AtomicI16,          // In 0.01°C units (NULL = 0x8000)
+    occupied_heating_setpoint: AtomicI16,  // In 0.01°C units (default: 2000 = 20°C)
+    occupied_cooling_setpoint: AtomicI16,  // In 0.01°C units (default: 2400 = 24°C)
+    system_mode: AtomicU8,                 // SystemMode as u8 (default: Heat)
+    running_state: AtomicU16,              // ThermostatRunningState bitmap
+    dirty: AtomicBool,                     // Needs persistence
 }
 ```
 
 **Why atomics?** The Matter stack, control loop, and persistence task run as separate Embassy tasks. Atomics provide safe concurrent access without mutexes, which is important for real-time control loops that shouldn't block.
+
+**Dirty flag:** Set when setpoint or mode changes (user-configurable state). NOT set on temperature updates or running state changes (ephemeral data). The persistence task checks this flag every 5 seconds.
 
 ## Flash Persistence
 
@@ -258,9 +254,11 @@ Supports up to 5 Matter fabrics (`max-fabrics-5`).
 
 ## Known Limitations
 
-1. **MQTT disabled in Matter mode** — rs-matter-embassy socket pool (4 sockets) is fully consumed by Matter UDP, DHCP, and DNS, leaving no room for TCP. Requires forking rs-matter-embassy to increase `ENET_MIN_SOCKET_SET`.
+1. **Dependencies on forks** — Uses sysgrok/rs-matter (next branch) for Embassy 0.5+ compatibility and secretclubhouse/rs-matter-embassy (stack-public branch) for TCP stack access and extra sockets.
 
-2. **Dependencies on forks** — Uses sysgrok/rs-matter (next branch) for Embassy 0.5+ compatibility and secretclubhouse/rs-matter-embassy (stack-public branch) for TCP stack access.
+2. **Test credentials** — Uses test vendor ID (0xFFF1), test passcode (20202021), and test DAC. Production deployment requires real credentials from CSA. See [#8](https://github.com/secretclubhouse/emberheat/issues/8).
+
+3. **Hardware sensors pending** — Currently using mock sensors. Real DS18B20 support is blocked on esp-hal-rmt-onewire compatibility. See [#1](https://github.com/secretclubhouse/emberheat/issues/1).
 
 ## Design Decisions
 

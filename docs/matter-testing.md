@@ -161,13 +161,13 @@ chip-tool thermostat read occupied-heating-setpoint 1 1
 # System mode (0=Off, 4=Heat)
 chip-tool thermostat read system-mode 1 1
 
-# Control sequence (2=Heating Only)
+# Control sequence (4=CoolingAndHeating)
 chip-tool thermostat read control-sequence-of-operation 1 1
 
-# Running state (bit 0 = heating active)
+# Running state (bit 0 = heating active, bit 1 = cooling active)
 chip-tool thermostat read thermostat-running-state 1 1
 
-# Feature map (0x01 = Heating feature)
+# Feature map (0x03 = Heating + Cooling)
 chip-tool thermostat read feature-map 1 1
 
 # Cluster revision
@@ -180,6 +180,17 @@ chip-tool thermostat read min-heat-setpoint-limit 1 1
 chip-tool thermostat read max-heat-setpoint-limit 1 1
 ```
 
+### Cooling Attributes
+
+```bash
+# Cooling setpoint
+chip-tool thermostat read occupied-cooling-setpoint 1 1
+
+# Cooling setpoint limits
+chip-tool thermostat read abs-min-cool-setpoint-limit 1 1
+chip-tool thermostat read abs-max-cool-setpoint-limit 1 1
+```
+
 ### Write Operations
 
 ```bash
@@ -187,9 +198,13 @@ chip-tool thermostat read max-heat-setpoint-limit 1 1
 # 20°C = 2000, 21°C = 2100, 22°C = 2200
 chip-tool thermostat write occupied-heating-setpoint 2200 1 1
 
+# Set cooling setpoint
+chip-tool thermostat write occupied-cooling-setpoint 2400 1 1
+
 # Set system mode
-# 0 = Off, 4 = Heat
+# 0 = Off, 3 = Cool, 4 = Heat
 chip-tool thermostat write system-mode 4 1 1
+chip-tool thermostat write system-mode 3 1 1
 chip-tool thermostat write system-mode 0 1 1
 ```
 
@@ -292,8 +307,8 @@ chip-tool thermostat read-all 1 1
 |-----------|----------------|
 | device-type-list (ep1) | Contains 0x0301 |
 | server-list (ep1) | 0x0003, 0x001D, 0x001E, 0x0201, 0x0204 |
-| feature-map (thermostat) | 0x01 (Heating) |
-| control-sequence | 2 (Heating Only) |
+| feature-map (thermostat) | 0x03 (Heating + Cooling) |
+| control-sequence | 4 (CoolingAndHeating) |
 | system-mode | 0 (Off) or 4 (Heat) |
 | local-temperature | 700-3700 (7-37°C valid range) |
 

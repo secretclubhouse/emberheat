@@ -47,9 +47,11 @@ Active firmware for ESP32-C6:
 ### Linux Implementation (`emberheat-linux`)
 
 Preserved but not actively developed. Uses:
-- `sysfs_gpio` for GPIO control
-- `ds18b20` for 1-Wire sensors
-- `serde_json` for state persistence
+- `rppal` for Raspberry Pi GPIO control
+- 1-Wire via sysfs (`/sys/bus/w1/devices/`)
+- HTTP fallback sensors via `reqwest`
+- Redis for state persistence
+- Prometheus for metrics export
 
 ## Quick Start (ESP32-C6)
 
@@ -108,7 +110,7 @@ pub const NUM_ZONES: usize = 7;
 pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
     ZoneConfigData {
         name: "Living Room",
-        relay_pin: 5,
+        relay_pin: 0,
         sensor_address: [0x28, ...],
         default_target_c: 21.1,
     },
@@ -117,6 +119,8 @@ pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
 ```
 
 Each zone appears as a separate thermostat endpoint in Matter controllers.
+
+> **Note:** `NUM_ZONES` is currently set to 1 and `USE_MOCK_SENSORS` is enabled for Matter commissioning testing. See `config.rs` for the full 7-zone configuration (commented out) and GPIO pin assignments.
 
 ## How It Works
 
@@ -217,7 +221,7 @@ make dev                # Format + lint + test
 
 - [x] Core hysteresis algorithm with tests
 - [x] ESP32-C6 firmware with Embassy async runtime
-- [x] 1-Wire and I2C sensor support
+- [x] 1-Wire and I2C sensor driver code (hardware testing pending — see [#1](https://github.com/secretclubhouse/emberheat/issues/1))
 - [x] Multi-zone relay control (1-16 zones)
 - [x] Matter commissioning (BLE + WiFi)
 - [x] Thermostat cluster with heating and cooling
@@ -226,8 +230,11 @@ make dev                # Format + lint + test
 - [x] Flash persistence with wear-leveling (fabrics + zone state)
 - [x] Factory reset and zone state reset
 - [x] Dual-radio support (ESP32-C6 WiFi + ESP32-H2 BLE)
-- [ ] MQTT telemetry in Matter mode (blocked by socket pool size)
-- [ ] OTA firmware updates
+- [x] MQTT telemetry in Matter mode
+- [ ] Hardware sensor integration ([#1](https://github.com/secretclubhouse/emberheat/issues/1), [#2](https://github.com/secretclubhouse/emberheat/issues/2))
+- [ ] Runtime zone configuration ([#5](https://github.com/secretclubhouse/emberheat/issues/5))
+- [ ] Sensor auto-discovery ([#6](https://github.com/secretclubhouse/emberheat/issues/6))
+- [ ] OTA firmware updates ([#7](https://github.com/secretclubhouse/emberheat/issues/7))
 
 ## License
 

@@ -4,14 +4,13 @@ This document explains how to run tests for the multi-platform emberheat project
 
 ## Overview
 
-The EmberHeat project is organized as a workspace with three crates:
-- **emberheat-core** - Platform-agnostic core library (unit tests only)
-- **emberheat-linux** - Linux/Raspberry Pi implementation (mock and hardware tests)
+The EmberHeat project is organized as a workspace with four crates:
+- **emberheat-core** - Platform-agnostic core library (32 unit tests)
+- **emberheat-matter** - Matter protocol types and state management (36 unit tests)
 - **emberheat-esp32** - ESP32-C6 bare-metal implementation (on-device testing)
+- **emberheat-linux** - Linux/Raspberry Pi implementation (mock and hardware tests, preserved)
 
-The project includes comprehensive mocking infrastructure that allows tests to run on any platform without requiring actual Raspberry Pi GPIO hardware, temperature sensors, or Redis.
-
-The project uses `serial_test` for Matter device tests to prevent global state leakage, ensuring proper test isolation while maintaining parallelism for other tests.
+The default test command (`make test`) runs tests for `emberheat-core` and `emberheat-matter` — these are cross-platform and run in CI. The Linux crate has additional mock infrastructure for testing without hardware.
 
 ## Mock Components
 
@@ -89,14 +88,20 @@ assert_eq!(manager.get_load_count(), 1);
 
 ## Running Tests
 
-### emberheat-core (cross-platform)
+### Default (emberheat-core + emberheat-matter)
 
 ```bash
-# Run core library tests (works anywhere)
-cargo test -p emberheat-core
+# Run all default tests (works on any platform)
+make test
+
+# Or explicitly:
+cargo test -p emberheat-core -p emberheat-matter
+
+# Verbose output
+make test-verbose
 ```
 
-### emberheat-linux (Raspberry Pi)
+### emberheat-linux (preserved, not in default test set)
 
 ```bash
 # Full tests (requires Raspberry Pi)
@@ -104,8 +109,6 @@ cargo test -p emberheat-linux
 
 # Mock-only tests (works on any platform)
 cargo test --test mock_integration_tests
-# Or via Makefile:
-make test-mock
 
 # Run specific mock tests
 cargo test mock_gpio
@@ -115,28 +118,23 @@ cargo test mock_state
 
 ### emberheat-esp32 (bare-metal)
 
-ESP32 tests run on-device since it's a no_std environment:
+ESP32 code runs on-device since it's a no_std environment. The `config.rs` module has compile-time validation tests that run during build:
 
 ```bash
-cd emberheat-esp32
+# Build and flash with serial monitor
+make flash-monitor-matter
 
-# Build and flash with monitoring
-cargo build --release
-espflash flash --monitor target/riscv32imac-unknown-none-elf/release/emberheat-esp32
-
-# Use defmt for embedded logging/assertions
+# Sensor scanning utility
+make scan-sensors
 ```
 
 ### Run on macOS/Windows
 
-On non-Linux platforms, the `rppal` crate won't compile. To run tests:
+The default test set (`make test`) works on any platform:
 
 ```bash
-# Core library tests work everywhere
-cargo test -p emberheat-core
-
-# Mock integration tests work everywhere
-cargo test --test mock_integration_tests
+# These tests work everywhere — no hardware or Linux required
+make test
 ```
 
 ## Test Categories
@@ -183,24 +181,36 @@ cargo test --test mock_integration_tests
 | Config | ✓ | N/A | ✓ | N/A |
 | Metrics | ✓ | N/A | ✓ | N/A |
 
-### emberheat-core
+### emberheat-core (32 tests)
 
-| Component | Unit Tests |
-|-----------|------------|
-| types | ✓ |
-| control | ✓ |
-| config | ✓ |
+| Component | Unit Tests | Notes |
+|-----------|------------|-------|
+| types | ✓ (6 tests) | HeatingState, RelayState, TemperatureReading, validation |
+| control | ✓ (7 tests) | Hysteresis logic, edge cases, custom configs |
+| config | ✓ (2 tests) | Defaults, dead band creation |
+| sensor | ✓ (3 tests) | Mock sensor, errors, availability |
+| gpio | ✓ (2 tests) | Mock pin, active-low logic |
+| persistence | ✓ (5 tests) | Mock storage, save/load/delete/list/ping |
+| lib | ✓ (2 tests) | Version, re-exports |
+
+### emberheat-matter (36 unit tests + 7 doc tests)
+
+| Component | Unit Tests | Notes |
+|-----------|------------|-------|
+| types | ✓ (15 tests) | Temperature conversions, SystemMode, RunningState, defaults |
+| state | ✓ (22 tests) | Atomic state, setpoint validation, dirty flags, cooling |
+| device | ✓ (5 tests) | Endpoint mapping, DeviceInfo, MAX_ZONES boundary |
 
 ### emberheat-esp32
 
-| Component | On-Device Tests |
-|-----------|-----------------|
-| GPIO | ✓ (manual verification) |
-| 1-Wire (RMT) | ✓ |
-| I2C (BME280) | ✓ |
-| WiFi | ✓ |
-| MQTT | ✓ |
-| NVS | ✓ |
+| Component | Status | Notes |
+|-----------|--------|-------|
+| config | ✓ (compile-time) | Validates zone count, unique pins, unique sensors |
+| Mock sensor | ✓ | Used for development and Matter commissioning testing |
+| 1-Wire sensor | Pending | Blocked on esp-hal-rmt-onewire compatibility |
+| BME280 I2C | Pending | Hardware testing needed |
+| Matter stack | ✓ (manual) | Tested via Apple Home commissioning |
+| Flash persistence | ✓ (manual) | Verified setpoint survives reboot |
 
 ## Writing Tests with Mocks
 
@@ -290,32 +300,12 @@ async fn test_state_persistence() {
 
 ## Continuous Integration
 
-For CI/CD pipelines on non-Raspberry Pi hardware:
+The project uses GitHub Actions (`.github/workflows/ci.yml`) with these jobs:
 
-```yaml
-# .github/workflows/test.yml
-name: Tests
-
-on: [push, pull_request]
-
-jobs:
-  test-mocks:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Run mock tests
-        run: cargo test --test mock_integration_tests
-
-  test-raspberry-pi:
-    runs-on: [self-hosted, raspberry-pi]
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run all tests
-        run: cargo test
-```
+1. **Format & Clippy** — Checks `cargo fmt` and `cargo clippy -p emberheat-core`
+2. **Tests** — Runs `cargo test -p emberheat-core -p emberheat-matter`
+3. **Security Audit** — Runs `cargo audit` on the full workspace
+4. **Code Coverage** — Generates coverage with `cargo-llvm-cov` and uploads to Codecov
 
 ## Troubleshooting
 

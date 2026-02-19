@@ -21,13 +21,14 @@ Please be respectful and constructive in all interactions.
 
 ## Project Structure
 
-The project is a Cargo workspace with three crates:
+The project is a Cargo workspace with four crates:
 
 - **emberheat-core** - Platform-agnostic core library (no_std compatible)
+- **emberheat-matter** - Matter protocol types and cluster definitions (no_std compatible)
 - **emberheat-esp32** - ESP32-C6 implementation (active development)
 - **emberheat-linux** - Linux/Raspberry Pi implementation (preserved, not active)
 
-Default build commands only include `emberheat-core` and `emberheat-esp32`. To work on `emberheat-linux`, use explicit package flags:
+Default build commands include `emberheat-core`, `emberheat-matter`, and `emberheat-esp32`. To work on `emberheat-linux`, use explicit package flags:
 
 ```bash
 cargo build -p emberheat-linux
@@ -54,10 +55,10 @@ git checkout -b fix/bug-description
 ### 3. Test Your Changes
 
 ```bash
-# Run tests (emberheat-core)
+# Run tests (emberheat-core and emberheat-matter)
 make test
 
-# Check code quality
+# Check code quality (format + lint + test)
 make dev
 ```
 
@@ -152,39 +153,61 @@ make test-verbose
 
 ## ESP32 Development
 
+### Requirements
+
+- ESP32-C6 development board
+- `espflash` tool installed: `cargo install espflash`
+- RISC-V target: `rustup target add riscv32imac-unknown-none-elf`
+
 ### Building
 
 ```bash
+# MQTT mode (requires WIFI_SSID and WIFI_PASSWORD in .env.local)
 make build-esp32
+
+# Matter mode (WiFi handled by Matter commissioning)
+make build-matter
+
+# Matter with dual-radio (C6 WiFi + H2 BLE over UART)
+make build-matter-dual-radio
 ```
 
 ### Flashing
 
 ```bash
+# MQTT mode
 make flash          # Flash only
 make flash-monitor  # Flash and open serial monitor
+
+# Matter mode
+make flash-matter              # Flash only
+make flash-monitor-matter      # Flash and open serial monitor
 ```
 
-### Requirements
+### Feature Flags
 
-- ESP32-C6 development board
-- `espflash` tool installed
-- RISC-V target: `rustup target add riscv32imac-unknown-none-elf`
+| Feature | Description |
+|---------|-------------|
+| `matter` | Enable Matter protocol support (disables standalone MQTT task) |
+| `external-ble` | Use ESP32-H2 for BLE over UART HCI (requires `matter`) |
+| `onewire-rmt` | Use RMT peripheral for 1-Wire (currently disabled — compatibility issue) |
 
 ## Areas for Contribution
 
-### High Priority
+See [GitHub Issues](https://github.com/secretclubhouse/emberheat/issues) for the current backlog.
 
-- Matter protocol integration with rs-matter
-- Improved error handling
-- Additional sensor support
-- Documentation improvements
+### MVP
+
+- Resolve 1-Wire sensor dependency ([#1](https://github.com/secretclubhouse/emberheat/issues/1))
+- Hardware sensor integration and testing ([#2](https://github.com/secretclubhouse/emberheat/issues/2), [#4](https://github.com/secretclubhouse/emberheat/issues/4))
 
 ### Feature Ideas
 
-- Web UI for configuration
-- Home Assistant integration
-- Smart scheduling
+- Runtime zone configuration ([#5](https://github.com/secretclubhouse/emberheat/issues/5))
+- Sensor auto-discovery ([#6](https://github.com/secretclubhouse/emberheat/issues/6))
+- OTA firmware updates ([#7](https://github.com/secretclubhouse/emberheat/issues/7))
+- Web dashboard ([#11](https://github.com/secretclubhouse/emberheat/issues/11))
+- Time-based scheduling ([#9](https://github.com/secretclubhouse/emberheat/issues/9))
 
 ## Pull Request Checklist
 
@@ -203,4 +226,4 @@ Open an [Issue](https://github.com/secretclubhouse/emberheat/issues) for questio
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be dual-licensed under the MIT License and Apache License 2.0.

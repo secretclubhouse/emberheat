@@ -107,15 +107,34 @@ emberheat-linux/src/
 
 ```
 emberheat-esp32/src/
-├── main.rs             # Embassy entry point
-├── lib.rs              # Library exports
-├── gpio_impl.rs        # esp-hal GPIO implementation
-├── sensor_onewire.rs   # 1-Wire via RMT peripheral
-├── sensor_i2c.rs       # BME280 I2C sensor
-├── persistence_nvs.rs  # NVS flash storage
-├── wifi.rs             # WiFi connectivity
-├── mqtt.rs             # MQTT temperature logging
-└── mocks.rs            # Test mocks
+├── main.rs               # Embassy entry point, zone task spawning
+├── lib.rs                # Library exports
+├── config.rs             # Zone configuration (NUM_ZONES, pins, sensor addresses)
+├── controller.rs         # Zone controller logic
+├── zone.rs               # Zone task entry points
+├── gpio_impl.rs          # esp-hal GPIO implementation
+├── sensors.rs            # MockSensor, SharedOneWireBus, SharedDs18b20Sensor
+├── sensor_onewire.rs     # DS18B20 1-Wire via RMT peripheral
+├── sensor_i2c.rs         # BME280 I2C sensor
+├── onewire_gpio.rs       # 1-Wire via GPIO bit-banging
+├── onewire_rmt.rs        # 1-Wire via RMT peripheral (low-level)
+├── persistence_nvs.rs    # Legacy NVS storage (in-memory)
+├── persistence/          # Flash persistence (active)
+│   ├── mod.rs            # Module exports
+│   ├── flash_store.rs    # sequential-storage KV wrapper
+│   ├── types.rs          # PersistedZoneState (5 bytes per zone)
+│   ├── task.rs           # Background persistence task (every 5s)
+│   └── reset.rs          # Factory reset and zone state reset
+├── matter/               # Matter protocol integration
+│   ├── mod.rs            # Module exports
+│   ├── stack.rs          # Matter stack setup, endpoints, cluster handlers
+│   ├── zones.rs          # Static zone state array (compile-time sized)
+│   ├── bridge.rs         # Control loop ↔ Matter state sync
+│   └── mqtt_bridge.rs    # MQTT as Matter UserTask
+├── wifi.rs               # WiFi connectivity (esp-radio)
+├── mqtt.rs               # MQTT client and publishing
+├── dual_radio.rs         # ESP32-H2 BLE over UART HCI
+└── mocks.rs              # Test mocks
 ```
 
 ### emberheat-matter (Matter protocol)
@@ -159,12 +178,20 @@ emberheat-matter/src/
 
 | Module | Responsibility | Dependencies |
 |--------|----------------|--------------|
+| `config` | Compile-time zone configuration | None |
+| `controller` | Zone control logic | `emberheat-core` |
+| `zone` | Zone task entry points | `embassy-executor` |
 | `gpio_impl` | ESP32 GPIO control | `esp-hal` |
-| `sensor_onewire` | 1-Wire via RMT | `esp-hal-rmt-onewire` |
+| `sensors` | Mock sensor, shared 1-Wire bus | `embassy-sync` |
+| `sensor_onewire` | DS18B20 1-Wire via RMT | `esp-hal-rmt-onewire` |
 | `sensor_i2c` | BME280 I2C sensor | `bme280` |
-| `persistence_nvs` | NVS flash storage | `esp-hal` |
-| `wifi` | WiFi connectivity | `esp-wifi` |
-| `mqtt` | MQTT logging | `rust-mqtt` |
+| `persistence/` | Flash state persistence | `sequential-storage` |
+| `matter/stack` | Matter stack and endpoints | `rs-matter-embassy` |
+| `matter/bridge` | Control loop ↔ Matter sync | `emberheat-matter` |
+| `matter/mqtt_bridge` | MQTT inside Matter stack | `rust-mqtt` |
+| `wifi` | WiFi connectivity | `esp-radio` |
+| `mqtt` | MQTT client and publishing | `rust-mqtt` |
+| `dual_radio` | H2 BLE over UART HCI | `bt-hci` |
 
 ## Data Flow
 
@@ -243,41 +270,34 @@ Main Thread (Tokio)
 
 ### Shared State
 
-Shared state is protected using `Arc<Mutex<T>>` from Embassy:
+**ESP32 (active):** Zone state uses lock-free atomics via `ZoneThermostatState`:
 
 ```rust
-use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-
-pub struct Thermostat {
-    current_temp: Arc<Mutex<NoopRawMutex, f32>>,
-    target_temp: Arc<Mutex<NoopRawMutex, f32>>,
-    target_state: Arc<Mutex<NoopRawMutex, HeatingState>>,
-    current_state: Arc<Mutex<NoopRawMutex, HeatingState>>,
-    // ...
+pub struct ZoneThermostatState {
+    local_temperature: AtomicI16,         // Current temp (0.01°C units)
+    occupied_heating_setpoint: AtomicI16, // Heating target
+    occupied_cooling_setpoint: AtomicI16, // Cooling target
+    system_mode: AtomicU8,               // Off/Heat/Cool
+    running_state: AtomicU16,            // Heating/cooling active bitmap
+    dirty: AtomicBool,                   // Needs persistence
 }
 ```
 
 **Design rationale:**
-- `Arc`: Multiple tasks share ownership
-- `embassy_sync::Mutex`: Portable sync primitives for future ESP32 support
-- `NoopRawMutex`: Appropriate for std targets with OS scheduling; use `CriticalSectionRawMutex` on bare-metal
+- `Relaxed` atomic ordering — sufficient for independent readers/writers
+- No mutex contention — control loop never blocks waiting for Matter stack
+- Dirty flag tracking — persistence task only writes to flash when state changes
+- Static allocation — zone state array sized at compile time by `NUM_ZONES`
+
+The 1-Wire bus is shared across zone tasks using `embassy_sync::Mutex<CriticalSectionRawMutex>` to serialize bus access.
+
+**Linux (preserved):** Uses `Arc<Mutex<T>>` from Embassy for shared state between Tokio tasks.
 
 ### GPIO Access
 
-GPIO controller is shared via `Arc<GpioController>`:
+**ESP32:** Each zone task owns its relay pin directly (no shared GPIO controller). Pins are initialized in `main()` and moved into zone tasks via `StaticCell`.
 
-```rust
-pub struct GpioController {
-    relays: Arc<Mutex<HashMap<u8, RelayController>>>,
-    vcc_controller: Arc<Mutex<Option<VccController>>>,
-}
-```
-
-**Design rationale:**
-- Single GPIO instance to prevent conflicts
-- Interior mutability for relay state updates
-- `Mutex` used (not `RwLock`) because GPIO operations are fast
+**Linux (preserved):** GPIO controller is shared via `Arc<GpioController>` with interior mutability for relay state updates.
 
 ## State Management
 
@@ -296,32 +316,29 @@ struct Thermostat {
 
 ### Persistent State
 
-**ESP32 (active):** State is persisted to NVS (Non-Volatile Storage) flash:
+**ESP32 (active):** State is persisted to flash via `sequential-storage` (wear-leveled key-value store):
 
 ```rust
-// Key-value pairs stored per zone
-"zone{N}_setpoint" => f32    // Target temperature
-"zone{N}_mode"     => u8     // System mode (Off/Heat)
-```
-
-**Linux (preserved):** State is persisted to Redis:
-
-```json
-{
-  "relay_pin": 23,
-  "temp_pin": 4,
-  "temp_id": "28-00000ab12345",
-  "target_temp": 21.1,
-  "target_state": 1,
-  "current_state": 1,
-  "last_updated": "2024-01-15T10:30:00Z"
+// 5 bytes per zone, stored at key 0x1000 + zone_index
+struct PersistedZoneState {
+    heating_setpoint: i16,   // Matter centi-degrees (0.01°C)
+    cooling_setpoint: i16,   // Matter centi-degrees (0.01°C)
+    system_mode: u8,         // 0=Off, 4=Heat, 3=Cool
 }
+
+// Flash layout:
+// Keys 0x0000-0x0FFF: Reserved for Matter (fabrics, network credentials)
+// Keys 0x1000+:       Zone states (0x1000 = Zone 0, 0x1001 = Zone 1, ...)
+// Partition: 0x310000 - 0x320000 (64KB)
 ```
 
 **Persistence strategy:**
-- Write-through: State saved immediately on changes
-- Read on startup: Recover previous state after restart
-- Asynchronous: Non-blocking writes
+- Dirty-flag tracking: Only writes when state has changed
+- Background task: Checks every 5 seconds for dirty zones
+- Load on startup: Restores state before Matter stack starts
+- Current temperature and relay state are ephemeral (not persisted)
+
+**Linux (preserved):** State is persisted to Redis as JSON with `ThermostatState` structs.
 
 ### State Recovery
 
@@ -381,14 +398,18 @@ Matter is fully implemented on ESP32-C6 using `rs-matter` (pure Rust). The imple
 
 ### Cluster Implementation (Thermostat 0x0201)
 
+Feature Map: `0x03` (HEAT + COOL)
+
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| LocalTemperature | int16 | Current temp (centi-degrees C) |
-| OccupiedHeatingSetpoint | int16 | Target temp (centi-degrees C) |
-| SystemMode | enum8 | Off (0x00) or Heat (0x04) |
-| ThermostatRunningState | bitmap8 | Heat state (bit 0) |
-| ControlSequenceOfOperation | enum8 | Heating only (0x00) |
-| TemperatureDisplayMode | enum8 | Celsius (0x00) |
+| LocalTemperature | Nullable i16 | Current temp (0.01°C units, NULL = 0x8000) |
+| OccupiedHeatingSetpoint | i16 | Heating target (7-30°C) |
+| OccupiedCoolingSetpoint | i16 | Cooling target (10-35°C) |
+| SystemMode | enum8 | Off (0x00) / Cool (0x03) / Heat (0x04) |
+| ThermostatRunningState | bitmap16 | Heating (bit 0), cooling (bit 1) |
+| ControlSequenceOfOperation | enum8 | CoolingAndHeating (0x04) |
+| MinHeatSetpointLimit | i16 | 7°C (700) |
+| MaxHeatSetpointLimit | i16 | 30°C (3000) |
 
 ### Commissioning Flow
 
@@ -400,6 +421,11 @@ Matter is fully implemented on ESP32-C6 using `rs-matter` (pure Rust). The imple
 5. Device joins Matter fabric, WiFi credentials transferred
 6. Thermostat zones appear as individual accessories
 ```
+
+### Radio Modes
+
+- **Single radio** (default): ESP32-C6 WiFi + BLE time-shared on the same radio
+- **Dual radio**: ESP32-C6 handles WiFi, external ESP32-H2 handles BLE over UART HCI
 
 ## Design Decisions
 
@@ -499,32 +525,45 @@ On ESP32, NVS flash is used instead (no external dependencies).
 
 ## Future Improvements
 
+See [GitHub Issues](https://github.com/secretclubhouse/emberheat/issues) for the full backlog.
+
 ### Completed
 
 - [x] Hardware abstraction layer (HAL) for ESP32 portability
 - [x] Embassy primitives for bare-metal compatibility
 - [x] ESP32-C6 bare-metal implementation
-- [x] 1-Wire via RMT peripheral on ESP32
-- [x] I2C BME280 sensor support on ESP32
+- [x] 1-Wire and I2C sensor driver code
 - [x] WiFi and MQTT integration on ESP32
-- [x] NVS flash persistence on ESP32
+- [x] Flash persistence with wear-leveling on ESP32
+- [x] Complete rs-matter integration (ESP32)
+- [x] MQTT telemetry in Matter mode
+- [x] Dual-radio support (C6 WiFi + H2 BLE)
+- [x] Migrate legacy `src/` to workspace crates
+
+### MVP Remaining
+
+- [ ] Resolve esp-hal-rmt-onewire compatibility ([#1](https://github.com/secretclubhouse/emberheat/issues/1))
+- [ ] Implement SharedOneWireBus scan/read ([#2](https://github.com/secretclubhouse/emberheat/issues/2))
+- [ ] Re-enable multi-zone with real sensors ([#3](https://github.com/secretclubhouse/emberheat/issues/3))
+- [ ] End-to-end hardware integration test ([#4](https://github.com/secretclubhouse/emberheat/issues/4))
 
 ### Short Term
 
-- [x] Complete rs-matter integration (ESP32)
-- [ ] Web configuration UI
-- [ ] More comprehensive tests
-- [x] Migrate legacy `src/` to workspace crates
+- [ ] Runtime zone configuration via NVS ([#5](https://github.com/secretclubhouse/emberheat/issues/5))
+- [ ] Sensor auto-discovery and assignment ([#6](https://github.com/secretclubhouse/emberheat/issues/6))
+- [ ] OTA firmware updates ([#7](https://github.com/secretclubhouse/emberheat/issues/7))
 
 ### Long Term
 
-- [ ] Weather integration for predictive heating
-- [ ] Energy usage optimization
-- [ ] Home Assistant integration
+- [ ] Time-based scheduling ([#9](https://github.com/secretclubhouse/emberheat/issues/9))
+- [ ] Web configuration UI ([#11](https://github.com/secretclubhouse/emberheat/issues/11))
+- [ ] PID control mode ([#12](https://github.com/secretclubhouse/emberheat/issues/12))
+- [ ] Energy usage tracking ([#14](https://github.com/secretclubhouse/emberheat/issues/14))
 
 ## References
 
 - [Matter Specification](https://csa-iot.org/developer-resource/specifications-download-request/)
-- [Tokio Documentation](https://tokio.rs/)
+- [rs-matter](https://github.com/project-chip/rs-matter) — Pure Rust Matter implementation
+- [Embassy](https://embassy.dev/) — Async embedded framework for Rust
 - [HVAC Control Theory](https://en.wikipedia.org/wiki/Bang%E2%80%93bang_control)
-- [Raspberry Pi GPIO](https://www.raspberrypi.com/documentation/computers/raspberry-pi.html)
+- [ESP32-C6 Datasheet](https://www.espressif.com/en/products/socs/esp32-c6)
