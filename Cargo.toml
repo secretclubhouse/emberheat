@@ -43,3 +43,9 @@ chrono = "0.4"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
+
+# rs-matter 0.4.1 plus one patch: accept expired certificates with a warning.
+# Apple Home presents a certificate that expired a year after the home was
+# created, and the stock library fails commissioning on it (InvalidTime).
+[patch.crates-io]
+rs-matter = { git = "https://github.com/secretclubhouse/rs-matter", branch = "emberheat-2026-11" }

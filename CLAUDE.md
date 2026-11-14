@@ -209,7 +209,7 @@ make lint
 - `async-trait` — Async traits
 
 **emberheat-matter (no_std):**
-- `rs-matter` 0.4 — Matter protocol (crates.io release)
+- `rs-matter` 0.4 — Matter protocol (0.4.1, patched via secretclubhouse fork; see Forked dependencies)
 - `embassy-sync` 0.8 — Signal for inter-task communication
 - `embassy-futures` 0.1 — Async select/Either
 - `heapless` 0.9 — No-std collections
@@ -224,6 +224,7 @@ make lint
 - `embassy-executor` 0.10, `embassy-time` 0.5, `embassy-net` 0.9
 
 **Forked dependencies (important):**
+- `rs-matter`: secretclubhouse/rs-matter `emberheat-2026-11` branch, applied through `[patch.crates-io]` in the root `Cargo.toml` — the 0.4.1 release commit (3f3528e) plus one patch that accepts expired certificates with a warning. Apple Home presents a certificate that expired a year after the home was created; stock 0.4.1 fails commissioning on it with `InvalidTime`.
 - `rs-matter-embassy`: secretclubhouse/rs-matter-embassy `emberheat-2026-09` branch — upstream at 2a806b0 (2026-09-28) plus one patch giving MQTT access to the TCP stack. Later upstream commits depend on a patched esp-hal fork, so don't bump past this without checking.
 
 ## Common Tasks
