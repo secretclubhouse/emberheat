@@ -353,6 +353,13 @@ async fn zone_control_loop(
     // Track relay state
     let mut current_relay_state = RelayState::Off;
 
+    // Index of this zone's Matter state (Zone1 -> 0, Zone2 -> 1, etc.)
+    let zone_index = zone_name
+        .strip_prefix("Zone")
+        .and_then(|n| n.parse::<usize>().ok())
+        .map(|n| n.saturating_sub(1))
+        .unwrap_or(0);
+
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
 
@@ -372,25 +379,24 @@ async fn zone_control_loop(
                 state.clear_errors();
                 state.current_temp_c = reading.celsius;
 
+                // Take the mode and target from Matter state, so a setpoint or
+                // mode change made in a Matter controller drives the relay.
+                // Any mode other than Heat yields HeatingState::Off.
+                let (target_state, target_c) = matter::get_control_target(zone_index);
+                if target_c != state.target_temp_c {
+                    info!(
+                        "[{}] Target changed: {:.1}C -> {:.1}C",
+                        zone_name, state.target_temp_c, target_c
+                    );
+                    state.target_temp_c = target_c;
+                }
+
                 debug!(
                     "[{}] Temp: {:.1}C, Target: {:.1}C, Heating: {}",
                     zone_name,
                     reading.celsius,
                     state.target_temp_c,
                     if state.heating_active { "ON" } else { "OFF" }
-                );
-
-                // Sync temperature to Matter state (so HomeKit/Google/Alexa can see it)
-                // Zone index is derived from zone name (Zone1 -> 0, Zone2 -> 1, etc.)
-                let zone_index = zone_name
-                    .strip_prefix("Zone")
-                    .and_then(|n| n.parse::<usize>().ok())
-                    .map(|n| n.saturating_sub(1))
-                    .unwrap_or(0);
-                matter::update_matter_from_control_loop(
-                    zone_index,
-                    reading.celsius,
-                    state.heating_active,
                 );
 
                 // Publish temperature to MQTT (messages queue until MQTT connects)
@@ -405,7 +411,6 @@ async fn zone_control_loop(
                 }
 
                 // Apply hysteresis control
-                let target_state = HeatingState::Heat;
                 let new_relay_state = apply_hysteresis_control(
                     reading.celsius,
                     state.target_temp_c,
@@ -443,6 +448,15 @@ async fn zone_control_loop(
                         }
                     }
                 }
+
+                // Sync temperature and running state to Matter (so
+                // HomeKit/Google/Alexa can see them). Done after the relay
+                // update so the running state is current.
+                matter::update_matter_from_control_loop(
+                    zone_index,
+                    reading.celsius,
+                    state.heating_active,
+                );
             }
             Err(e) => {
                 // Sensor error handling

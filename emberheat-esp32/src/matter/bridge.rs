@@ -44,6 +44,7 @@
 //! ```
 
 use crate::matter::zones::get_zone_state;
+use emberheat_core::HeatingState;
 use emberheat_matter::types::SystemMode;
 
 /// Update Matter state from emberheat-core control loop
@@ -64,6 +65,22 @@ pub fn update_matter_from_control_loop(
     if let Some(state) = get_zone_state(zone_index) {
         state.set_local_temperature_celsius(current_temp_c);
         state.set_heating_active(heating_active);
+    }
+}
+
+/// What the control loop should regulate to for a zone, as set through Matter.
+///
+/// Returns the heating state and target temperature in Celsius. Heating is
+/// only called for when the zone's Matter mode is `Heat`; any other mode, or a
+/// zone with no Matter state, yields `HeatingState::Off` so the relay stays off.
+/// The target is returned in both cases so it can still be logged and published.
+pub fn get_control_target(zone_index: usize) -> (HeatingState, f32) {
+    match get_zone_state(zone_index) {
+        Some(state) => match state.heating_demand_celsius() {
+            Some(target_c) => (HeatingState::Heat, target_c),
+            None => (HeatingState::Off, state.get_setpoint_celsius()),
+        },
+        None => (HeatingState::Off, emberheat_core::DEFAULT_TEMP_C),
     }
 }
 
@@ -192,6 +209,22 @@ mod tests {
         update_matter_from_control_loop(0, 22.0, false);
         assert_eq!(state.get_local_temperature_celsius(), Some(22.0));
         assert!(!state.is_heating());
+    }
+
+    #[test]
+    fn test_get_control_target() {
+        // Heat mode: heat to the Matter setpoint
+        sync_local_state_to_matter(0, 23.0, true, None);
+        assert_eq!(get_control_target(0), (HeatingState::Heat, 23.0));
+
+        // Off mode: relay must stay off, setpoint still reported
+        set_matter_mode(0, false);
+        assert_eq!(get_control_target(0), (HeatingState::Off, 23.0));
+
+        // Unknown zone: off
+        assert_eq!(get_control_target(99).0, HeatingState::Off);
+
+        set_matter_mode(0, true);
     }
 
     #[test]

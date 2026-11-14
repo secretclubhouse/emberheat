@@ -207,6 +207,19 @@ impl ZoneThermostatState {
         matches!(self.get_system_mode(), SystemMode::Heat | SystemMode::Cool)
     }
 
+    /// The temperature the control loop should heat to, if heating is called for.
+    ///
+    /// Returns the heating setpoint only when the mode is `Heat`. Every other
+    /// mode returns `None`: this is heating-only hardware, so `Cool` must never
+    /// run the relay, and `Auto` is not offered to controllers. An unreadable
+    /// mode already reads as `Off`.
+    pub fn heating_demand_celsius(&self) -> Option<f32> {
+        match self.get_system_mode() {
+            SystemMode::Heat => Some(self.get_setpoint_celsius()),
+            _ => None,
+        }
+    }
+
     // ---- Running state getters/setters ----
 
     /// Get the running state bitmap
@@ -274,6 +287,40 @@ pub enum SetpointError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_heating_demand_follows_setpoint_in_heat_mode() {
+        let state = ZoneThermostatState::new();
+        state.set_system_mode(SystemMode::Heat);
+        state.set_setpoint_celsius(22.5).unwrap();
+
+        assert_eq!(state.heating_demand_celsius(), Some(22.5));
+
+        state.set_setpoint_celsius(18.0).unwrap();
+        assert_eq!(state.heating_demand_celsius(), Some(18.0));
+    }
+
+    #[test]
+    fn test_no_heating_demand_when_off() {
+        let state = ZoneThermostatState::new();
+        state.set_setpoint_celsius(25.0).unwrap();
+        state.set_system_mode(SystemMode::Off);
+
+        assert_eq!(state.heating_demand_celsius(), None);
+    }
+
+    #[test]
+    fn test_no_heating_demand_in_cool_or_auto_mode() {
+        // This is heating-only hardware: only an explicit Heat mode may run the relay
+        let state = ZoneThermostatState::new();
+        state.set_setpoint_celsius(25.0).unwrap();
+
+        state.set_system_mode(SystemMode::Cool);
+        assert_eq!(state.heating_demand_celsius(), None);
+
+        state.set_system_mode(SystemMode::Auto);
+        assert_eq!(state.heating_demand_celsius(), None);
+    }
 
     #[test]
     fn test_new_state_defaults() {
