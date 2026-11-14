@@ -2,11 +2,13 @@
 //!
 //! Handles WiFi connectivity using esp-radio with Embassy async support.
 
-use alloc::string::String;
 use core::str::FromStr;
 use embassy_net::Stack;
 use embassy_time::{Duration, Timer};
-use esp_radio::wifi::{ClientConfig, ModeConfig, WifiController};
+use esp_radio::wifi::sta::StationConfig;
+use esp_radio::wifi::{
+    AuthenticationMethodConfig, Config, ControllerConfig, Interface, Password, Ssid, WifiController,
+};
 use log::{info, warn};
 
 /// WiFi credentials and configuration
@@ -39,19 +41,13 @@ pub async fn init_wifi(
     info!("Initializing WiFi...");
     info!("SSID: {}", config.ssid);
 
-    // Initialize esp-radio controller (no arguments needed)
-    let radio_init = {
-        use static_cell::StaticCell;
-        static RADIO: StaticCell<esp_radio::Controller<'static>> = StaticCell::new();
-        RADIO.init_with(|| esp_radio::init().expect("Failed to initialize radio controller"))
-    };
+    // Create the WiFi controller. esp-radio 1.0 initializes the radio itself;
+    // there is no separate radio controller object any more.
+    let wifi_controller = WifiController::new(wifi_peripheral, ControllerConfig::default())
+        .map_err(|_| "Failed to create WiFi device")?;
 
-    // Create WiFi controller and interfaces
-    let (wifi_controller, interfaces) =
-        esp_radio::wifi::new(radio_init, wifi_peripheral, Default::default())
-            .map_err(|_| "Failed to create WiFi device")?;
-
-    let wifi_interface = interfaces.sta;
+    // The station (client) interface is the embassy-net driver
+    let wifi_interface = Interface::station();
 
     // Generate random seed for network stack
     let seed = 1234u64; // In production, use hardware RNG
@@ -78,23 +74,17 @@ pub async fn init_wifi(
     };
 
     // Spawn network stack task
-    spawner
-        .spawn(connection_task(runner))
-        .map_err(|_| "Failed to spawn network task")?;
+    spawner.spawn(connection_task(runner).map_err(|_| "Failed to spawn network task")?);
 
     // Spawn WiFi controller task
-    spawner
-        .spawn(wifi_task(wifi_controller, config))
-        .map_err(|_| "Failed to spawn WiFi task")?;
+    spawner.spawn(wifi_task(wifi_controller, config).map_err(|_| "Failed to spawn WiFi task")?);
 
     Ok(stack)
 }
 
 /// Embassy task for network stack
 #[embassy_executor::task]
-async fn connection_task(
-    mut runner: embassy_net::Runner<'static, esp_radio::wifi::WifiDevice<'static>>,
-) {
+async fn connection_task(mut runner: embassy_net::Runner<'static, Interface>) {
     runner.run().await
 }
 
@@ -104,46 +94,51 @@ async fn wifi_task(mut controller: WifiController<'static>, config: WifiConfig) 
     info!("WiFi task starting");
 
     loop {
-        // Wait for WiFi driver to be ready
-        if !controller.is_started().unwrap_or(false) {
-            let client_config = ModeConfig::Client(
-                ClientConfig::default()
-                    .with_ssid(String::from(config.ssid.as_str()))
-                    .with_password(String::from(config.password.as_str())),
-            );
-
-            if let Err(e) = controller.set_config(&client_config) {
-                warn!("Failed to set WiFi configuration: {:?}", e);
+        let station_config = match build_station_config(&config) {
+            Ok(station_config) => station_config,
+            Err(e) => {
+                warn!("Invalid WiFi configuration: {}", e);
                 Timer::after(Duration::from_secs(5)).await;
                 continue;
             }
+        };
 
-            info!("Starting WiFi controller");
-            if let Err(e) = controller.start() {
-                warn!("Failed to start WiFi: {:?}", e);
-                Timer::after(Duration::from_secs(5)).await;
-                continue;
-            }
+        if let Err(e) = controller.set_config(&Config::Station(station_config)) {
+            warn!("Failed to set WiFi configuration: {:?}", e);
+            Timer::after(Duration::from_secs(5)).await;
+            continue;
         }
 
-        // Try to connect (not async in esp-radio)
-        match controller.connect() {
+        match controller.connect_async().await {
             Ok(_) => {
                 info!("WiFi connected successfully");
-
-                // Keep running - connection is maintained by controller
-                loop {
-                    Timer::after(Duration::from_secs(60)).await;
-                }
+                // Stay here while the connection is up, then loop to reconnect
+                let _ = controller.wait_for_disconnect_async().await;
+                warn!("WiFi disconnected, reconnecting");
             }
             Err(e) => {
                 warn!("WiFi connection failed: {:?}", e);
                 Timer::after(Duration::from_secs(5)).await;
             }
         }
-
         Timer::after(Duration::from_secs(1)).await;
     }
+}
+
+/// Build the esp-radio station configuration from our WiFi settings
+fn build_station_config(config: &WifiConfig) -> Result<StationConfig, &'static str> {
+    let ssid = Ssid::try_from(config.ssid.as_str()).map_err(|_| "invalid SSID")?;
+    let authentication = if config.password.is_empty() {
+        AuthenticationMethodConfig::Open
+    } else {
+        AuthenticationMethodConfig::Wpa2Personal(
+            Password::try_from(config.password.as_str()).map_err(|_| "invalid password")?,
+        )
+    };
+
+    Ok(StationConfig::default()
+        .with_ssid(ssid)
+        .with_authentication(authentication))
 }
 
 #[cfg(test)]

@@ -45,7 +45,6 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::gpio::{Level, Output, OutputConfig};
-use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println::println;
 use log::{debug, error, info, warn};
@@ -78,7 +77,6 @@ use wifi::WifiConfig;
 use zone::ZoneState;
 
 #[cfg(feature = "matter")]
-use esp_radio::Controller as EspRadioController;
 #[cfg(feature = "matter")]
 use matter::stack::matter_task;
 
@@ -152,10 +150,6 @@ static HYSTERESIS: StaticCell<HysteresisConfig> = StaticCell::new();
 // MQTT message channel for async communication (used in both MQTT-only and Matter modes)
 static MQTT_CHANNEL: Channel<CriticalSectionRawMutex, mqtt::MqttMessage, MQTT_QUEUE_SIZE> =
     Channel::new();
-
-// Radio controller for Matter WiFi+BLE coexistence
-#[cfg(feature = "matter")]
-static RADIO_CONTROLLER: StaticCell<EspRadioController<'static>> = StaticCell::new();
 
 // =============================================================================
 // MQTT Message Helpers
@@ -501,7 +495,6 @@ async fn mqtt_task(stack: &'static embassy_net::Stack<'static>, config: mqtt::Mq
 #[cfg(all(feature = "matter", not(feature = "external-ble")))]
 #[embassy_executor::task]
 async fn matter_main_task(
-    controller: &'static EspRadioController<'static>,
     wifi: esp_hal::peripherals::WIFI<'static>,
     bt: esp_hal::peripherals::BT<'static>,
     rng: esp_hal::peripherals::RNG<'static>,
@@ -518,13 +511,12 @@ async fn matter_main_task(
     load_all_zones(&mut store).await;
 
     // Run Matter with flash-backed persistence
-    matter_task(controller, wifi, bt, rng, adc1, store, user_task).await
+    matter_task(wifi, bt, rng, adc1, store, user_task).await
 }
 
 #[cfg(feature = "external-ble")]
 #[embassy_executor::task]
 async fn matter_main_task_dual_radio(
-    controller: &'static EspRadioController<'static>,
     wifi: esp_hal::peripherals::WIFI<'static>,
     uart_rx: esp_hal::uart::UartRx<'static, esp_hal::Async>,
     uart_tx: esp_hal::uart::UartTx<'static, esp_hal::Async>,
@@ -542,7 +534,7 @@ async fn matter_main_task_dual_radio(
     load_all_zones(&mut store).await;
 
     // Run Matter with flash-backed persistence
-    let driver = DualRadioDriver::new(controller, wifi, uart_rx, uart_tx);
+    let driver = DualRadioDriver::new(wifi, uart_rx, uart_tx);
     matter_task_dual_radio(driver, rng, adc1, store, user_task).await
 }
 
@@ -838,8 +830,7 @@ async fn main(spawner: Spawner) {
 
     // Initialize esp-rtos scheduler with timer and software interrupt
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     println!("====================================");
     info!("====================================");
@@ -907,9 +898,7 @@ async fn main(spawner: Spawner) {
         .expect("Failed to create MQTT config");
 
         // Spawn MQTT task
-        spawner
-            .spawn(mqtt_task(stack, mqtt_config))
-            .expect("Failed to spawn MQTT task");
+        spawner.spawn(mqtt_task(stack, mqtt_config).expect("Failed to spawn MQTT task"));
         info!("MQTT task spawned");
     }
 
@@ -922,8 +911,6 @@ async fn main(spawner: Spawner) {
         info!("  Zones: 1 (single zone test)");
 
         // Initialize esp-radio for WiFi+BLE coexistence
-        let controller =
-            RADIO_CONTROLLER.init(esp_radio::init().expect("Failed to initialize esp-radio"));
 
         // Configure MQTT for Matter mode (runs inside Matter's UserTask)
         info!("------------------------------------");
@@ -963,17 +950,17 @@ async fn main(spawner: Spawner) {
         );
 
         // Spawn Matter task (handles WiFi + MQTT)
-        spawner
-            .spawn(matter_main_task(
-                controller,
+        spawner.spawn(
+            matter_main_task(
                 peripherals.WIFI,
                 peripherals.BT,
                 peripherals.RNG,
                 peripherals.ADC1,
                 peripherals.FLASH,
                 mqtt_bridge,
-            ))
-            .expect("Failed to spawn Matter task");
+            )
+            .expect("Failed to spawn Matter task"),
+        );
         info!("Matter task spawned");
     }
 
@@ -990,8 +977,6 @@ async fn main(spawner: Spawner) {
         );
 
         // Initialize esp-radio for WiFi (BLE comes from H2 over UART)
-        let controller =
-            RADIO_CONTROLLER.init(esp_radio::init().expect("Failed to initialize esp-radio"));
 
         // Initialize UART for HCI transport to ESP32-H2 with hardware flow control
         // Use a low FIFO threshold to trigger reads before the buffer overflows
@@ -1046,9 +1031,8 @@ async fn main(spawner: Spawner) {
         );
 
         // Spawn dual-radio Matter task (C6 WiFi + H2 BLE)
-        spawner
-            .spawn(matter_main_task_dual_radio(
-                controller,
+        spawner.spawn(
+            matter_main_task_dual_radio(
                 peripherals.WIFI,
                 uart_rx,
                 uart_tx,
@@ -1056,8 +1040,9 @@ async fn main(spawner: Spawner) {
                 peripherals.ADC1,
                 peripherals.FLASH,
                 mqtt_bridge,
-            ))
-            .expect("Failed to spawn Matter dual-radio task");
+            )
+            .expect("Failed to spawn Matter dual-radio task"),
+        );
         info!("Matter dual-radio task spawned (C6 WiFi + H2 BLE)");
     }
 
@@ -1202,50 +1187,43 @@ async fn main(spawner: Spawner) {
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor1, pin1, state1) {
         spawner
-            .spawn(zone1_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone1 task");
+            .spawn(zone1_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone1 task"));
         info!("  Zone1 task spawned");
     }
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor2, pin2, state2) {
         spawner
-            .spawn(zone2_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone2 task");
+            .spawn(zone2_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone2 task"));
         info!("  Zone2 task spawned");
     }
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor3, pin3, state3) {
         spawner
-            .spawn(zone3_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone3 task");
+            .spawn(zone3_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone3 task"));
         info!("  Zone3 task spawned");
     }
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor4, pin4, state4) {
         spawner
-            .spawn(zone4_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone4 task");
+            .spawn(zone4_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone4 task"));
         info!("  Zone4 task spawned");
     }
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor5, pin5, state5) {
         spawner
-            .spawn(zone5_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone5 task");
+            .spawn(zone5_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone5 task"));
         info!("  Zone5 task spawned");
     }
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor6, pin6, state6) {
         spawner
-            .spawn(zone6_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone6 task");
+            .spawn(zone6_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone6 task"));
         info!("  Zone6 task spawned");
     }
 
     if let (Some(sensor), Some(pin), Some(state)) = (sensor7, pin7, state7) {
         spawner
-            .spawn(zone7_task(sensor, pin, state, hysteresis))
-            .expect("Failed to spawn Zone7 task");
+            .spawn(zone7_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone7 task"));
         info!("  Zone7 task spawned");
     }
 

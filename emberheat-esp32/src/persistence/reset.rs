@@ -46,7 +46,8 @@ where
     // 2. Reset Matter stack if provided
     if let Some(m) = matter {
         log::info!("Resetting Matter stack...");
-        m.reset_persist(false);
+        // Persisted Matter state was wiped with the flash erase above; the
+        // in-memory copy is discarded when the caller reboots the device.
         m.reset_transport()?;
         log::info!("Matter stack reset");
     }
@@ -74,16 +75,16 @@ pub async fn reset_zone_states<F>(store: &mut FlashKvBlobStore<F>) -> Result<(),
 where
     F: NorFlash + MultiwriteNorFlash,
 {
-    use rs_matter_embassy::stack::persist::KvBlobStore;
+    use rs_matter_embassy::matter::persist::KvBlobStore;
 
     log::info!("Resetting zone states...");
 
     // Remove zone keys from flash
     for zone_idx in 0..NUM_ZONES {
         let key = zone_key(zone_idx);
-        let mut buf = [0u8; 8];
-        // Ignore errors - key might not exist
-        let _ = store.remove(key, &mut buf).await;
+        let mut buf = [0u8; 64]; // Scratch buffer for sequential-storage
+                                 // Ignore errors - key might not exist
+        let _ = store.remove(key, &mut buf);
     }
 
     // Reset in-memory state

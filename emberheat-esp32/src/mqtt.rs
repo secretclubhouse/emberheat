@@ -4,19 +4,21 @@
 //! historical tracking and monitoring. Uses rust-mqtt for no_std compatibility.
 
 use core::fmt::Write as FmtWrite;
+use core::num::NonZero;
 use core::str::FromStr;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Sender};
 use embassy_time::{Duration, Timer};
-use embedded_io_async::Write;
 use heapless::String;
 use log::{error, info, warn};
-use rust_mqtt::client::client::MqttClient;
-use rust_mqtt::client::client_config::ClientConfig;
-use rust_mqtt::packet::v5::publish_packet::QualityOfService;
-use rust_mqtt::utils::rng_generator::CountingRng;
+use rust_mqtt::buffer::BumpBuffer;
+use rust_mqtt::client::options::{ConnectOptions, PublicationOptions, TopicReference};
+use rust_mqtt::client::Client;
+use rust_mqtt::config::KeepAlive;
+use rust_mqtt::types::{MqttBinary, MqttString, TopicName};
+use rust_mqtt::Bytes;
 
 /// MQTT message queue depth (buffered messages before blocking)
 const MQTT_QUEUE_SIZE: usize = 16;
@@ -213,7 +215,7 @@ pub async fn mqtt_task(
     loop {
         info!("Connecting to MQTT broker...");
 
-        match mqtt_connect_and_publish(stack, &config, rx_channel).await {
+        match mqtt_connect_and_publish(*stack, &config, rx_channel).await {
             Ok(_) => {
                 info!("MQTT connection closed gracefully");
                 backoff_secs = 1; // Reset backoff on clean disconnect
@@ -231,15 +233,15 @@ pub async fn mqtt_task(
 }
 
 /// Connect to MQTT broker and publish messages from queue
-async fn mqtt_connect_and_publish(
-    stack: &'static Stack<'static>,
+pub(crate) async fn mqtt_connect_and_publish(
+    stack: Stack<'static>,
     config: &MqttConfig,
     rx_channel: &'static Channel<CriticalSectionRawMutex, MqttMessage, MQTT_QUEUE_SIZE>,
 ) -> Result<(), &'static str> {
     // Create TCP socket for MQTT connection
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
-    let mut socket = TcpSocket::new(*stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     // Resolve broker hostname (DNS lookup)
@@ -268,44 +270,45 @@ async fn mqtt_connect_and_publish(
 
     info!("TCP connected, initializing MQTT client");
 
-    // Create MQTT client configuration
-    let mut mqtt_config = ClientConfig::new(
-        rust_mqtt::client::client_config::MqttVersion::MQTTv5,
-        CountingRng(20000),
-    );
-    mqtt_config.add_max_subscribe_qos(QualityOfService::QoS0);
-    mqtt_config.add_client_id(config.client_id.as_str());
-    mqtt_config.max_packet_size = 1024;
-    mqtt_config.keep_alive = MQTT_KEEPALIVE_SECS;
+    // Scratch space the client uses for data it receives from the broker
+    let mut mqtt_buffer = [0u8; 1024];
+    let mut mqtt_buffer = BumpBuffer::new(&mut mqtt_buffer);
+
+    // Publish-only client: no subscriptions, QoS 0 only, no topic aliases
+    let mut client = Client::<'_, '_, _, _, 1, 1, 1, 1, 0, 0, 0>::new(&mut mqtt_buffer);
+
+    let mut connect_options = ConnectOptions::new()
+        .clean_start()
+        .keep_alive(KeepAlive::Seconds(
+            NonZero::new(MQTT_KEEPALIVE_SECS).ok_or("Keep-alive must be non-zero")?,
+        ));
 
     // Add authentication if configured
     if let Some(ref username) = config.username {
-        mqtt_config.add_username(username.as_str());
+        connect_options = connect_options.user_name(
+            MqttString::try_from(username.as_str()).map_err(|_| "Invalid MQTT username")?,
+        );
         info!("MQTT auth: using username '{}'", username);
     }
     if let Some(ref password) = config.password {
-        mqtt_config.add_password(password.as_str());
+        connect_options = connect_options.password(
+            MqttBinary::try_from(password.as_str()).map_err(|_| "Invalid MQTT password")?,
+        );
     }
-
-    // Create MQTT client
-    let mut recv_buffer = [0; 1024];
-    let mut write_buffer = [0; 1024];
-
-    let mut client = MqttClient::<_, 5, _>::new(
-        socket,
-        &mut write_buffer,
-        1024,
-        &mut recv_buffer,
-        1024,
-        mqtt_config,
-    );
 
     // Connect to MQTT broker
     info!("Sending MQTT CONNECT");
+    let client_id =
+        MqttString::try_from(config.client_id.as_str()).map_err(|_| "Invalid MQTT client id")?;
     client
-        .connect_to_broker()
+        .connect(socket, &connect_options, Some(client_id))
         .await
         .map_err(|_| "MQTT connect failed")?;
+
+    // The CONNACK data is no longer needed; release the scratch space
+    unsafe {
+        client.buffer_mut().reset();
+    }
 
     info!("MQTT connected successfully");
 
@@ -314,15 +317,13 @@ async fn mqtt_connect_and_publish(
     write!(status_topic, "thermostat/{}/status", config.device_id)
         .map_err(|_| "Status topic too long")?;
 
-    client
-        .send_message(
-            status_topic.as_str(),
-            b"{\"status\":\"online\"}",
-            QualityOfService::QoS0,
-            false,
-        )
-        .await
-        .map_err(|_| "Failed to publish online status")?;
+    publish_qos0(
+        &mut client,
+        status_topic.as_str(),
+        b"{\"status\":\"online\"}",
+    )
+    .await
+    .map_err(|_| "Failed to publish online status")?;
 
     info!("Published online status, entering message loop");
 
@@ -333,25 +334,25 @@ async fn mqtt_connect_and_publish(
         let message = rx_channel.receive().await;
 
         // Publish to MQTT broker
-        match client
-            .send_message(
-                message.topic.as_str(),
-                message.payload.as_bytes(),
-                QualityOfService::QoS0,
-                false,
-            )
-            .await
+        match publish_qos0(
+            &mut client,
+            message.topic.as_str(),
+            message.payload.as_bytes(),
+        )
+        .await
         {
-            Ok(_) => {
+            Ok(()) => {
                 message_count += 1;
-                // Log every message for debugging (can reduce later)
-                info!(
-                    "MQTT published #{}: {} -> {}",
-                    message_count, message.topic, message.payload
-                );
+                // Log periodically to avoid spam
+                if message_count % 10 == 1 {
+                    info!(
+                        "MQTT published #{}: {} -> {}",
+                        message_count, message.topic, message.payload
+                    );
+                }
             }
-            Err(e) => {
-                error!("Failed to publish MQTT message: {:?}", e);
+            Err(()) => {
+                error!("Failed to publish MQTT message to {}", message.topic);
                 return Err("MQTT publish failed");
             }
         }
@@ -359,6 +360,26 @@ async fn mqtt_connect_and_publish(
         // Small yield to allow other tasks to run and prevent overwhelming the network
         Timer::after(Duration::from_millis(10)).await;
     }
+}
+
+/// The MQTT client type used by this firmware (publish-only, QoS 0)
+type MqttClient<'a, 'c, 's> = Client<'a, 'c, TcpSocket<'s>, BumpBuffer<'c>, 1, 1, 1, 1, 0, 0, 0>;
+
+/// Publish one QoS 0 (fire-and-forget) message
+async fn publish_qos0(
+    client: &mut MqttClient<'_, '_, '_>,
+    topic: &str,
+    payload: &[u8],
+) -> Result<(), ()> {
+    let topic = MqttString::try_from(topic).map_err(|_| ())?;
+    let topic = TopicName::new(topic).ok_or(())?;
+    let options = PublicationOptions::new(TopicReference::Name(topic));
+
+    client
+        .publish(&options, Bytes::from(payload))
+        .await
+        .map(|_| ())
+        .map_err(|e| error!("MQTT publish error: {:?}", e))
 }
 
 /// Convert Celsius to Fahrenheit

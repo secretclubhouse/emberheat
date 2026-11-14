@@ -23,24 +23,22 @@ use rs_matter_embassy::matter::dm::clusters::desc::{self, ClusterHandler as _};
 use rs_matter_embassy::matter::dm::devices::test::DAC_PRIVKEY;
 use rs_matter_embassy::matter::dm::devices::test::TEST_DEV_ATT;
 use rs_matter_embassy::matter::dm::{
-    Access, Async, Attribute, Cluster, Dataver, DeviceType, EmptyHandler, Endpoint, EpClMatcher,
-    Handler, Node, NonBlockingHandler, Quality, ReadContext, ReadReply, Reply, WriteContext,
+    Access, Async, Attribute, Cluster, Dataver, DeviceType, EmptyHandler, Endpoint, Handler,
+    MatchContext, Node, NonBlockingHandler, Quality, ReadContext, ReadReply, Reply, WriteContext,
 };
 use rs_matter_embassy::matter::error::{Error, ErrorCode};
+use rs_matter_embassy::matter::persist::KvBlobStore;
 use rs_matter_embassy::matter::tlv::Nullable;
 use rs_matter_embassy::matter::utils::init::InitMaybeUninit;
 use rs_matter_embassy::matter::{clusters, devices, BasicCommData};
-use rs_matter_embassy::stack::persist::KvBlobStore;
 use rs_matter_embassy::stack::rand::reseeding_csprng;
 use rs_matter_embassy::wireless::esp::EspWifiDriver;
 #[cfg(feature = "external-ble")]
 use rs_matter_embassy::wireless::{BleDriver, WifiCoexDriver, WifiDriver};
 use rs_matter_embassy::wireless::{EmbassyWifi, EmbassyWifiMatterStack};
 
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use esp_hal::peripherals::{BT, WIFI};
 use esp_hal::rng::{Trng, TrngSource};
-use esp_radio::Controller as EspRadioController;
 
 use log::{debug, info, warn};
 
@@ -181,6 +179,10 @@ impl<H> DescriptorLoggingHandler<H> {
 }
 
 impl<H: Handler> Handler for DescriptorLoggingHandler<H> {
+    fn bump_dataver(&self, ctx: impl MatchContext) {
+        self.inner.bump_dataver(ctx)
+    }
+
     fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
         let attr = ctx.attr();
         let attr_id = attr.attr_id;
@@ -275,6 +277,10 @@ impl IdentifyHandler {
 }
 
 impl Handler for IdentifyHandler {
+    fn bump_dataver(&self, _ctx: impl MatchContext) {
+        self.dataver.changed();
+    }
+
     fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
         let attr = ctx.attr();
         let attr_id = attr.attr_id;
@@ -339,6 +345,8 @@ pub const IDENTIFY_CLUSTER: Cluster<'static> = Cluster::new(
     0x00,             // feature map (no optional features)
     IDENTIFY_ATTRIBUTES,
     &[], // commands (Identify command not implemented)
+    &[], // events (none)
+    |_, _, _| true,
     |_, _, _| true,
     |_, _, _| true,
 );
@@ -391,6 +399,10 @@ impl ThermostatUiConfigHandler {
 }
 
 impl Handler for ThermostatUiConfigHandler {
+    fn bump_dataver(&self, _ctx: impl MatchContext) {
+        self.dataver.changed();
+    }
+
     fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
         let attr = ctx.attr();
         let attr_id = attr.attr_id;
@@ -471,6 +483,8 @@ pub const THERMOSTAT_UI_CONFIG_CLUSTER: Cluster<'static> = Cluster::new(
     0x00,                         // feature map (no optional features)
     THERMOSTAT_UI_CONFIG_ATTRIBUTES,
     &[], // no commands
+    &[], // events (none)
+    |_, _, _| true,
     |_, _, _| true,
     |_, _, _| true,
 );
@@ -503,6 +517,10 @@ impl BindingHandler {
 }
 
 impl Handler for BindingHandler {
+    fn bump_dataver(&self, _ctx: impl MatchContext) {
+        self.dataver.changed();
+    }
+
     fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
         let attr = ctx.attr();
         let attr_id = attr.attr_id;
@@ -560,6 +578,8 @@ pub const BINDING_CLUSTER: Cluster<'static> = Cluster::new(
     0x00,            // feature map (no optional features)
     BINDING_ATTRIBUTES,
     &[], // no commands
+    &[], // events (none)
+    |_, _, _| true,
     |_, _, _| true,
     |_, _, _| true,
 );
@@ -680,6 +700,10 @@ fn thermostat_attr_name(attr_id: u32) -> &'static str {
 }
 
 impl Handler for ZoneThermostatCluster {
+    fn bump_dataver(&self, _ctx: impl MatchContext) {
+        self.dataver.changed();
+    }
+
     fn read(&self, ctx: impl ReadContext, reply: impl ReadReply) -> Result<(), Error> {
         let attr = ctx.attr();
         let attr_id = attr.attr_id;
@@ -1092,8 +1116,10 @@ pub const THERMOSTAT_CLUSTER: Cluster<'static> = Cluster::new(
     0x03,                  // feature map: Heating + Cooling features
     THERMOSTAT_ATTRIBUTES, // attributes
     &[],                   // commands
+    &[],                   // events (none)
     |_, _, _| true,        // with_attrs: include all
     |_, _, _| true,        // with_cmds: include all
+    |_, _, _| true,
 );
 
 // =============================================================================
@@ -1139,11 +1165,6 @@ const DEV_COMM: BasicCommData = BasicCommData {
 /// Total: ~40KB
 const BUMP_SIZE: usize = 40000;
 
-/// Epoch function for Matter timestamps
-fn epoch() -> core::time::Duration {
-    rs_matter_embassy::epoch::epoch()
-}
-
 /// Static allocation macro for Matter stack
 ///
 /// Using StaticCell for no_std embedded systems.
@@ -1168,7 +1189,6 @@ macro_rules! mk_static {
 ///
 /// # Arguments
 ///
-/// * `controller` - The esp-radio controller for WiFi+BLE
 /// * `wifi` - The WiFi peripheral
 /// * `bt` - The Bluetooth peripheral
 /// * `user_task` - User task that runs alongside Matter (can be `()` to disable)
@@ -1178,7 +1198,6 @@ macro_rules! mk_static {
 /// This function never returns under normal operation. It runs the Matter
 /// stack indefinitely, handling commissioning and attribute read/write requests.
 pub async fn matter_task<S, U>(
-    controller: &'static EspRadioController<'static>,
     wifi: WIFI<'static>,
     bt: BT<'static>,
     rng: esp_hal::peripherals::RNG<'static>,
@@ -1193,12 +1212,12 @@ pub async fn matter_task<S, U>(
 
     // Allocate Matter stack statically (~35-50KB)
     let stack = mk_static!(EmbassyWifiMatterStack::<BUMP_SIZE, ()>).init_with(
-        EmbassyWifiMatterStack::init(&DEV_DET, DEV_COMM, &TEST_DEV_ATT, epoch),
+        EmbassyWifiMatterStack::init(&DEV_DET, DEV_COMM, &TEST_DEV_ATT),
     );
 
     // Initialize crypto provider (replaces old esp_rand pattern)
     let _trng_source = TrngSource::new(rng, adc1);
-    let crypto = default_crypto::<NoopRawMutex, _>(
+    let crypto = default_crypto(
         reseeding_csprng(Trng::try_new().unwrap(), 1000).unwrap(),
         DAC_PRIVKEY,
     );
@@ -1231,34 +1250,28 @@ pub async fn matter_task<S, U>(
     let handler = EmptyHandler
         // Identify cluster on endpoint 1 (required by HomeKit)
         .chain(
-            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_IDENTIFY)),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_IDENTIFY,
             Async(&identify),
         )
         // Binding cluster on endpoint 1 (required by HomeKit for external sensor support)
         .chain(
-            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_BINDING)),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_BINDING,
             Async(&binding),
         )
         // Thermostat UI Configuration cluster on endpoint 1
         .chain(
-            EpClMatcher::new(
-                Some(FIRST_ZONE_ENDPOINT),
-                Some(CLUSTER_THERMOSTAT_UI_CONFIG),
-            ),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_THERMOSTAT_UI_CONFIG,
             Async(&thermostat_ui),
         )
         // Thermostat cluster on endpoint 1
         .chain(
-            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_THERMOSTAT)),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_THERMOSTAT,
             Async(&thermostat),
         )
         // Descriptor cluster on endpoint 1 (required by Matter spec)
         // Wrapped with logging to trace what HomeKit reads
         .chain(
-            EpClMatcher::new(
-                Some(FIRST_ZONE_ENDPOINT),
-                Some(desc::DescHandler::CLUSTER.id),
-            ),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == desc::DescHandler::CLUSTER.id,
             Async(DescriptorLoggingHandler::new(
                 desc::DescHandler::new(Dataver::new_rand(&mut weak_rand)).adapt(),
                 FIRST_ZONE_ENDPOINT,
@@ -1282,29 +1295,29 @@ pub async fn matter_task<S, U>(
     info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201) [HEAT+COOL]");
 
     // Create persister with the provided key-value store
-    let persist = stack
-        .create_persist_with_comm_window(&crypto, store)
-        .await
-        .unwrap();
+    // Load persisted Matter state (fabrics, WiFi credentials) and open the
+    // commissioning window if the device is not commissioned yet
+    let mut store = store;
+    stack.startup(&crypto, &mut store).await.unwrap();
+    let kv = stack.matter().kv(&mut store);
 
     info!("Matter: Persist created, starting stack...");
 
     // Define the Matter node with root endpoint + thermostat endpoint
     const NODE: Node = Node {
-        id: 0,
         endpoints: &[
             EmbassyWifiMatterStack::<0, ()>::root_endpoint(),
-            Endpoint {
-                id: FIRST_ZONE_ENDPOINT,
-                device_types: devices!(DEV_TYPE_THERMOSTAT),
-                clusters: clusters!(
+            Endpoint::new(
+                FIRST_ZONE_ENDPOINT,
+                devices!(DEV_TYPE_THERMOSTAT),
+                clusters!(
                     IDENTIFY_CLUSTER,
                     BINDING_CLUSTER,
                     THERMOSTAT_UI_CONFIG_CLUSTER,
                     desc::DescHandler::CLUSTER,
                     THERMOSTAT_CLUSTER
                 ),
-            },
+            ),
         ],
     };
 
@@ -1313,15 +1326,10 @@ pub async fn matter_task<S, U>(
     // Note: ESP32-C6 has a single radio, so BLE and WiFi time-share.
     // User task (e.g., MqttBridge) runs alongside Matter using the WiFi connection.
     let matter = pin!(stack.run_coex(
-        EmbassyWifi::new(
-            EspWifiDriver::new(controller, wifi, bt),
-            weak_rand,
-            true,
-            stack
-        ),
-        &persist,
+        EmbassyWifi::new(EspWifiDriver::new(wifi, bt), weak_rand, true, stack),
         &crypto,
-        (NODE, handler),
+        (NODE, &handler),
+        &kv,
         user_task,
     ));
 
@@ -1348,12 +1356,12 @@ pub async fn matter_task_dual_radio<D, S, U>(
     info!("Matter: Starting dual-radio task (C6 WiFi + H2 BLE)...");
 
     let stack = mk_static!(EmbassyWifiMatterStack::<BUMP_SIZE, ()>).init_with(
-        EmbassyWifiMatterStack::init(&DEV_DET, DEV_COMM, &TEST_DEV_ATT, epoch),
+        EmbassyWifiMatterStack::init(&DEV_DET, DEV_COMM, &TEST_DEV_ATT),
     );
 
     // Initialize crypto provider (replaces old esp_rand pattern)
     let _trng_source = TrngSource::new(rng, adc1);
-    let crypto = default_crypto::<NoopRawMutex, _>(
+    let crypto = default_crypto(
         reseeding_csprng(Trng::try_new().unwrap(), 1000).unwrap(),
         DAC_PRIVKEY,
     );
@@ -1376,29 +1384,23 @@ pub async fn matter_task_dual_radio<D, S, U>(
 
     let handler = EmptyHandler
         .chain(
-            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_IDENTIFY)),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_IDENTIFY,
             Async(&identify),
         )
         .chain(
-            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_BINDING)),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_BINDING,
             Async(&binding),
         )
         .chain(
-            EpClMatcher::new(
-                Some(FIRST_ZONE_ENDPOINT),
-                Some(CLUSTER_THERMOSTAT_UI_CONFIG),
-            ),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_THERMOSTAT_UI_CONFIG,
             Async(&thermostat_ui),
         )
         .chain(
-            EpClMatcher::new(Some(FIRST_ZONE_ENDPOINT), Some(CLUSTER_THERMOSTAT)),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_THERMOSTAT,
             Async(&thermostat),
         )
         .chain(
-            EpClMatcher::new(
-                Some(FIRST_ZONE_ENDPOINT),
-                Some(desc::DescHandler::CLUSTER.id),
-            ),
+            |e, c| e == FIRST_ZONE_ENDPOINT && c == desc::DescHandler::CLUSTER.id,
             Async(DescriptorLoggingHandler::new(
                 desc::DescHandler::new(Dataver::new_rand(&mut weak_rand)).adapt(),
                 FIRST_ZONE_ENDPOINT,
@@ -1420,34 +1422,34 @@ pub async fn matter_task_dual_radio<D, S, U>(
     info!("  Endpoint 1 clusters: Identify(0x03), Binding(0x1E), ThermostatUI(0x204), Descriptor(0x1D), Thermostat(0x201) [HEAT+COOL]");
 
     // Create persister with the provided key-value store
-    let persist = stack
-        .create_persist_with_comm_window(&crypto, store)
-        .await
-        .unwrap();
+    // Load persisted Matter state (fabrics, WiFi credentials) and open the
+    // commissioning window if the device is not commissioned yet
+    let mut store = store;
+    stack.startup(&crypto, &mut store).await.unwrap();
+    let kv = stack.matter().kv(&mut store);
 
     const NODE: Node = Node {
-        id: 0,
         endpoints: &[
             EmbassyWifiMatterStack::<0, ()>::root_endpoint(),
-            Endpoint {
-                id: FIRST_ZONE_ENDPOINT,
-                device_types: devices!(DEV_TYPE_THERMOSTAT),
-                clusters: clusters!(
+            Endpoint::new(
+                FIRST_ZONE_ENDPOINT,
+                devices!(DEV_TYPE_THERMOSTAT),
+                clusters!(
                     IDENTIFY_CLUSTER,
                     BINDING_CLUSTER,
                     THERMOSTAT_UI_CONFIG_CLUSTER,
                     desc::DescHandler::CLUSTER,
                     THERMOSTAT_CLUSTER
                 ),
-            },
+            ),
         ],
     };
 
     let matter = pin!(stack.run_coex(
         EmbassyWifi::new(driver, weak_rand, true, stack),
-        &persist,
         &crypto,
-        (NODE, handler),
+        (NODE, &handler),
+        &kv,
         user_task,
     ));
 

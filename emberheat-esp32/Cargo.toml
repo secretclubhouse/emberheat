@@ -13,26 +13,26 @@ emberheat-matter = { path = "../emberheat-matter" }
 
 # ESP32-C6 HAL and platform support (with unstable feature for esp-radio)
 # Note: Feature order matters - chip features must be consistent across all esp-* crates
-esp-hal = { version = "1.0", features = ["esp32c6", "unstable", "log-04"] }
-esp-rtos = { version = "0.2", features = ["esp32c6", "embassy", "esp-radio", "esp-alloc", "log-04"] }
-esp-backtrace = { version = "0.18", features = ["esp32c6", "panic-handler", "println"] }
-esp-println = { version = "0.16", features = ["esp32c6", "log-04"] }
-esp-alloc = { version = "0.9" }
-esp-storage = { version = "0.8", features = ["esp32c6"] }
+esp-hal = { version = "~1.2", features = ["esp32c6", "unstable", "log-04"] }
+esp-rtos = { version = "0.4", features = ["esp32c6", "embassy", "esp-radio", "esp-alloc", "log-04"] }
+esp-backtrace = { version = "0.20", features = ["esp32c6", "panic-handler", "println"] }
+esp-println = { version = "0.18", features = ["esp32c6", "log-04"] }
+esp-alloc = { version = "0.11" }
+esp-storage = { version = "0.10", features = ["esp32c6", "embedded-storage"] }
 
 # ESP-IDF bootloader provides linker scripts and boot sequence
-esp-bootloader-esp-idf = { version = "0.4", features = ["esp32c6"] }
+esp-bootloader-esp-idf = { version = "0.6", features = ["esp32c6"] }
 
 # Embassy dependencies (must match esp-rtos versions)
-embassy-executor = "0.9"
+embassy-executor = "0.10"
 embassy-futures = "0.1"
-embassy-sync = "0.7"
+embassy-sync = "0.8"
 embassy-time = "0.5"
 
 # Embedded HAL traits
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
-embassy-embedded-hal = "0.5"
+embassy-embedded-hal = "0.6"
 
 # I2C sensor driver (BME280)
 bme280 = { version = "0.5", default-features = false }
@@ -45,29 +45,31 @@ embedded-storage-async = "0.4"
 
 # WiFi and networking (esp-radio replaces esp-wifi)
 # unstable feature required for BLE commissioning via rs-matter-embassy
-esp-radio = { version = "0.17", features = ["esp32c6", "wifi", "ble", "unstable", "log-04"] }
-embassy-net = { version = "0.7", features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
-embedded-io-async = "0.6"
+esp-radio = { version = "1.0.0-beta.1", features = ["esp32c6", "wifi", "ble", "unstable", "log-04"] }
+embassy-net = { version = "0.9", features = ["tcp", "udp", "dns", "dhcpv4", "medium-ethernet"] }
+embedded-io-async = "0.7"
 
 # MQTT client (no_std compatible)
-rust-mqtt = { version = "0.3", default-features = false }
+rust-mqtt = { version = "0.6", default-features = false, features = ["v5", "bump", "log"] }
 
 # Matter protocol support via rs-matter-embassy
-# Using fork with global TCP stack storage for MQTT support
-# Fork: github.com/secretclubhouse/rs-matter-embassy (upstream: sysgrok/rs-matter-embassy)
-# embassy-net feature enables WiFi networking, esp feature enables ESP32 drivers
-rs-matter-embassy = { git = "https://github.com/secretclubhouse/rs-matter-embassy", branch = "stack-public", features = ["esp", "embassy-net", "log", "rustcrypto", "extra-sockets-2"] }
+# Fork: github.com/secretclubhouse/rs-matter-embassy, branch `emberheat-2026-09`
+# = upstream sysgrok/rs-matter-embassy at 2a806b0 (2026-09-28, the last commit built
+#   only on released crates) + one patch that exposes the embassy-net stack so the
+#   MQTT client can open a TCP socket on the WiFi connection Matter brings up.
+# enet-extra-sockets-2 reserves the sockets MQTT needs (TCP + DNS).
+rs-matter-embassy = { git = "https://github.com/secretclubhouse/rs-matter-embassy", branch = "emberheat-2026-09", default-features = false, features = ["esp", "embassy-net", "log", "rustcrypto", "trouble", "enet-extra-sockets-2"] }
 # Direct rs-matter dependency to enable max-fabrics-5 (default is 3, too few for HA + HomeKit + Google)
 # default-features = false avoids pulling in std feature which breaks embedded builds
-rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next", default-features = false, features = ["max-fabrics-5"] }
+rs-matter = { version = "0.4", default-features = false, features = ["max-fabrics-5"] }
 
 # 1-Wire DS18B20 temperature sensor (using RMT peripheral)
-# Note: esp-hal-rmt-onewire 0.4 has compatibility issues with esp-hal 1.0
+# Note: esp-hal-rmt-onewire 0.4 is not compatible with esp-hal 1.x / current Embassy
 # Enable via `onewire-rmt` feature when dependency is updated
 esp-hal-rmt-onewire = { version = "0.4", optional = true }
 
 # BLE HCI over UART for external controller (ESP32-H2)
-bt-hci = { version = "0.6", optional = true }
+bt-hci = { version = "0.10", optional = true }
 
 # Utilities
 log = { workspace = true }

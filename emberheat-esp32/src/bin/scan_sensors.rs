@@ -24,7 +24,6 @@ extern crate alloc;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
-use esp_hal::interrupt::software::SoftwareInterruptControl;
 use esp_hal::rmt::Rmt;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println::println;
@@ -50,8 +49,7 @@ async fn main(_spawner: Spawner) {
 
     // Initialize esp-rtos scheduler
     let timg0 = TimerGroup::new(peripherals.TIMG0);
-    let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
-    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
+    esp_rtos::start(timg0.timer0, peripherals.FROM_CPU_INTR0);
 
     println!("========================================");
     println!("DS18B20 Sensor Scanner Utility");

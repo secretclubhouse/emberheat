@@ -56,11 +56,13 @@ impl<'a> OneWire<'a> {
         let (input, output) = pin.split();
 
         let tx = txcc
-            .configure_tx(output.with_output_inverter(true), tx_config)
-            .map_err(Error::SendError)?;
+            .configure_tx(&tx_config)
+            .map_err(Error::ConfigError)?
+            .with_pin(output.with_output_inverter(true));
         let rx = rxcc
-            .configure_rx(input.clone().with_input_inverter(true), rx_config)
-            .map_err(Error::ReceiveError)?;
+            .configure_rx(&rx_config)
+            .map_err(Error::ConfigError)?
+            .with_pin(input.clone().with_input_inverter(true));
 
         Ok(OneWire { rx, tx, input })
     }
@@ -73,12 +75,12 @@ impl<'a> OneWire<'a> {
             PulseCode::new(Level::Low, 600, Level::Low, 0),
             PulseCode::end_marker(),
         ];
-        let mut indata = [PulseCode::end_marker().into(); 10];
+        let mut indata = [PulseCode::end_marker(); 10];
 
         let _res = self.send_and_receive(&mut indata, &data).await?;
 
-        let sample0 = PulseCode::from(indata[0]);
-        let sample1 = PulseCode::from(indata[1]);
+        let sample0 = indata[0];
+        let sample1 = indata[1];
         const PRESENCE_MIN_TICKS: u16 = 30; // 30 µs with 1 MHz tick
         const PRESENCE_MAX_TICKS: u16 = 500; // generous upper bound for noisy buses
 
@@ -90,7 +92,7 @@ impl<'a> OneWire<'a> {
 
     pub async fn send_and_receive(
         &mut self,
-        indata: &mut [u32],
+        indata: &mut [PulseCode],
         data: &[PulseCode],
     ) -> Result<(), Error> {
         let delay = [PulseCode::new(Level::Low, 30000, Level::Low, 0)]; // timeout delay for 30ms using the RMT tx peripheral.
@@ -145,14 +147,14 @@ impl<'a> OneWire<'a> {
 
     pub async fn exchange_byte(&mut self, byte: u8) -> Result<u8, Error> {
         let mut data = [PulseCode::end_marker(); 10];
-        let mut indata = [PulseCode::end_marker().into(); 10];
+        let mut indata = [PulseCode::end_marker(); 10];
         for n in 0..8 {
             data[n] = Self::encode_bit(0 != byte & 1 << n);
         }
         let _res = self.send_and_receive(&mut indata, &data).await?;
         let mut res: u8 = 0;
         for n in 0..8 {
-            if Self::decode_bit(PulseCode::from(indata[n])) {
+            if Self::decode_bit(indata[n]) {
                 res |= 1 << n;
             }
         }
@@ -279,6 +281,7 @@ pub enum Error {
     ReceiveTimedOut,
     ReceiveError(esp_hal::rmt::Error),
     SendError(esp_hal::rmt::Error),
+    ConfigError(esp_hal::rmt::ConfigError),
     NoDevicePresent,
     CrcError,
 }

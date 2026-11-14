@@ -217,7 +217,7 @@ impl<H: ThermostatHooks> ThermostatHandler<H> {
         match message {
             OutOfBandMessage::TemperatureUpdate => {
                 self.dataver_changed();
-                ctx.notify_attribute_changed(
+                ctx.notify_attr_changed(
                     self.endpoint_id,
                     Self::CLUSTER.id,
                     AttributeId::LocalTemperature as _,
@@ -225,7 +225,7 @@ impl<H: ThermostatHooks> ThermostatHandler<H> {
             }
             OutOfBandMessage::SetpointChanged => {
                 self.dataver_changed();
-                ctx.notify_attribute_changed(
+                ctx.notify_attr_changed(
                     self.endpoint_id,
                     Self::CLUSTER.id,
                     AttributeId::OccupiedHeatingSetpoint as _,
@@ -233,7 +233,7 @@ impl<H: ThermostatHooks> ThermostatHandler<H> {
             }
             OutOfBandMessage::HeatingStateChanged => {
                 self.dataver_changed();
-                ctx.notify_attribute_changed(
+                ctx.notify_attr_changed(
                     self.endpoint_id,
                     Self::CLUSTER.id,
                     AttributeId::ThermostatRunningState as _,
@@ -241,7 +241,7 @@ impl<H: ThermostatHooks> ThermostatHandler<H> {
             }
             OutOfBandMessage::ModeChanged => {
                 self.dataver_changed();
-                ctx.notify_attribute_changed(
+                ctx.notify_attr_changed(
                     self.endpoint_id,
                     Self::CLUSTER.id,
                     AttributeId::SystemMode as _,

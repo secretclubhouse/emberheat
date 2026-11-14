@@ -7,7 +7,7 @@ use core::ops::Range;
 
 use embedded_storage_async::nor_flash::{MultiwriteNorFlash, NorFlash};
 use rs_matter::error::{Error, ErrorCode};
-use rs_matter_embassy::stack::persist::KvBlobStore;
+use rs_matter::persist::KvBlobStore;
 use sequential_storage::cache::NoCache;
 use sequential_storage::map::{fetch_item, remove_item, store_item, SerializationError};
 
@@ -148,80 +148,58 @@ impl<F> KvBlobStore for FlashKvBlobStore<F>
 where
     F: NorFlash + MultiwriteNorFlash,
 {
-    async fn load<CB>(&mut self, key: u16, buf: &mut [u8], cb: CB) -> Result<(), Error>
-    where
-        CB: FnOnce(Option<&[u8]>) -> Result<(), Error>,
-    {
-        let storage_key = StorageKey(key);
-        let mut scratch = [0u8; 256]; // Larger buffer for Matter data
+    // rs-matter's `KvBlobStore` is synchronous. The flash driver underneath is a
+    // blocking driver wrapped in `BlockingAsync`, so its futures complete without
+    // ever pending and `block_on` returns immediately.
 
-        match fetch_item::<StorageKey, &[u8], _>(
+    fn load<'a>(&mut self, key: u16, buf: &'a mut [u8]) -> Result<Option<&'a [u8]>, Error> {
+        let storage_key = StorageKey(key);
+        let result = embassy_futures::block_on(fetch_item::<StorageKey, &[u8], _>(
             &mut self.flash,
             self.flash_range.clone(),
             &mut NoCache::new(),
-            &mut scratch,
+            buf,
             &storage_key,
-        )
-        .await
-        {
-            Ok(Some(data)) => {
-                let len = data.len().min(buf.len());
-                buf[..len].copy_from_slice(&data[..len]);
-                cb(Some(&buf[..len]))
-            }
-            Ok(None) => cb(None),
+        ));
+
+        match result {
+            Ok(data) => Ok(data),
             Err(e) => {
                 log::error!("KvBlobStore load error for key {}: {:?}", key, e);
-                cb(None) // Treat errors as missing data
+                Ok(None) // Treat errors as missing data
             }
         }
     }
 
-    async fn store<CB>(&mut self, key: u16, buf: &mut [u8], cb: CB) -> Result<(), Error>
-    where
-        CB: FnOnce(&mut [u8]) -> Result<usize, Error>,
-    {
-        // Call callback to fill buffer with data to store
-        let len = cb(buf)?;
-        let data = &buf[..len];
-
+    fn store(&mut self, key: u16, data: &[u8], buf: &mut [u8]) -> Result<(), Error> {
         let storage_key = StorageKey(key);
-        let mut scratch = [0u8; 256]; // Larger buffer for Matter data
-
-        store_item::<StorageKey, &[u8], _>(
+        embassy_futures::block_on(store_item::<StorageKey, &[u8], _>(
             &mut self.flash,
             self.flash_range.clone(),
             &mut NoCache::new(),
-            &mut scratch,
+            buf,
             &storage_key,
             &data,
-        )
-        .await
+        ))
         .map_err(|e| {
             log::error!("KvBlobStore store error for key {}: {:?}", key, e);
             Error::new(ErrorCode::StdIoError)
         })
     }
 
-    async fn remove(&mut self, key: u16, _buf: &mut [u8]) -> Result<(), Error> {
+    fn remove(&mut self, key: u16, buf: &mut [u8]) -> Result<(), Error> {
         let storage_key = StorageKey(key);
-        let mut scratch = [0u8; 64];
-
-        // remove_item returns Ok(true) if removed, Ok(false) if not found
-        match remove_item::<StorageKey, _>(
+        // remove_item succeeds whether or not the key existed
+        embassy_futures::block_on(remove_item::<StorageKey, _>(
             &mut self.flash,
             self.flash_range.clone(),
             &mut NoCache::new(),
-            &mut scratch,
+            buf,
             &storage_key,
-        )
-        .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                log::error!("KvBlobStore remove error for key {}: {:?}", key, e);
-                Err(ErrorCode::StdIoError.into())
-            }
-        }
+        ))
+        .map_err(|e| {
+            log::error!("KvBlobStore remove error for key {}: {:?}", key, e);
+            Error::new(ErrorCode::StdIoError)
+        })
     }
 }

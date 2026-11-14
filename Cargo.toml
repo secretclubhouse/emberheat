@@ -43,12 +43,3 @@ chrono = "0.4"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(matter_enabled)'] }
-
-# Patch crates.io dependencies to use sysgrok forks with Embassy 0.5+ support
-# These forks have been updated for embassy-time 0.5 compatibility
-[patch.crates-io]
-rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next" }
-rs-matter-stack = { git = "https://github.com/sysgrok/rs-matter-stack", branch = "next" }
-openthread = { git = "https://github.com/sysgrok/openthread", branch = "next" }
-# Note: rs-matter-embassy uses secretclubhouse/rs-matter-embassy fork (stack-public branch)
-# in emberheat-esp32/Cargo.toml to expose EnetNetif.stack for MQTT TCP support with Matter

@@ -7,13 +7,12 @@ description = "Matter Thermostat Cluster implementation for heating-only thermos
 
 [dependencies]
 # Matter protocol
-# Using sysgrok fork which is updated for Embassy 0.5+ compatibility
-# This must match the fork used by rs-matter-embassy to avoid trait conflicts
-rs-matter = { git = "https://github.com/sysgrok/rs-matter", branch = "next", default-features = false, features = ["rustcrypto"] }
+# Must be the same rs-matter version that rs-matter-embassy uses, to avoid trait conflicts
+rs-matter = { version = "0.4", default-features = false, features = ["rustcrypto"] }
 
 # Embassy async (for Signal, select, etc.)
 embassy-futures = "0.1"
-embassy-sync = "0.7"
+embassy-sync = "0.8"
 
 # Utilities
 log = { workspace = true }

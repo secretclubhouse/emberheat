@@ -15,7 +15,7 @@ EmberHeat is a multi-zone thermostat system for hydronic heating, written in Rus
 - **NUM_ZONES = 1** in `emberheat-esp32/src/config.rs` (reduced for Matter commissioning testing; 7-zone config is commented out)
 - **USE_MOCK_SENSORS = true** — real DS18B20 support is blocked on `esp-hal-rmt-onewire` compatibility with esp-hal 1.0
 - **Matter commissioning works** — tested with Apple Home
-- **MQTT works in Matter mode** — enabled via extra-sockets-2 in rs-matter-embassy fork
+- **MQTT works in Matter mode** — enabled via enet-extra-sockets-2 in rs-matter-embassy
 - See [GitHub Issues](https://github.com/secretclubhouse/emberheat/issues) for MVP blockers and feature backlog
 
 ## Project Structure
@@ -209,23 +209,22 @@ make lint
 - `async-trait` — Async traits
 
 **emberheat-matter (no_std):**
-- `rs-matter` — Matter protocol (sysgrok fork, `next` branch, Embassy 0.5+ compatible)
-- `embassy-sync` 0.7 — Signal for inter-task communication
+- `rs-matter` 0.4 — Matter protocol (crates.io release)
+- `embassy-sync` 0.8 — Signal for inter-task communication
 - `embassy-futures` 0.1 — Async select/Either
 - `heapless` 0.9 — No-std collections
 
 **emberheat-esp32:**
-- `esp-hal` 1.0 — ESP32-C6 HAL
-- `esp-rtos` 0.2 — Embassy runtime + esp-radio + esp-alloc
-- `esp-radio` 0.17 — WiFi + BLE
-- `rs-matter-embassy` — Matter Embassy integration (secretclubhouse fork, `stack-public` branch)
-- `sequential-storage` 3.0 — Wear-leveled flash KV store
-- `rust-mqtt` 0.3 — MQTT v5 client (no_std)
-- `embassy-executor` 0.9, `embassy-time` 0.5, `embassy-net` 0.7
+- `esp-hal` 1.2 — ESP32-C6 HAL (needs Rust 1.95+)
+- `esp-rtos` 0.4 — Embassy runtime + esp-radio + esp-alloc
+- `esp-radio` 1.0.0-beta.1 — WiFi + BLE
+- `rs-matter-embassy` — Matter Embassy integration (secretclubhouse fork, `emberheat-2026-09` branch)
+- `sequential-storage` 3.0 — Wear-leveled flash KV store (pinned to 3 by rs-matter-embassy)
+- `rust-mqtt` 0.6 — MQTT v5 client (no_std, supports subscribe)
+- `embassy-executor` 0.10, `embassy-time` 0.5, `embassy-net` 0.9
 
 **Forked dependencies (important):**
-- `rs-matter`: sysgrok/rs-matter `next` branch — updated for Embassy 0.5+
-- `rs-matter-embassy`: secretclubhouse/rs-matter-embassy `stack-public` branch — TCP stack access for MQTT + extra sockets
+- `rs-matter-embassy`: secretclubhouse/rs-matter-embassy `emberheat-2026-09` branch — upstream at 2a806b0 (2026-09-28) plus one patch giving MQTT access to the TCP stack. Later upstream commits depend on a patched esp-hal fork, so don't bump past this without checking.
 
 ## Common Tasks
 
