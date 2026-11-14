@@ -23,7 +23,7 @@ use rs_matter_embassy::wireless::{
     BleDriver, BleDriverTask, WifiCoexDriver, WifiCoexDriverTask, WifiDriver, WifiDriverTask,
 };
 
-use log::info;
+use log::{info, warn};
 
 /// Number of HCI command slots for the BLE controller
 ///
@@ -222,6 +222,59 @@ impl<'d> DualRadioDriver<'d> {
     }
 }
 
+impl DualRadioDriver<'_> {
+    /// Check the link to the freshly reset H2 and clear the receive side.
+    ///
+    /// `main` pulses the H2's reset line before this runs, so the H2's HCI
+    /// parser starts at a packet boundary. Anything the C6 received while the
+    /// H2 was resetting is noise and would throw the C6's own parser out of
+    /// step, so it is discarded here.
+    async fn prepare_link(&mut self) {
+        use embassy_futures::select::{select, Either};
+        use embassy_time::{Duration, Timer};
+
+        let mut buf = [0u8; 64];
+        let mut discarded = 0usize;
+        while let Either::First(result) = select(
+            self.uart_rx.read(&mut buf),
+            Timer::after(Duration::from_millis(100)),
+        )
+        .await
+        {
+            match result {
+                Ok(n) => discarded += n,
+                Err(e) => warn!("DualRadioDriver: HCI read error while clearing: {:?}", e),
+            }
+        }
+        if discarded > 0 {
+            info!(
+                "DualRadioDriver: discarded {} stray bytes from H2",
+                discarded
+            );
+        }
+
+        // A running H2 drives its TX (our RX) high and overrides the weak
+        // internal pull-down; an unpowered or disconnected one does not.
+        let mux = esp_hal::peripherals::IO_MUX::regs();
+        let rx_pin = crate::config::HCI_UART_RX_PIN as usize;
+        mux.gpio(rx_pin)
+            .modify(|_, w| w.fun_wpd().set_bit().fun_wpu().clear_bit());
+        Timer::after(Duration::from_millis(20)).await;
+        let driven = (esp_hal::peripherals::GPIO::regs().in_().read().bits() >> rx_pin) & 1 == 1;
+        mux.gpio(rx_pin)
+            .modify(|_, w| w.fun_wpd().clear_bit().fun_wpu().set_bit());
+        if driven {
+            info!("DualRadioDriver: H2 link is up");
+        } else {
+            warn!(
+                "DualRadioDriver: nothing is driving the H2 TX line (GPIO{}); the H2 is \
+                 unpowered, held in reset or a wire is loose. Bluetooth will not start.",
+                rx_pin
+            );
+        }
+    }
+}
+
 impl WifiDriver for DualRadioDriver<'_> {
     type NetCtl<'a>
         = EspWifiController<'a>
@@ -264,6 +317,8 @@ impl WifiCoexDriver for DualRadioDriver<'_> {
     {
         info!("DualRadioDriver: Initializing UART HCI transport to ESP32-H2");
 
+        self.prepare_link().await;
+
         // Create BLE controller from UART transport
         let transport = SerialTransport::new(&mut self.uart_rx, &mut self.uart_tx);
         let ble_ctl: ExternalController<_, SLOTS> = ExternalController::new(transport);
@@ -305,6 +360,8 @@ impl BleDriver for DualRadioDriver<'_> {
         A: BleDriverTask,
     {
         info!("DualRadioDriver: Running BLE-only task via UART HCI");
+
+        self.prepare_link().await;
 
         let transport = SerialTransport::new(&mut self.uart_rx, &mut self.uart_tx);
         let ble_ctl: ExternalController<_, SLOTS> = ExternalController::new(transport);

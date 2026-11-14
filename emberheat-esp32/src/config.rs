@@ -288,6 +288,27 @@ pub const HCI_UART_RTS_PIN: u8 = 6;
 #[cfg(feature = "external-ble")]
 pub const HCI_UART_CTS_PIN: u8 = 7;
 
+/// C6 pin wired to the H2's reset (EN/RST) pin.
+///
+/// The H2 keeps running while the C6 resets or is flashed, and reads the C6's
+/// floating TX pin as garbage. H4 framing cannot recover from that, so the C6
+/// restarts the H2 at every boot.
+#[cfg(feature = "external-ble")]
+pub const HCI_H2_RESET_PIN: u8 = 23;
+
+/// How long the H2 reset line is held low (ms)
+#[cfg(feature = "external-ble")]
+pub const HCI_H2_RESET_PULSE_MS: u64 = 50;
+
+/// Time allowed for the H2 to boot its HCI firmware after reset (ms)
+#[cfg(feature = "external-ble")]
+pub const HCI_H2_BOOT_MS: u64 = 1000;
+
+/// RX FIFO fill level (bytes, of 128) at which the C6 raises RTS to pause the H2.
+/// Above the 32-byte read threshold so normal reads never trip it.
+#[cfg(feature = "external-ble")]
+pub const HCI_UART_RTS_THRESHOLD: u8 = 96;
+
 #[cfg(test)]
 mod tests {
     use super::*;

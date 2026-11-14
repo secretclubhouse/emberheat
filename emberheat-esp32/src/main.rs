@@ -82,7 +82,8 @@ use matter::stack::matter_task;
 
 #[cfg(feature = "external-ble")]
 use config::{
-    HCI_UART_BAUDRATE, HCI_UART_CTS_PIN, HCI_UART_RTS_PIN, HCI_UART_RX_PIN, HCI_UART_TX_PIN,
+    HCI_UART_BAUDRATE, HCI_UART_CTS_PIN, HCI_UART_RTS_PIN, HCI_UART_RTS_THRESHOLD, HCI_UART_RX_PIN,
+    HCI_UART_TX_PIN,
 };
 #[cfg(feature = "external-ble")]
 use dual_radio::DualRadioDriver;
@@ -996,7 +997,13 @@ async fn main(spawner: Spawner) {
         // Use a low FIFO threshold to trigger reads before the buffer overflows
         let uart_config = UartConfig::default()
             .with_baudrate(HCI_UART_BAUDRATE)
-            .with_rx(RxConfig::default().with_fifo_full_threshold(32));
+            .with_rx(RxConfig::default().with_fifo_full_threshold(32))
+            // Assigning the RTS/CTS pins is not enough: without this the C6 holds
+            // RTS high ("not ready") and the H2 never sends its HCI replies.
+            .with_hw_flow_ctrl(esp_hal::uart::HwFlowControl {
+                cts: esp_hal::uart::CtsConfig::Enabled,
+                rts: esp_hal::uart::RtsConfig::Enabled(HCI_UART_RTS_THRESHOLD),
+            });
         let uart = Uart::new(peripherals.UART1, uart_config)
             .expect("Failed to initialize HCI UART")
             .with_rx(peripherals.GPIO19) // RX (H2 TX -> C6 RX)
@@ -1006,6 +1013,21 @@ async fn main(spawner: Spawner) {
             .into_async();
         let (uart_rx, uart_tx) = uart.split();
         info!("HCI UART initialized");
+
+        // Restart the H2 now that the UART lines are stable (see HCI_H2_RESET_PIN).
+        // Open-drain: only ever pulls the line low; the H2 board's own pull-up
+        // releases it, so the C6 never fights the H2's reset circuit.
+        let mut h2_reset = Output::new(
+            peripherals.GPIO23,
+            Level::Low,
+            OutputConfig::default().with_drive_mode(esp_hal::gpio::DriveMode::OpenDrain),
+        );
+        embassy_time::Timer::after(Duration::from_millis(config::HCI_H2_RESET_PULSE_MS)).await;
+        h2_reset.set_high();
+        embassy_time::Timer::after(Duration::from_millis(config::HCI_H2_BOOT_MS)).await;
+        // Keep the pin configured (released) for the life of the firmware
+        core::mem::forget(h2_reset);
+        info!("ESP32-H2 reset via GPIO{}", config::HCI_H2_RESET_PIN);
 
         // Configure MQTT for Matter mode (runs inside Matter's UserTask)
         info!("------------------------------------");
