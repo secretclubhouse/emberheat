@@ -82,8 +82,8 @@ where
     // Remove zone keys from flash
     for zone_idx in 0..NUM_ZONES {
         let key = zone_key(zone_idx);
-        let mut buf = [0u8; 64]; // Scratch buffer for sequential-storage
-                                 // Ignore errors - key might not exist
+        let mut buf = super::flash_store::scratch_buffer();
+        // Ignore errors - key might not exist
         let _ = store.remove(key, &mut buf);
     }
 

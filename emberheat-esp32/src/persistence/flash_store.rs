@@ -37,6 +37,19 @@ impl sequential_storage::map::Key for StorageKey {
     }
 }
 
+/// Scratch buffer for zone reads and writes.
+///
+/// sequential-storage reads every item it passes while searching for a key, so
+/// the buffer must hold the largest item in the partition, not just the 5-byte
+/// zone record. The partition is shared with rs-matter, whose items (a fabric
+/// is about 1.2 KB) can be as large as its own `KV_BUF_SIZE`. A smaller buffer
+/// fails with `BufferTooSmall` as soon as the device is commissioned.
+///
+/// Heap-allocated so the 4 KB is held only for the duration of the call.
+pub(super) fn scratch_buffer() -> alloc::vec::Vec<u8> {
+    alloc::vec![0u8; rs_matter::persist::KV_BUF_SIZE]
+}
+
 /// Flash-backed key-value blob store
 ///
 /// Provides persistence for both Matter commissioning data (keys 0-2)
@@ -75,8 +88,7 @@ where
         zone_index: usize,
     ) -> Result<Option<PersistedZoneState>, Error> {
         let key = StorageKey(zone_key(zone_index));
-        // Buffer size needs to be large enough for the value plus sequential-storage overhead
-        let mut buf = [0u8; 64];
+        let mut buf = scratch_buffer();
 
         match fetch_item::<StorageKey, &[u8], _>(
             &mut self.flash,
@@ -116,7 +128,7 @@ where
     ) -> Result<(), Error> {
         let key = StorageKey(zone_key(zone_index));
         let data = state.to_bytes();
-        let mut buf = [0u8; 64]; // Scratch buffer for sequential-storage
+        let mut buf = scratch_buffer();
 
         store_item::<StorageKey, &[u8], _>(
             &mut self.flash,
