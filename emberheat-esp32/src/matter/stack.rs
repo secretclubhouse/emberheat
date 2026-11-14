@@ -22,6 +22,7 @@ use rs_matter_embassy::matter::dm::clusters::basic_info::BasicInfoConfig;
 use rs_matter_embassy::matter::dm::clusters::desc::{self, ClusterHandler as _};
 use rs_matter_embassy::matter::dm::devices::test::DAC_PRIVKEY;
 use rs_matter_embassy::matter::dm::devices::test::TEST_DEV_ATT;
+use rs_matter_embassy::matter::dm::endpoints::ROOT_ENDPOINT_ID;
 use rs_matter_embassy::matter::dm::{
     Access, Async, Attribute, Cluster, Dataver, DeviceType, EmptyHandler, Endpoint, Handler,
     MatchContext, Node, NonBlockingHandler, Quality, ReadContext, ReadReply, Reply, WriteContext,
@@ -1248,6 +1249,17 @@ pub async fn matter_task<S, U>(
     // Build handler chain: identify + binding + thermostat UI + thermostat + descriptor clusters on endpoint 1
     // Wrap with Async() to convert NonBlockingHandler to AsyncHandler
     let handler = EmptyHandler
+        // Endpoint 0 system clusters the app must provide (Basic Information,
+        // Descriptor, Time Synchronization, ...). The stack only adds the
+        // network clusters on top; without this a controller cannot read the
+        // device's identity and abandons commissioning.
+        .chain(
+            |e, _| e == ROOT_ENDPOINT_ID,
+            Async(EmbassyWifiMatterStack::<0, ()>::root_handler(
+                &(),
+                &mut weak_rand,
+            )),
+        )
         // Identify cluster on endpoint 1 (required by HomeKit)
         .chain(
             |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_IDENTIFY,
@@ -1383,6 +1395,17 @@ pub async fn matter_task_dual_radio<D, S, U>(
     let binding = BindingHandler::new(Dataver::new_rand(&mut weak_rand));
 
     let handler = EmptyHandler
+        // Endpoint 0 system clusters the app must provide (Basic Information,
+        // Descriptor, Time Synchronization, ...). The stack only adds the
+        // network clusters on top; without this a controller cannot read the
+        // device's identity and abandons commissioning.
+        .chain(
+            |e, _| e == ROOT_ENDPOINT_ID,
+            Async(EmbassyWifiMatterStack::<0, ()>::root_handler(
+                &(),
+                &mut weak_rand,
+            )),
+        )
         .chain(
             |e, c| e == FIRST_ZONE_ENDPOINT && c == CLUSTER_IDENTIFY,
             Async(&identify),
