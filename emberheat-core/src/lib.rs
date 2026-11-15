@@ -16,6 +16,7 @@
 //! - `persistence`: State storage trait for persisting configuration
 //! - `control`: Hysteresis-based control logic
 //! - `config`: Configuration types
+//! - `remote`: Remote (MQTT) sensor reading store, averaging and message parsing
 //!
 //! ## Example
 //!
@@ -48,6 +49,7 @@ pub mod config;
 pub mod control;
 pub mod gpio;
 pub mod persistence;
+pub mod remote;
 pub mod sensor;
 pub mod types;
 
