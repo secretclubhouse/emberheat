@@ -19,7 +19,7 @@ Platform-agnostic library containing:
 - **Temperature types** with Celsius/Fahrenheit conversion
 - **Hysteresis control algorithm** (prevents relay chatter with ±0.5°C dead band)
 - **Trait definitions** for sensors, GPIO, and state persistence
-- **Sensor validation** (3°C - 37°C range)
+- **Sensor validation** (0°C - 37°C range)
 
 ### Matter Integration (`emberheat-matter`)
 
@@ -133,7 +133,7 @@ Each zone appears as a separate thermostat endpoint in Matter controllers.
 └─────────────┘     └──────────────┘     └─────────────┘
        │                    │                     │
        ▼                    ▼                     ▼
-  Validate 3-37°C    ±0.5°C dead band     GPIO HIGH/LOW
+  Validate 0-37°C    ±0.5°C dead band     GPIO HIGH/LOW
 ```
 
 ### Matter Integration
@@ -157,7 +157,7 @@ Zone setpoints and modes are persisted to flash with wear-leveling. On power los
 
 ### Safety
 
-- Heating defaults to **OFF** on any error
+- Heating defaults to **OFF** on any error, except lost MQTT remote sensor readings, which run a bounded duty-cycle fallback (at most 6 hours, then OFF); see [docs/home-assistant-remote-sensors.md](docs/home-assistant-remote-sensors.md)
 - Temperature readings validated before use
 - State persisted to flash for power-loss recovery
 - Hysteresis prevents rapid relay switching

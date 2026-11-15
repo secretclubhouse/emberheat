@@ -22,15 +22,17 @@ EmberHeat is a multi-zone thermostat system for hydronic heating, written in Rus
 
 ```
 emberheat/
-├── emberheat-core/         # Platform-agnostic core library (no_std, 32 tests)
+├── emberheat-core/         # Platform-agnostic core library (no_std, 54 tests)
 │   └── src/
 │       ├── types.rs        # HeatingState, TemperatureReading, RelayState
 │       ├── sensor.rs       # TemperatureSensor trait (async)
 │       ├── gpio.rs         # GpioManager, OutputPin traits
 │       ├── persistence.rs  # StateStorage trait (async)
 │       ├── control.rs      # Hysteresis control algorithm
+│       ├── remote.rs       # ZoneReadings: averages fresh remote sensor readings
+│       ├── fallback.rs     # DutyTracker + bounded duty-cycle fallback when readings are lost
 │       └── config.rs       # HysteresisConfig, ZoneConfig
-├── emberheat-matter/       # Matter protocol types and cluster definitions (no_std, 36 tests)
+├── emberheat-matter/       # Matter protocol types and cluster definitions (no_std, 39 tests)
 │   └── src/
 │       ├── types.rs        # SystemMode, RunningState, temperature conversions, defaults
 │       ├── state.rs        # ZoneThermostatState with atomic operations + dirty tracking
@@ -46,6 +48,7 @@ emberheat/
 │       ├── gpio_impl.rs    # esp-hal GPIO (active-low relays)
 │       ├── sensors.rs      # MockSensor, SharedOneWireBus (scan/read are TODO stubs)
 │       ├── sensor_onewire.rs  # DS18B20 via RMT (written, blocked on dependency)
+│       ├── sensor_remote.rs # MQTT remote sensors: per-zone reading store, RemoteSensor
 │       ├── sensor_i2c.rs   # BME280 I2C (simplified calibration)
 │       ├── onewire_gpio.rs # 1-Wire via GPIO bit-banging
 │       ├── onewire_rmt.rs  # 1-Wire via RMT peripheral (low-level)
@@ -165,7 +168,7 @@ Temperature readings are validated (emberheat-core/src/types.rs):
 
 ### Safety Defaults
 
-- Heating defaults to OFF on errors
+- Heating defaults to OFF on errors, except lost remote (MQTT) readings: those run the bounded duty-cycle fallback (recent duty, max 75%, at most 6 h, then OFF). Duty history is RAM only, so a reboot with no readings stays OFF
 - GPIO active-low: relay ON = pin LOW, relay OFF = pin HIGH (fail-safe)
 - State persisted to flash for recovery across reboots
 - Factory reset via GPIO 9 button (hold 5 seconds)
@@ -191,7 +194,7 @@ Temperature readings are validated (emberheat-core/src/types.rs):
 ## Testing
 
 ```bash
-# Run emberheat-core (32 tests) and emberheat-matter (36 tests)
+# Run emberheat-core (54 tests) and emberheat-matter (39 tests)
 make test
 
 # Verbose output

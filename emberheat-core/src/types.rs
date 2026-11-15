@@ -75,7 +75,7 @@ impl TemperatureReading {
 
     /// Validate temperature is within normal range
     ///
-    /// Valid range: 3°C to 37°C (37.4°F to 98.6°F)
+    /// Valid range: 0°C to 37°C (32°F to 98.6°F)
     pub fn is_valid(&self) -> bool {
         self.celsius >= MIN_VALID_TEMP_C && self.celsius <= MAX_VALID_TEMP_C
     }
