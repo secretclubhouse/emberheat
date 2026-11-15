@@ -1,7 +1,11 @@
 KICAD_CLI ?= /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
 KICAD_PY  ?= /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
 
-.PHONY: check clean
+.PHONY: lib check clean
+
+# Write lib/ (dev board symbols and footprints) and the project library tables.
+lib:
+	$(KICAD_PY) -I scripts/gen_lib.py
 
 # Run every scripts/check_*.py that exists; fail if any fails.
 check:

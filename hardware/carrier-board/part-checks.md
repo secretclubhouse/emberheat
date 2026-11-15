@@ -97,3 +97,19 @@ Sources: Espressif ESP32-C6-DevKitC-1 schematic V1.1 (2022-11-10) and ESP32-H2-D
 - H2 board: the 3V3 header pin (J1 pin 1, ESP_3V3) is the SGM2212-3.3 regulator output (VCC_3V3) through jumper J5, as shipped. The H2 board has the same two Schottky diodes (D1, D7) between its USB ports and VCC_5V.
 - Result: the power section of the design holds. One extra point: both boards' 3V3 header pins sit behind their own J5 jumper, so the carrier's 3V3 net works only while J5 is fitted on the C6 board. Do not remove it.
 - The C6 schematic is V1.1; the user guide lists later revisions (up to v1.4) for newer boards. The later schematics were not fetched.
+
+## Dev board headers and dimensions (A1, A2 footprints)
+
+Sources, read on 2026-11-15 from docs.espressif.com (esp-dev-kits, "latest"):
+- ESP32-C6-DevKitC-1 v1.2 user guide (header tables J1 and J3, pin layout figure) and `esp32-c6-devkitc-1-dimensions_v1.2.pdf`. The guide says its numbering is the same as the v1.2 schematic; v1.3 and v1.4 only change resistor values.
+- ESP32-H2-DevKitM-1 user guide (header tables J1 and J3, pin layout figure v1.2) and `esp32-h2-devkitm-1_v1.2_dimension.pdf`. The guide lists schematics v1.2 and v1.3.
+
+Result: every pin list, the row spacing, both board lengths and the orientation match the plan. No difference.
+
+- Pin lists: C6 J1 and J3 (16 pins each) and H2 J1 and J3 (15 pins each) match `scripts/expected.py` pin for pin. Espressif names the grounds `G` and the serial pair `TX` / `RX` on J3 pins 2 and 3 (GPIO16 / GPIO17 on the C6, GPIO24 / GPIO23 on the H2); the library uses `GND`, `GPIO16_TX`, `GPIO17_RX` and, on the H2, `TX`, `RX` as the plan gives them. H2 J1 pins 7 and 8 are printed `13/N` and `14/N` (GPIO13 and GPIO14, with 32 kHz crystal functions); the library names them GPIO13 and GPIO14.
+- Row spacing: 22.86 mm between the two rows (both drawings); header pitch 2.54 mm; board width 25.40 mm (22.86 + 2 x 1.27).
+- Lengths: C6 PCB 51.80 mm, H2 PCB 48.26 mm.
+- Orientation: both pin layout figures show the component side (module, USB connectors, buttons visible) with the antenna at the top. J1 (starts 3V3, RST) is the left row and J3 (starts G, TX, RX) the right row, and pin 1 of each row is at the antenna end. Seen from the front of the carrier (dev board plugged in, component side up) this is the same picture, which is what the footprint draws with the antenna toward -y.
+- What the drawings add, used by the footprints: the 51.80 / 48.26 mm lengths are the PCB only. The module antenna overhangs the PCB by 6.35 mm (C6, 18.00 mm wide) or 5.40 mm (H2, 13.20 mm wide). Pin 1 is 1.575 mm from the PCB edge at the antenna end (C6: 51.80 - 12.125 - 15 x 2.54; H2: 48.26 - 11.125 - 14 x 2.54), so the rows are not centred in the PCB. The origin (centre of the rows) is 20.625 mm from the PCB edge toward the antenna and 31.175 mm toward the USB end for the C6 (19.355 and 28.905 mm for the H2). The plan did not say this; it only fixed the origin as the centre of the two rows.
+- Antenna rule area: from the antenna tip to 1.0 mm short of pin 1's centre, full 25.4 mm width, no tracks, vias, pads or pours on either copper layer. That is 6.975 mm deep on the C6 and 5.975 mm on the H2, where the plan said 7 mm for both. A full 7 mm measured from the antenna tip would cover the H2's pin 1 pad.
+- DIN clip keep-out: the DIN clip section says to keep 8 mm clear around each hole for the screw head. The footprint draws that as an 8 mm wide courtyard centred on the hole (a 9.5 x 8 mm box on the slot, covering the +/- 0.75 mm of slide).

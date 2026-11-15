@@ -1,0 +1,10 @@
+(fp_lib_table
+	(version 7)
+	(lib
+		(name "emberheat")
+		(type "KiCad")
+		(uri "${KIPRJMOD}/lib/emberheat.pretty")
+		(options "")
+		(descr "Dev board and DIN clip footprints for the EmberHeat carrier board")
+	)
+)

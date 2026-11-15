@@ -1,0 +1,56 @@
+(footprint "DIN_Clip"
+	(version 20241229)
+	(generator "gen_lib")
+	(generator_version "1")
+	(layer "F.Cu")
+	(descr "Hammond 1427DINCLIP mounting holes: round hole at the origin, slot 29.75 mm away along +x. No copper."
+	)
+	(tags "DIN rail clip mounting")
+	(property "Reference" "REF**"
+		(at 14.875 -6 0)
+		(layer "F.Fab")
+		(uuid "390adc3f-89cb-51ca-9ff6-61f9627ee5a3")
+		(effects
+			(font (size 1 1) (thickness 0.15))
+		)
+	)
+	(property "Value" "DIN_Clip"
+		(at 14.875 6 0)
+		(layer "F.Fab")
+		(uuid "337e16ab-818a-57ea-a263-f41677e9f720")
+		(effects
+			(font (size 1 1) (thickness 0.15))
+		)
+	)
+	(attr exclude_from_pos_files exclude_from_bom)
+	(fp_circle
+		(center 0 0)
+		(end 4 0)
+		(stroke (width 0.05) (type solid))
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "0fc75546-55f9-5488-8f09-7c890c5bf7f1")
+	)
+	(fp_rect
+		(start 25 -4)
+		(end 34.5 4)
+		(stroke (width 0.05) (type solid))
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "2d43296c-cb2b-5314-8885-709f95e9ac0d")
+	)
+	(pad "" np_thru_hole circle
+		(at 0 0)
+		(size 3.5 3.5)
+		(drill 3.5)
+		(layers "*.Cu" "*.Mask")
+		(uuid "cc2b53ba-3f97-5953-905b-f62b1bd32cea")
+	)
+	(pad "" np_thru_hole oval
+		(at 29.75 0)
+		(size 5 3.5)
+		(drill oval 5 3.5)
+		(layers "*.Cu" "*.Mask")
+		(uuid "c37032bc-f7ef-561b-a8b7-a2f104f9c193")
+	)
+)

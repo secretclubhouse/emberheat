@@ -1,0 +1,10 @@
+(sym_lib_table
+	(version 7)
+	(lib
+		(name "emberheat")
+		(type "KiCad")
+		(uri "${KIPRJMOD}/lib/emberheat.kicad_sym")
+		(options "")
+		(descr "Dev board symbols for the EmberHeat carrier board")
+	)
+)

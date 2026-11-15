@@ -9,6 +9,9 @@ Status: parts chosen (`bom.csv`, `part-checks.md`). The schematic and board are 
 - `bom.csv`: one row per distinct part, with the exact KiCad symbol and footprint names.
 - `part-checks.md`: datasheet figures that justify each part, and the drive arithmetic.
 - `scripts/check_bom.py`: checks the bill of materials.
+- `lib/`: dev board symbols and footprints and the DIN clip holes, written by `scripts/gen_lib.py` (`make lib`). `sym-lib-table` and `fp-lib-table` name it `emberheat`.
+- `scripts/expected.py`: the pin lists and dimensions the checks compare the library against, written by hand.
+- `scripts/check_lib.py`: checks the library, including that the sockets are not mirrored or reversed.
 
 ## Checks
 
