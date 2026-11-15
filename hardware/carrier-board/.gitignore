@@ -1,0 +1,6 @@
+*-backups/
+*.lck
+.DS_Store
+fp-info-cache
+tools/
+__pycache__/
