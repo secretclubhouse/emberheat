@@ -61,12 +61,18 @@ Source: Hammond 1427DINCLIP drawing PDF (hammfg.com, revision 2, 2022-03-31).
 - Screw holes on the mounting face: two, diameter 3.00 mm, on the clip's centre line (5.00 mm from each long edge), 29.75 +/- 0.75 mm apart, the first 4.50 mm from the end.
 - Screw: #6 x 1/4 in (about 3.5 mm thread, 6.35 mm long), self-tapping into the plastic. With 1.6 mm of board, about 4.7 mm goes into the clip.
 - Board footprint `emberheat:DIN_Clip`, one per clip: a round hole 3.5 mm at the origin and a slot 3.5 mm wide by 5.0 mm long (long axis along the hole line) centred 29.75 mm from it. The slot takes the +/- 0.75 mm spacing tolerance. Keep 8 mm clear around each hole for the screw head. The clips mount on the back of the board, so the screws go in from the front.
-- Listed at Digi-Key (Digi-Key number HM1489-ND per one regional page). Stock at a US Digi-Key warehouse was not confirmed from here; check before ordering.
+- Stock, US distributor: Digi-Key (digikey.com) part number HM1489-ND, listed with manufacturer standard lead time 4 weeks. Search-result snapshots of the digikey.com pages showed "In-Stock: 340" (product page), "332 In Stock, 990 Factory" (1427 base-product page), "854 In Stock, 5,183 Factory" and "453 In Stock, 4,440 Factory" (Box Accessories category listings). The snapshots differ in date, so the quantity is not exact, but every one shows the part in stock. The live pages (digikey.com, Mouser and Newark, which also lists it as "DIN Clip, Nylon, Pair", 50H5703) block automated reading from this environment, so no live count was read. Hammond's own page says it is sold in packages of 2.
 
 ## Zone terminal J11-J17, J1, J2
 
 - Phoenix Contact 1757242 is MSTBA 2,5/2-G-5,08, the right-angle header (confirmed by Phoenix and distributor listings). Mating plug MSTB 2,5/2-ST-5,08 is Phoenix 1757019: 12 A, 250 V, 5.08 mm, 0.2-2.5 mm2 wire (Farnell copy of the Phoenix datasheet). Order 7 plugs.
-- J2: Phoenix 1729128 is listed by Phoenix as MKDSN 1,5/2-5,08. The KiCad footprint is MKDS 1,5/2-5,08. Pitch is the same 5.08 mm; the pin drill was not compared.
+- J2: Phoenix 1729128 is listed by Phoenix as MKDSN 1,5/2-5,08 (Phoenix datasheet, 2017-03-20, product version 07). The KiCad footprint is MKDS 1,5/2-5,08. Compared:
+  - Pitch: Phoenix dimension a 5.08 mm; footprint pads 5.08 mm apart. Same.
+  - Drill: Phoenix PCB-design hole diameter 1.3 mm; footprint drill 1.3 mm. Same.
+  - Pin: Phoenix pin dimensions 0.5 x 1 mm (diagonal about 1.12 mm), which fits the 1.3 mm hole.
+  - Pad: the footprint pad is 2.6 mm; the Phoenix datasheet gives no pad size, so that is KiCad's choice and fine for hand soldering.
+  - Body: Phoenix length 8.1 mm, width 10.16 mm (two positions), height 10 mm; footprint outline 10.2 x 9.8 mm. Close enough for keep-out; Task 3 should keep the outline as is.
+  - The MKDS (not N) variant's own datasheet was not compared; the footprint matches the MKDSN part that is on order.
 - J1: GCT USB4125-GF-A, 6-pin power-only USB-C, 3 A (GCT category page and Digi-Key listing). The datasheet itself was not retrieved.
 
 ## Drive arithmetic (one channel)
@@ -79,7 +85,7 @@ Figures: LTV-817 and 2N3904 above, relay coil 38.4 mA at 5 V.
 - Collector current: coil 38.4 mA, plus zone light (5 - Vf - 0.2) / 1 k. For a red LED taking Vf = 1.6-2.4 V (an assumption; the Kingbright WP7113ID datasheet was not checked) that is 2.4-3.2 mA. Worst case 38.4 + 3.2 = 41.6 mA. At 5.25 V supply, 5.25 / 130 + 3.5 mA = 43.9 mA.
 - Forced gain: 41.6 / 2.8 = 14.9 at the worst case, 15.7 with a 5.25 V supply. Both are 20 or less, so the transistor is saturated (hFE minimum is 60 at 50 mA).
 - Coil voltage when on: 5 - 0.3 = 4.7 V, above the 3.5 V pick-up and below the 7.5 V maximum.
-- With the plan's 34 mA coil figure the gain would be 12.9, so the choice holds either way.
+- With the plan's 34 mA coil figure the gain would be 13.3 ((34 + 3.2) / 2.8), so the choice holds either way.
 - A GPIO that is high or floating gives no LED current, so the relay stays open.
 
 ## Dev board power
