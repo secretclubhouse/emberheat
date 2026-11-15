@@ -147,10 +147,12 @@ def test_socket_orientation():
         pts = [(float(p[1]), float(p[2])) for p in one(one(z, "polygon"), "pts")[1:]]
         y1 = pads["J1_1"][1]
         assert max(y for _, y in pts) < y1, "%s: rule area reaches J1_1 (y=%s)" % (name, y1)
-        # It starts at the antenna tip and is at least 5 mm deep.
+        # It starts at the antenna tip and ends 1.0 mm short of pin 1's centre.
         tip = y1 - board["edge_to_pin1"] - board["overhang"]
         assert close(min(y for _, y in pts), tip), "%s: rule area does not start at the antenna tip" % name
-        assert max(y for _, y in pts) - min(y for _, y in pts) >= 5.0, "%s: rule area too shallow" % name
+        depth = max(y for _, y in pts) - min(y for _, y in pts)
+        want = board["edge_to_pin1"] + board["overhang"] - 1.0
+        assert close(depth, want), "%s: rule area depth %s, want %s" % (name, depth, want)
         # Silkscreen outline: the PCB rectangle sits the right way round, the
         # antenna overhang lies at the -y end, ANTENNA is there, USB at the other end.
         rects = silk_rects(tree)
