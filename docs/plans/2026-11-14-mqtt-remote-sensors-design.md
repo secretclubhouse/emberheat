@@ -117,8 +117,10 @@ on 2026-11-14; the numbers and mechanics below are Claude's calls):
 - `fallback_relay(duty, elapsed_secs, &FallbackConfig) -> Option<bool>`
   - `None` once `elapsed_secs > max_secs` (6 h): the caller treats this as a
     sensor error and turns heating OFF.
-  - Otherwise the relay cycles on a fixed 30-minute period: ON for the first
-    `duty × period`, OFF for the rest.
+  - Otherwise the relay cycles on a fixed 30-minute period: OFF first, then ON
+    for the last `duty × period` of each period. Starting in the OFF phase
+    means readings that keep dropping in and out of fallback err toward less
+    heat instead of starting a fresh ON phase on every re-entry.
   - `duty` is capped at 0.75 so a zone that was recovering from a setback when
     readings stopped cannot run flat out for 6 hours.
   - An ON time under 3 minutes becomes 0 (not worth a relay cycle).
