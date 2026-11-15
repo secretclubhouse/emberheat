@@ -81,8 +81,11 @@ impl TemperatureReading {
     }
 }
 
-/// Minimum valid temperature in Celsius
-pub const MIN_VALID_TEMP_C: f32 = 3.0;
+/// Minimum valid temperature in Celsius.
+///
+/// Below freezing the heating has already failed, so a reading under this
+/// value is treated as a sensor fault rather than a real room temperature.
+pub const MIN_VALID_TEMP_C: f32 = 0.0;
 
 /// Maximum valid temperature in Celsius
 pub const MAX_VALID_TEMP_C: f32 = 37.0;
@@ -201,8 +204,9 @@ mod tests {
         let valid = TemperatureReading::from_celsius(20.0);
         assert!(valid.is_valid());
 
-        let too_cold = TemperatureReading::from_celsius(2.0);
-        assert!(!too_cold.is_valid());
+        assert!(TemperatureReading::from_celsius(0.0).is_valid());
+        assert!(TemperatureReading::from_celsius(2.0).is_valid());
+        assert!(!TemperatureReading::from_celsius(-0.1).is_valid());
 
         let too_hot = TemperatureReading::from_celsius(38.0);
         assert!(!too_hot.is_valid());

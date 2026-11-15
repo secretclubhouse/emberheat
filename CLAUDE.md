@@ -159,7 +159,7 @@ else → Maintain current state (dead band)
 ### Sensor Validation
 
 Temperature readings are validated (emberheat-core/src/types.rs):
-- Minimum: 3°C (`MIN_VALID_TEMP_C`)
+- Minimum: 0°C (`MIN_VALID_TEMP_C`)
 - Maximum: 37°C (`MAX_VALID_TEMP_C`)
 - Invalid readings trigger error handling → heating defaults to OFF
 

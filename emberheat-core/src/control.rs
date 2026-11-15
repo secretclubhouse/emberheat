@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn test_validate_temperature_too_cold() {
-        let reading = TemperatureReading::from_celsius(2.0);
+        let reading = TemperatureReading::from_celsius(-1.0);
         assert!(validate_temperature(&reading).is_err());
     }
 
