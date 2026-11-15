@@ -29,6 +29,7 @@ pub use zones::{get_zone_state, get_zone_state_by_endpoint, ZONE_STATES};
 pub use bridge::{
     get_control_target, get_matter_setpoint, is_zone_enabled_in_matter, set_matter_mode,
     set_matter_setpoint, sync_local_state_to_matter, update_matter_from_control_loop,
+    update_matter_without_reading,
 };
 
 // Re-export MQTT bridge for Matter+MQTT mode

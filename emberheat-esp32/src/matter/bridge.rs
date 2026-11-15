@@ -68,6 +68,15 @@ pub fn update_matter_from_control_loop(
     }
 }
 
+/// Report a pass that had no temperature reading: LocalTemperature becomes null
+/// (temperature::NULL_TEMPERATURE) and the running state follows the relay.
+pub fn update_matter_without_reading(zone_index: usize, heating_active: bool) {
+    if let Some(state) = get_zone_state(zone_index) {
+        state.set_local_temperature(emberheat_matter::types::temperature::NULL_TEMPERATURE);
+        state.set_heating_active(heating_active);
+    }
+}
+
 /// What the control loop should regulate to for a zone, as set through Matter.
 ///
 /// Returns the heating state and target temperature in Celsius. Heating is

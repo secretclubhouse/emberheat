@@ -189,6 +189,15 @@ fn build_temperature_message(
 // Zone Control Loop Implementation
 // =============================================================================
 
+/// Queue a message for MQTT, dropping it when the queue is full so control never waits on the network.
+fn queue_mqtt(
+    channel: &'static Channel<CriticalSectionRawMutex, mqtt::MqttMessage, MQTT_QUEUE_SIZE>,
+    msg: mqtt::MqttMessage,
+) {
+    // Full queue: drop the message; the next control pass publishes a fresh one.
+    let _ = channel.try_send(msg);
+}
+
 /// Run the control loop for a single zone (MQTT mode)
 ///
 /// This function runs indefinitely, reading temperature from the sensor,
@@ -242,17 +251,6 @@ async fn zone_control_loop(
                     if state.heating_active { "ON" } else { "OFF" }
                 );
 
-                // Publish temperature to MQTT
-                let mqtt_msg = build_temperature_message(
-                    zone_name,
-                    reading.celsius,
-                    state.target_temp_c,
-                    state.heating_active,
-                );
-                if let Some(msg) = mqtt_msg {
-                    mqtt_channel.send(msg).await;
-                }
-
                 // Apply hysteresis control
                 let target_state = HeatingState::Heat;
                 let new_relay_state = apply_hysteresis_control(
@@ -291,6 +289,17 @@ async fn zone_control_loop(
                             error!("[{}] Failed to set relay state: {:?}", zone_name, e);
                         }
                     }
+                }
+
+                // Publish temperature to MQTT after the relay is updated; never
+                // waits, so a down broker cannot stall control.
+                if let Some(msg) = build_temperature_message(
+                    zone_name,
+                    reading.celsius,
+                    state.target_temp_c,
+                    state.heating_active,
+                ) {
+                    queue_mqtt(mqtt_channel, msg);
                 }
             }
             Err(e) => {
@@ -400,17 +409,6 @@ async fn zone_control_loop(
                     if state.heating_active { "ON" } else { "OFF" }
                 );
 
-                // Publish temperature to MQTT (messages queue until MQTT connects)
-                let mqtt_msg = build_temperature_message(
-                    zone_name,
-                    reading.celsius,
-                    state.target_temp_c,
-                    state.heating_active,
-                );
-                if let Some(msg) = mqtt_msg {
-                    mqtt_channel.send(msg).await;
-                }
-
                 // Apply hysteresis control
                 let new_relay_state = apply_hysteresis_control(
                     reading.celsius,
@@ -458,6 +456,17 @@ async fn zone_control_loop(
                     reading.celsius,
                     state.heating_active,
                 );
+
+                // Publish temperature to MQTT after the relay is updated; never
+                // waits, so a down broker cannot stall control.
+                if let Some(msg) = build_temperature_message(
+                    zone_name,
+                    reading.celsius,
+                    state.target_temp_c,
+                    state.heating_active,
+                ) {
+                    queue_mqtt(mqtt_channel, msg);
+                }
             }
             Err(e) => {
                 // Sensor error handling
@@ -488,6 +497,10 @@ async fn zone_control_loop(
                         state.heating_active = false;
                     }
                 }
+
+                // Tell Matter there is no reading, so controllers show no
+                // temperature and the running state follows the relay.
+                matter::update_matter_without_reading(zone_index, state.heating_active);
             }
         }
     }
