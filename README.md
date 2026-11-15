@@ -120,7 +120,7 @@ pub const ZONE_CONFIGS: [ZoneConfigData; NUM_ZONES] = [
 
 Each zone appears as a separate thermostat endpoint in Matter controllers.
 
-> **Note:** `NUM_ZONES` is currently set to 1 and `USE_MOCK_SENSORS` is enabled for Matter commissioning testing. See `config.rs` for the full 7-zone configuration (commented out) and GPIO pin assignments.
+> **Note:** `NUM_ZONES` is currently set to 1 and `SENSOR_SOURCE` is `Mock` (set to `Mqtt` for remote MQTT sensors) for Matter commissioning testing. See `config.rs` for the full 7-zone configuration (commented out) and GPIO pin assignments.
 
 ## How It Works
 

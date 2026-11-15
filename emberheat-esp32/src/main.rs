@@ -18,7 +18,7 @@
 //!
 //! Zone configuration is defined in `config.rs`:
 //! - `ZONE_CONFIGS`: Array of 7 zone configurations
-//! - `USE_MOCK_SENSORS`: Toggle between mock and real sensors
+//! - `SENSOR_SOURCE`: Mock or MQTT remote sensors
 //! - `MOCK_TEMPERATURE_C`: Temperature returned by mock sensors
 
 extern crate alloc;
@@ -36,6 +36,7 @@ mod mqtt;
 mod persistence;
 mod persistence_nvs;
 mod sensor_i2c;
+mod sensor_remote;
 mod sensors;
 #[cfg(not(feature = "matter"))]
 mod wifi;
@@ -51,8 +52,10 @@ use log::{debug, error, info, warn};
 use static_cell::StaticCell;
 
 #[cfg(feature = "matter")]
+use config::MOCK_TEMPERATURE_C;
+#[cfg(feature = "matter")]
 use config::PERSIST_FLASH_RANGE;
-use config::{MOCK_TEMPERATURE_C, NUM_ZONES, USE_MOCK_SENSORS, ZONE_CONFIGS};
+use config::{SensorSource, NUM_ZONES, SENSOR_SOURCE, ZONE_CONFIGS};
 use config::{MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID, MQTT_PASSWORD, MQTT_USERNAME};
 #[cfg(not(feature = "matter"))]
 use config::{WIFI_PASSWORD, WIFI_SSID};
@@ -71,7 +74,9 @@ use gpio_impl::Esp32GpioPin;
 use mqtt::{MqttConfig, MqttMessage};
 #[cfg(feature = "matter")]
 use persistence::{load_all_zones, FlashKvBlobStore};
-use sensors::MockSensor;
+#[cfg(feature = "matter")]
+use sensor_remote::zone_index_by_name;
+use sensor_remote::ZoneSensor;
 #[cfg(not(feature = "matter"))]
 use wifi::WifiConfig;
 use zone::ZoneState;
@@ -111,37 +116,37 @@ const MAX_ERROR_LOG_COUNT: u32 = 10;
 
 // Individual static cells for each zone's components
 // Zone 1
-static SENSOR_1: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_1: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_1: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_1: StaticCell<ZoneState> = StaticCell::new();
 
 // Zone 2
-static SENSOR_2: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_2: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_2: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_2: StaticCell<ZoneState> = StaticCell::new();
 
 // Zone 3
-static SENSOR_3: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_3: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_3: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_3: StaticCell<ZoneState> = StaticCell::new();
 
 // Zone 4
-static SENSOR_4: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_4: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_4: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_4: StaticCell<ZoneState> = StaticCell::new();
 
 // Zone 5
-static SENSOR_5: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_5: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_5: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_5: StaticCell<ZoneState> = StaticCell::new();
 
 // Zone 6
-static SENSOR_6: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_6: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_6: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_6: StaticCell<ZoneState> = StaticCell::new();
 
 // Zone 7
-static SENSOR_7: StaticCell<MockSensor> = StaticCell::new();
+static SENSOR_7: StaticCell<ZoneSensor> = StaticCell::new();
 static PIN_7: StaticCell<Esp32GpioPin> = StaticCell::new();
 static STATE_7: StaticCell<ZoneState> = StaticCell::new();
 
@@ -162,6 +167,7 @@ fn build_temperature_message(
     temp_c: f32,
     target_c: f32,
     heating: bool,
+    sensors: u8,
 ) -> Option<mqtt::MqttMessage> {
     // Build topic: thermostat/{device_id}/temp/{zone}
     let mut topic: heapless::String<64> = heapless::String::new();
@@ -174,8 +180,8 @@ fn build_temperature_message(
     let temp_f = temp_c * 9.0 / 5.0 + 32.0;
     if write!(
         payload,
-        r#"{{"zone":"{}","temp_c":{:.1},"temp_f":{:.1},"target_c":{:.1},"heating":{}}}"#,
-        zone_name, temp_c, temp_f, target_c, heating
+        r#"{{"zone":"{}","temp_c":{:.1},"temp_f":{:.1},"target_c":{:.1},"heating":{},"sensors":{}}}"#,
+        zone_name, temp_c, temp_f, target_c, heating, sensors
     )
     .is_err()
     {
@@ -205,7 +211,7 @@ fn queue_mqtt(
 #[cfg(not(feature = "matter"))]
 async fn zone_control_loop(
     zone_name: &'static str,
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     relay_pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -298,6 +304,7 @@ async fn zone_control_loop(
                     reading.celsius,
                     state.target_temp_c,
                     state.heating_active,
+                    sensor.sensors_used(),
                 ) {
                     queue_mqtt(mqtt_channel, msg);
                 }
@@ -344,7 +351,7 @@ async fn zone_control_loop(
 #[cfg(feature = "matter")]
 async fn zone_control_loop(
     zone_name: &'static str,
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     relay_pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -363,12 +370,8 @@ async fn zone_control_loop(
     // Track relay state
     let mut current_relay_state = RelayState::Off;
 
-    // Index of this zone's Matter state (Zone1 -> 0, Zone2 -> 1, etc.)
-    let zone_index = zone_name
-        .strip_prefix("Zone")
-        .and_then(|n| n.parse::<usize>().ok())
-        .map(|n| n.saturating_sub(1))
-        .unwrap_or(0);
+    // Index of this zone's Matter state (its position in ZONE_CONFIGS)
+    let zone_index = zone_index_by_name(zone_name).unwrap_or(0);
 
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
@@ -464,6 +467,7 @@ async fn zone_control_loop(
                     reading.celsius,
                     state.target_temp_c,
                     state.heating_active,
+                    sensor.sensors_used(),
                 ) {
                     queue_mqtt(mqtt_channel, msg);
                 }
@@ -576,7 +580,7 @@ async fn matter_main_task_dual_radio(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone1_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -595,7 +599,7 @@ async fn zone1_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone1_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -614,7 +618,7 @@ async fn zone1_task(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone2_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -633,7 +637,7 @@ async fn zone2_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone2_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -652,7 +656,7 @@ async fn zone2_task(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone3_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -671,7 +675,7 @@ async fn zone3_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone3_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -690,7 +694,7 @@ async fn zone3_task(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone4_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -709,7 +713,7 @@ async fn zone4_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone4_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -728,7 +732,7 @@ async fn zone4_task(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone5_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -747,7 +751,7 @@ async fn zone5_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone5_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -766,7 +770,7 @@ async fn zone5_task(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone6_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -785,7 +789,7 @@ async fn zone6_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone6_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -804,7 +808,7 @@ async fn zone6_task(
 #[cfg(not(feature = "matter"))]
 #[embassy_executor::task]
 async fn zone7_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -823,7 +827,7 @@ async fn zone7_task(
 #[cfg(feature = "matter")]
 #[embassy_executor::task]
 async fn zone7_task(
-    sensor: &'static MockSensor,
+    sensor: &'static ZoneSensor,
     pin: &'static mut Esp32GpioPin,
     state: &'static mut ZoneState,
     hysteresis: &'static HysteresisConfig,
@@ -868,7 +872,10 @@ async fn main(spawner: Spawner) {
     info!("Zones: {}", NUM_ZONES);
     info!(
         "Sensors: {}",
-        if USE_MOCK_SENSORS { "Mock" } else { "DS18B20" }
+        match SENSOR_SOURCE {
+            SensorSource::Mock => "Mock",
+            SensorSource::Mqtt => "MQTT",
+        }
     );
     info!("Control interval: {} seconds", CONTROL_INTERVAL_SECS);
 
@@ -1116,7 +1123,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_1.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[0].name));
+        let sensor = SENSOR_1.init(ZoneSensor::for_zone(0));
         let state = STATE_1.init(ZoneState::with_target(ZONE_CONFIGS[0].default_target_c));
         info!("  Zone1 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1132,7 +1139,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_2.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[1].name));
+        let sensor = SENSOR_2.init(ZoneSensor::for_zone(1));
         let state = STATE_2.init(ZoneState::with_target(ZONE_CONFIGS[1].default_target_c));
         info!("  Zone2 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1148,7 +1155,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_3.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[2].name));
+        let sensor = SENSOR_3.init(ZoneSensor::for_zone(2));
         let state = STATE_3.init(ZoneState::with_target(ZONE_CONFIGS[2].default_target_c));
         info!("  Zone3 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1164,7 +1171,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_4.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[3].name));
+        let sensor = SENSOR_4.init(ZoneSensor::for_zone(3));
         let state = STATE_4.init(ZoneState::with_target(ZONE_CONFIGS[3].default_target_c));
         info!("  Zone4 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1180,7 +1187,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_5.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[4].name));
+        let sensor = SENSOR_5.init(ZoneSensor::for_zone(4));
         let state = STATE_5.init(ZoneState::with_target(ZONE_CONFIGS[4].default_target_c));
         info!("  Zone5 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1196,7 +1203,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_6.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[5].name));
+        let sensor = SENSOR_6.init(ZoneSensor::for_zone(5));
         let state = STATE_6.init(ZoneState::with_target(ZONE_CONFIGS[5].default_target_c));
         info!("  Zone6 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1212,7 +1219,7 @@ async fn main(spawner: Spawner) {
             Level::High,
             OutputConfig::default(),
         )));
-        let sensor = SENSOR_7.init(MockSensor::new(MOCK_TEMPERATURE_C, ZONE_CONFIGS[6].name));
+        let sensor = SENSOR_7.init(ZoneSensor::for_zone(6));
         let state = STATE_7.init(ZoneState::with_target(ZONE_CONFIGS[6].default_target_c));
         info!("  Zone7 initialized");
         (Some(sensor), Some(pin), Some(state))
@@ -1221,7 +1228,7 @@ async fn main(spawner: Spawner) {
     };
 
     info!("All relay GPIO pins initialized (OFF state)");
-    info!("Mock sensors initialized at {:.1}C", MOCK_TEMPERATURE_C);
+    info!("Zone sensors initialized");
 
     // Log zone configuration
     for config in ZONE_CONFIGS.iter() {

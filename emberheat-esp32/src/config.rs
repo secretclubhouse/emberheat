@@ -250,14 +250,31 @@ pub const MATTER_DEVICE_NAME: &str = "EmberHeat Multi-Zone";
 // Testing Configuration
 // =============================================================================
 
-/// Use mock sensors instead of real hardware
-///
-/// Set to `true` for testing without connected sensors.
-pub const USE_MOCK_SENSORS: bool = true;
+/// Where zone temperatures come from
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SensorSource {
+    /// Fixed `MOCK_TEMPERATURE_C` (no hardware needed)
+    Mock,
+    /// Readings published to MQTT by remote sensors
+    Mqtt,
+}
+
+/// Active sensor source. Stays `Mock` until `Mqtt` has been bench-tested.
+pub const SENSOR_SOURCE: SensorSource = SensorSource::Mock;
+
+/// Remote readings older than this (seconds) are ignored
+pub const REMOTE_SENSOR_MAX_AGE_SECS: u64 = 600;
+
+/// Maximum remote sensors averaged per zone
+pub const MAX_REMOTE_SENSORS_PER_ZONE: usize = 4;
+
+/// Duty-cycle fallback used when no fresh remote reading exists
+pub const REMOTE_FALLBACK: emberheat_core::fallback::FallbackConfig =
+    emberheat_core::fallback::FallbackConfig::DEFAULT;
 
 /// Temperature returned by mock sensors (in Celsius)
 ///
-/// Only used when `USE_MOCK_SENSORS` is `true`.
+/// Only used when `SENSOR_SOURCE` is `SensorSource::Mock`.
 pub const MOCK_TEMPERATURE_C: f32 = 20.0;
 
 // =============================================================================
@@ -411,6 +428,13 @@ mod tests {
         // Username and password are optional, just verify they're valid Option types
         let _ = MQTT_USERNAME;
         let _ = MQTT_PASSWORD;
+    }
+
+    #[test]
+    fn test_remote_sensor_limits() {
+        assert!(MAX_REMOTE_SENSORS_PER_ZONE >= 1);
+        assert!(REMOTE_SENSOR_MAX_AGE_SECS > 0);
+        assert_eq!(SENSOR_SOURCE, SensorSource::Mock);
     }
 
     #[test]

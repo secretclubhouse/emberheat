@@ -13,7 +13,7 @@ EmberHeat is a multi-zone thermostat system for hydronic heating, written in Rus
 ## Current Development Status
 
 - **NUM_ZONES = 1** in `emberheat-esp32/src/config.rs` (reduced for Matter commissioning testing; 7-zone config is commented out)
-- **USE_MOCK_SENSORS = true** — real DS18B20 support is blocked on `esp-hal-rmt-onewire` compatibility with esp-hal 1.0
+- **SENSOR_SOURCE = Mock** (`Mqtt` selects remote MQTT sensors; keep `Mock` until bench-tested) — real DS18B20 support is blocked on `esp-hal-rmt-onewire` compatibility with esp-hal 1.0
 - **Matter commissioning works** — tested with Apple Home
 - **MQTT works in Matter mode** — enabled via enet-extra-sockets-2 in rs-matter-embassy
 - See [GitHub Issues](https://github.com/secretclubhouse/emberheat/issues) for MVP blockers and feature backlog
