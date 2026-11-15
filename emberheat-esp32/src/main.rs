@@ -32,6 +32,7 @@ mod config;
 mod controller;
 #[cfg(feature = "external-ble")]
 mod dual_radio;
+mod failsafe;
 mod gpio_impl;
 mod matter;
 mod mqtt;
@@ -48,6 +49,7 @@ use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker};
 use esp_backtrace as _;
 use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::rtc_cntl::Rtc;
 use esp_hal::timer::timg::TimerGroup;
 use esp_println::println;
 use log::{debug, error, info, warn};
@@ -106,6 +108,24 @@ use matter::stack::matter_task_dual_radio;
 
 /// Control loop interval (6 seconds, same as Raspberry Pi)
 const CONTROL_INTERVAL_SECS: u64 = 6;
+
+/// GPIO each zone's relay is wired to in `main` (the `peripherals.GPIOn` used
+/// for `relayN`). Embassy needs concrete pin types, so these are hardcoded.
+const HARDWIRED_RELAY_GPIOS: [u8; 7] = [0, 1, 2, 3, 10, 11, 22];
+
+// The panic path turns relays OFF by pin number from ZONE_CONFIGS; if that
+// ever disagreed with the pins actually driven here, a crash would leave a
+// relay ON. Catch the mismatch at build time.
+const _: () = {
+    let mut i = 0;
+    while i < NUM_ZONES {
+        assert!(
+            ZONE_CONFIGS[i].relay_pin == HARDWIRED_RELAY_GPIOS[i],
+            "ZONE_CONFIGS relay_pin does not match the GPIO wired up in main.rs"
+        );
+        i += 1;
+    }
+};
 
 /// MQTT message queue size
 const MQTT_QUEUE_SIZE: usize = 16;
@@ -423,11 +443,20 @@ async fn zone_control_loop(
     let mut fallback = FallbackController::new();
     let mut status = SensorStatusReporter::new();
 
+    // Heartbeat slot for the watchdog supervisor. An unknown zone name never
+    // beats, so the supervisor restarts the controller instead of trusting it.
+    let beat_index = sensor_remote::zone_index_by_name(zone_name);
+
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
 
     loop {
         ticker.next().await;
+
+        // Tell the watchdog supervisor this loop is still turning over
+        if let Some(index) = beat_index {
+            failsafe::zone_beat(index);
+        }
 
         // Read temperature from sensor
         let reading = sensor.read_temperature().await;
@@ -631,11 +660,20 @@ async fn zone_control_loop(
     let mut fallback = FallbackController::new();
     let mut status = SensorStatusReporter::new();
 
+    // Heartbeat slot for the watchdog supervisor. An unknown zone name never
+    // beats, so the supervisor restarts the controller instead of trusting it.
+    let beat_index = sensor_remote::zone_index_by_name(zone_name);
+
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
 
     loop {
         ticker.next().await;
+
+        // Tell the watchdog supervisor this loop is still turning over
+        if let Some(index) = beat_index {
+            failsafe::zone_beat(index);
+        }
 
         // Read temperature from sensor
         let reading = sensor.read_temperature().await;
@@ -1187,6 +1225,75 @@ async fn main(spawner: Spawner) {
     // Initialize ESP32 peripherals with default configuration
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
+    // Drive every relay pin HIGH (OFF, active-low) before anything else can
+    // go wrong or block: network bring-up below can wait indefinitely.
+    let relay1 = if NUM_ZONES >= 1 {
+        Some(PIN_1.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO0,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+    let relay2 = if NUM_ZONES >= 2 {
+        Some(PIN_2.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO1,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+    let relay3 = if NUM_ZONES >= 3 {
+        Some(PIN_3.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO2,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+    let relay4 = if NUM_ZONES >= 4 {
+        Some(PIN_4.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO3,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+    let relay5 = if NUM_ZONES >= 5 {
+        Some(PIN_5.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO10,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+    let relay6 = if NUM_ZONES >= 6 {
+        Some(PIN_6.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO11,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+    let relay7 = if NUM_ZONES >= 7 {
+        Some(PIN_7.init(Esp32GpioPin::new(Output::new(
+            peripherals.GPIO22,
+            Level::High,
+            OutputConfig::default(),
+        ))))
+    } else {
+        None
+    };
+
+    // RTC watchdog handle; armed by the watchdog task once the zones run
+    let rtc = Rtc::new(peripherals.RTC_TIMER);
+
     // Initialize heap allocator (72KB)
     // Note: rs-matter-embassy example uses 100KB, but ESP32-C6 has limited RAM
     // and our 7 zone tasks + MQTT need memory too
@@ -1210,6 +1317,9 @@ async fn main(spawner: Spawner) {
         }
     );
     info!("Control interval: {} seconds", CONTROL_INTERVAL_SECS);
+    // Shows whether the last restart was a panic (software reset), the
+    // watchdog, or a normal power-up
+    info!("Reset reason: {:?}", esp_hal::system::reset_reason());
 
     // ==========================================================================
     // Network Initialization (MQTT mode vs Matter mode)
@@ -1480,13 +1590,8 @@ async fn main(spawner: Spawner) {
     info!("Initializing {} zones...", NUM_ZONES);
 
     // Zone 1: GPIO0 (always initialized if NUM_ZONES >= 1)
-    let (sensor1, pin1, state1) = if NUM_ZONES >= 1 {
+    let (sensor1, pin1, state1) = if let Some(pin) = relay1 {
         info!("  Initializing Zone1 GPIO{}...", ZONE_CONFIGS[0].relay_pin);
-        let pin = PIN_1.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO0,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_1.init(ZoneSensor::for_zone(0));
         let state = STATE_1.init(ZoneState::with_target(ZONE_CONFIGS[0].default_target_c));
         info!("  Zone1 initialized");
@@ -1496,13 +1601,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Zone 2: GPIO1
-    let (sensor2, pin2, state2) = if NUM_ZONES >= 2 {
+    let (sensor2, pin2, state2) = if let Some(pin) = relay2 {
         info!("  Initializing Zone2 GPIO{}...", ZONE_CONFIGS[1].relay_pin);
-        let pin = PIN_2.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO1,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_2.init(ZoneSensor::for_zone(1));
         let state = STATE_2.init(ZoneState::with_target(ZONE_CONFIGS[1].default_target_c));
         info!("  Zone2 initialized");
@@ -1512,13 +1612,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Zone 3: GPIO2
-    let (sensor3, pin3, state3) = if NUM_ZONES >= 3 {
+    let (sensor3, pin3, state3) = if let Some(pin) = relay3 {
         info!("  Initializing Zone3 GPIO{}...", ZONE_CONFIGS[2].relay_pin);
-        let pin = PIN_3.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO2,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_3.init(ZoneSensor::for_zone(2));
         let state = STATE_3.init(ZoneState::with_target(ZONE_CONFIGS[2].default_target_c));
         info!("  Zone3 initialized");
@@ -1528,13 +1623,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Zone 4: GPIO3
-    let (sensor4, pin4, state4) = if NUM_ZONES >= 4 {
+    let (sensor4, pin4, state4) = if let Some(pin) = relay4 {
         info!("  Initializing Zone4 GPIO{}...", ZONE_CONFIGS[3].relay_pin);
-        let pin = PIN_4.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO3,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_4.init(ZoneSensor::for_zone(3));
         let state = STATE_4.init(ZoneState::with_target(ZONE_CONFIGS[3].default_target_c));
         info!("  Zone4 initialized");
@@ -1544,13 +1634,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Zone 5: GPIO10
-    let (sensor5, pin5, state5) = if NUM_ZONES >= 5 {
+    let (sensor5, pin5, state5) = if let Some(pin) = relay5 {
         info!("  Initializing Zone5 GPIO{}...", ZONE_CONFIGS[4].relay_pin);
-        let pin = PIN_5.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO10,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_5.init(ZoneSensor::for_zone(4));
         let state = STATE_5.init(ZoneState::with_target(ZONE_CONFIGS[4].default_target_c));
         info!("  Zone5 initialized");
@@ -1560,13 +1645,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Zone 6: GPIO11
-    let (sensor6, pin6, state6) = if NUM_ZONES >= 6 {
+    let (sensor6, pin6, state6) = if let Some(pin) = relay6 {
         info!("  Initializing Zone6 GPIO{}...", ZONE_CONFIGS[5].relay_pin);
-        let pin = PIN_6.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO11,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_6.init(ZoneSensor::for_zone(5));
         let state = STATE_6.init(ZoneState::with_target(ZONE_CONFIGS[5].default_target_c));
         info!("  Zone6 initialized");
@@ -1576,13 +1656,8 @@ async fn main(spawner: Spawner) {
     };
 
     // Zone 7: GPIO22
-    let (sensor7, pin7, state7) = if NUM_ZONES >= 7 {
+    let (sensor7, pin7, state7) = if let Some(pin) = relay7 {
         info!("  Initializing Zone7 GPIO{}...", ZONE_CONFIGS[6].relay_pin);
-        let pin = PIN_7.init(Esp32GpioPin::new(Output::new(
-            peripherals.GPIO22,
-            Level::High,
-            OutputConfig::default(),
-        )));
         let sensor = SENSOR_7.init(ZoneSensor::for_zone(6));
         let state = STATE_7.init(ZoneState::with_target(ZONE_CONFIGS[6].default_target_c));
         info!("  Zone7 initialized");
@@ -1646,6 +1721,9 @@ async fn main(spawner: Spawner) {
             .spawn(zone7_task(sensor, pin, state, hysteresis).expect("Failed to spawn Zone7 task"));
         info!("  Zone7 task spawned");
     }
+
+    // From here on a hung zone loop or a stuck executor restarts the chip
+    spawner.spawn(failsafe::watchdog_task(rtc).expect("Failed to spawn watchdog task"));
 
     info!("All {} zone control tasks running", NUM_ZONES);
     info!("====================================");

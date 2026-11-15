@@ -70,6 +70,24 @@ pub const FACTORY_RESET_PIN: u8 = 9;
 /// How long reset button must be held to confirm factory reset (seconds)
 pub const FACTORY_RESET_HOLD_SECS: u64 = 5;
 
+// ============================================================================
+// Crash Fail-Safe Configuration (see failsafe.rs)
+// ============================================================================
+
+/// A zone control loop that has not run for this long (seconds) is treated as
+/// hung: relays are forced OFF and the controller restarts. Must comfortably
+/// exceed the control interval plus the longest executor stall (flash erase,
+/// Matter commissioning crypto).
+pub const ZONE_STALL_TIMEOUT_SECS: u64 = 20;
+
+/// Hardware watchdog timeout (seconds). If the supervisor task itself stops
+/// running, the chip resets this long after its last feed.
+pub const WATCHDOG_TIMEOUT_SECS: u64 = 20;
+
+/// Pause between a panic and the restart (milliseconds). Rate-limits restart
+/// loops when a panic repeats at boot; relays are already OFF while it runs.
+pub const PANIC_RESTART_DELAY_MS: u32 = 5000;
+
 /// Number of heating zones supported
 /// TEMP: Reduced to 1 for Matter commissioning testing
 pub const NUM_ZONES: usize = 1;

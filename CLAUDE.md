@@ -46,6 +46,7 @@ emberheat/
 │       ├── controller.rs   # Zone controller logic
 │       ├── zone.rs         # Zone task entry points
 │       ├── gpio_impl.rs    # esp-hal GPIO (active-low relays)
+│       ├── failsafe.rs     # Panic hooks (relays OFF + restart), RWDT watchdog, zone heartbeats
 │       ├── sensors.rs      # MockSensor, SharedOneWireBus (scan/read are TODO stubs)
 │       ├── sensor_onewire.rs  # DS18B20 via RMT (written, blocked on dependency)
 │       ├── sensor_remote.rs # MQTT remote sensors: per-zone reading store, RemoteSensor
@@ -172,6 +173,10 @@ Temperature readings are validated (emberheat-core/src/types.rs):
 - GPIO active-low: relay ON = pin LOW, relay OFF = pin HIGH (fail-safe)
 - State persisted to flash for recovery across reboots
 - Factory reset via GPIO 9 button (hold 5 seconds)
+- A panic or CPU fault forces every relay OFF (one GPIO register write, no executor or allocator), waits 5 s and restarts the chip (`emberheat-esp32/src/failsafe.rs`, via esp-backtrace `custom-pre-backtrace` / `custom-halt`)
+- Hardware watchdog (RWDT, 20 s): each zone control loop reports a heartbeat every iteration; a zone silent for 20 s, or a stuck executor, restarts the chip with relays OFF. Worst case a relay stays ON about 22 s after a hang. A panic that repeats at boot restarts in a loop with relays OFF (no heat)
+- Relay pins are driven HIGH first thing in `main`. During the reset itself they are not driven, so OFF relies on the hardware pulling the relay inputs HIGH
+- Relay GPIOs are hardcoded in `main.rs` and checked at build time against `ZONE_CONFIGS[n].relay_pin`; change both together
 
 ## Code Style
 

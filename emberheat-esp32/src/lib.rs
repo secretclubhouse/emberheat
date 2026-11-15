@@ -15,6 +15,7 @@ extern crate alloc;
 
 pub mod config;
 pub mod controller;
+pub mod failsafe;
 pub mod gpio_impl;
 pub mod matter;
 pub mod mqtt;

@@ -15,7 +15,9 @@ emberheat-matter = { path = "../emberheat-matter" }
 # Note: Feature order matters - chip features must be consistent across all esp-* crates
 esp-hal = { version = "~1.2", features = ["esp32c6", "unstable", "log-04"] }
 esp-rtos = { version = "0.4", features = ["esp32c6", "embassy", "esp-radio", "esp-alloc", "log-04"] }
-esp-backtrace = { version = "0.20", features = ["esp32c6", "panic-handler", "println"] }
+# custom-pre-backtrace / custom-halt: on panic, src/failsafe.rs turns the relays OFF
+# and restarts the chip instead of halting with the pins frozen
+esp-backtrace = { version = "0.20", features = ["esp32c6", "panic-handler", "println", "custom-pre-backtrace", "custom-halt"] }
 esp-println = { version = "0.18", features = ["esp32c6", "log-04"] }
 esp-alloc = { version = "0.11" }
 esp-storage = { version = "0.10", features = ["esp32c6", "embedded-storage"] }
