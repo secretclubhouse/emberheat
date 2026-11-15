@@ -1,30 +1,49 @@
 //! MQTT temperature history logger for ESP32-C6
 //!
 //! Publishes temperature readings and state changes to an MQTT broker for
-//! historical tracking and monitoring. Uses rust-mqtt for no_std compatibility.
+//! historical tracking and monitoring, and receives remote sensor readings on
+//! `thermostat/<device_id>/zone/+/sensor/+`. Uses rust-mqtt for no_std
+//! compatibility.
 
 use core::fmt::Write as FmtWrite;
 use core::num::NonZero;
 use core::str::FromStr;
+use embassy_futures::select::{select3, Either3};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::Stack;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Sender};
-use embassy_time::{Duration, Timer};
+use embassy_time::{with_timeout, Duration, Instant, Timer};
+use emberheat_core::remote::parse_sensor_topic;
 use heapless::String;
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use rust_mqtt::buffer::BumpBuffer;
-use rust_mqtt::client::options::{ConnectOptions, PublicationOptions, TopicReference};
+use rust_mqtt::client::event::{Event, Publish};
+use rust_mqtt::client::options::{
+    ConnectOptions, PublicationOptions, RetainHandling, SubscriptionOptions, TopicReference,
+};
 use rust_mqtt::client::Client;
 use rust_mqtt::config::KeepAlive;
-use rust_mqtt::types::{MqttBinary, MqttString, TopicName};
+use rust_mqtt::types::{MqttBinary, MqttString, TopicFilter, TopicName};
 use rust_mqtt::Bytes;
+
+use crate::sensor_remote::record_remote_reading;
 
 /// MQTT message queue depth (buffered messages before blocking)
 const MQTT_QUEUE_SIZE: usize = 16;
 
 /// MQTT keep-alive interval (seconds)
 const MQTT_KEEPALIVE_SECS: u16 = 60;
+
+/// Interval between PINGREQs (seconds), well inside the keep-alive
+const MQTT_PING_INTERVAL_SECS: u64 = 30;
+
+/// Largest packet the broker may send us; keeps incoming data well inside the
+/// 1024-byte bump buffer
+const MQTT_MAX_PACKET_SIZE: u32 = 512;
+
+/// How long to wait for the broker to acknowledge the sensor subscription
+const SUBACK_TIMEOUT_SECS: u64 = 10;
 
 /// Maximum topic length (thermostat/{device_id}/events/{zone})
 const MAX_TOPIC_LEN: usize = 64;
@@ -232,7 +251,8 @@ pub async fn mqtt_task(
     }
 }
 
-/// Connect to MQTT broker and publish messages from queue
+/// Connect to MQTT broker, subscribe to remote sensors, and publish messages
+/// from the queue until the connection fails
 pub(crate) async fn mqtt_connect_and_publish(
     stack: Stack<'static>,
     config: &MqttConfig,
@@ -274,14 +294,19 @@ pub(crate) async fn mqtt_connect_and_publish(
     let mut mqtt_buffer = [0u8; 1024];
     let mut mqtt_buffer = BumpBuffer::new(&mut mqtt_buffer);
 
-    // Publish-only client: no subscriptions, QoS 0 only, no topic aliases
+    // One subscription (remote sensors), QoS 0 only, no topic aliases
     let mut client = Client::<'_, '_, _, _, 1, 1, 1, 1, 0, 0, 0>::new(&mut mqtt_buffer);
 
+    // The packet size cap tells the broker not to send us anything that could
+    // overflow the 1024-byte bump buffer; it drops oversized messages instead.
     let mut connect_options = ConnectOptions::new()
         .clean_start()
         .keep_alive(KeepAlive::Seconds(
             NonZero::new(MQTT_KEEPALIVE_SECS).ok_or("Keep-alive must be non-zero")?,
-        ));
+        ))
+        .maximum_packet_size(
+            NonZero::new(MQTT_MAX_PACKET_SIZE).ok_or("Max packet size must be non-zero")?,
+        );
 
     // Add authentication if configured
     if let Some(ref username) = config.username {
@@ -312,6 +337,57 @@ pub(crate) async fn mqtt_connect_and_publish(
 
     info!("MQTT connected successfully");
 
+    // Subscribe to remote sensor readings before announcing we are online, so
+    // a sensor reacting to the status message cannot publish into a gap.
+    let mut sensor_filter: String<MAX_TOPIC_LEN> = String::new();
+    write!(
+        sensor_filter,
+        "thermostat/{}/zone/+/sensor/+",
+        config.device_id
+    )
+    .map_err(|_| "Sensor topic filter too long")?;
+    let sensor_filter =
+        MqttString::try_from(sensor_filter.as_str()).map_err(|_| "Invalid sensor topic filter")?;
+    let sensor_filter = TopicFilter::new(sensor_filter).ok_or("Invalid sensor topic filter")?;
+    // Retained readings may be arbitrarily old; never have the broker replay them.
+    let sub_options = SubscriptionOptions::new().retain_handling(RetainHandling::NeverSend);
+    let sub_pid = client
+        .subscribe(sensor_filter, &sub_options)
+        .await
+        .map_err(|e| {
+            error!("MQTT subscribe error: {:?}", e);
+            "MQTT subscribe failed"
+        })?;
+
+    with_timeout(Duration::from_secs(SUBACK_TIMEOUT_SECS), async {
+        loop {
+            // Only the outcome leaves this block, so nothing borrows the
+            // buffer when it is reset below.
+            let suback = match client.poll().await {
+                Ok(Event::Suback(suback)) if suback.packet_identifier == sub_pid => {
+                    Some(suback.reason_code.is_success())
+                }
+                Ok(_) => None,
+                Err(e) => {
+                    error!("MQTT poll error while waiting for SUBACK: {:?}", e);
+                    return Err("MQTT poll failed");
+                }
+            };
+            unsafe {
+                client.buffer_mut().reset();
+            }
+            match suback {
+                Some(true) => return Ok(()),
+                Some(false) => return Err("Subscribe rejected"),
+                None => continue,
+            }
+        }
+    })
+    .await
+    .map_err(|_| "No SUBACK")??;
+
+    info!("Subscribed to remote sensors");
+
     // Publish device online status
     let mut status_topic: String<MAX_TOPIC_LEN> = String::new();
     write!(status_topic, "thermostat/{}/status", config.device_id)
@@ -327,42 +403,102 @@ pub(crate) async fn mqtt_connect_and_publish(
 
     info!("Published online status, entering message loop");
 
-    // Message publishing loop
+    // Publish queued messages, receive sensor readings, and ping the broker.
+    // Only `poll_header` (cancel-safe) is ever dropped by the select; the
+    // non-cancel-safe `poll_body`, `publish` and `ping` run to completion
+    // inside their arms.
     let mut message_count: u32 = 0;
+    // Pings run on a fixed 30 s cadence, independent of other traffic, so
+    // frequent incoming messages cannot starve the keep-alive.
+    let mut next_ping = Instant::now() + Duration::from_secs(MQTT_PING_INTERVAL_SECS);
     loop {
-        // Wait for message from queue
-        let message = rx_channel.receive().await;
-
-        // Publish to MQTT broker
-        match publish_qos0(
-            &mut client,
-            message.topic.as_str(),
-            message.payload.as_bytes(),
+        match select3(
+            rx_channel.receive(),
+            client.poll_header(),
+            Timer::at(next_ping),
         )
         .await
         {
-            Ok(()) => {
-                message_count += 1;
-                // Log periodically to avoid spam
-                if message_count % 10 == 1 {
-                    info!(
-                        "MQTT published #{}: {} -> {}",
-                        message_count, message.topic, message.payload
-                    );
+            Either3::First(message) => {
+                match publish_qos0(
+                    &mut client,
+                    message.topic.as_str(),
+                    message.payload.as_bytes(),
+                )
+                .await
+                {
+                    Ok(()) => {
+                        message_count += 1;
+                        // Log periodically to avoid spam
+                        if message_count % 10 == 1 {
+                            info!(
+                                "MQTT published #{}: {} -> {}",
+                                message_count, message.topic, message.payload
+                            );
+                        }
+                    }
+                    Err(()) => {
+                        error!("Failed to publish MQTT message to {}", message.topic);
+                        return Err("MQTT publish failed");
+                    }
+                }
+
+                // Pace outgoing publishes so they don't overwhelm the network
+                Timer::after(Duration::from_millis(10)).await;
+            }
+            Either3::Second(header) => {
+                let header = header.map_err(|e| {
+                    error!("MQTT poll header error: {:?}", e);
+                    "MQTT poll failed"
+                })?;
+                // The event borrows the bump buffer; it is consumed inside this
+                // block so nothing references the buffer when it is reset.
+                {
+                    let event = client.poll_body(header).await.map_err(|e| {
+                        error!("MQTT poll body error: {:?}", e);
+                        "MQTT poll failed"
+                    })?;
+                    if let Event::Publish(publish) = event {
+                        handle_sensor_publish(config, &publish);
+                    }
+                }
+                unsafe {
+                    client.buffer_mut().reset();
                 }
             }
-            Err(()) => {
-                error!("Failed to publish MQTT message to {}", message.topic);
-                return Err("MQTT publish failed");
+            Either3::Third(()) => {
+                client.ping().await.map_err(|e| {
+                    error!("MQTT ping error: {:?}", e);
+                    "MQTT ping failed"
+                })?;
+                next_ping = Instant::now() + Duration::from_secs(MQTT_PING_INTERVAL_SECS);
             }
         }
-
-        // Small yield to allow other tasks to run and prevent overwhelming the network
-        Timer::after(Duration::from_millis(10)).await;
     }
 }
 
-/// The MQTT client type used by this firmware (publish-only, QoS 0)
+/// Feeds an incoming PUBLISH on the sensor subscription into the zone store.
+///
+/// Retained messages are dropped: their age is unknown, so they could make a
+/// long-dead sensor look fresh.
+fn handle_sensor_publish(config: &MqttConfig, publish: &Publish<'_, 1, 0>) {
+    let Some(topic) = publish.topic.name() else {
+        // Unreachable with no inbound topic aliases allowed, but harmless.
+        debug!("MQTT publish without topic name dropped");
+        return;
+    };
+    let topic = AsRef::<MqttString>::as_ref(topic).as_str();
+    if publish.retain {
+        debug!("Retained MQTT message on {} dropped", topic);
+        return;
+    }
+    match parse_sensor_topic(topic, config.device_id.as_str()) {
+        Some((zone, sensor_id)) => record_remote_reading(zone, sensor_id, &publish.message),
+        None => debug!("MQTT message on unexpected topic {} dropped", topic),
+    }
+}
+
+/// The MQTT client type used by this firmware (one subscription, QoS 0)
 type MqttClient<'a, 'c, 's> = Client<'a, 'c, TcpSocket<'s>, BumpBuffer<'c>, 1, 1, 1, 1, 0, 0, 0>;
 
 /// Publish one QoS 0 (fire-and-forget) message

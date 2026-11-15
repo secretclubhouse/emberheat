@@ -27,8 +27,6 @@ static READINGS: [ZoneStore; NUM_ZONES] =
     [const { Mutex::new(RefCell::new(ZoneReadings::new())) }; NUM_ZONES];
 
 /// Index of a zone in `ZONE_CONFIGS` by exact name.
-// The MQTT task uses this next; no caller exists in the non-Matter build until then.
-#[allow(dead_code)]
 pub fn zone_index_by_name(zone_name: &str) -> Option<usize> {
     ZONE_CONFIGS.iter().position(|z| z.name == zone_name)
 }
@@ -36,8 +34,6 @@ pub fn zone_index_by_name(zone_name: &str) -> Option<usize> {
 /// Records an incoming sensor message for a zone.
 ///
 /// An unknown zone, bad payload or rejected reading is logged at warn and ignored.
-// The MQTT task uses this next; no caller exists until then.
-#[allow(dead_code)]
 pub fn record_remote_reading(zone_name: &str, sensor_id: &str, payload: &[u8]) {
     let Some(zone_index) = zone_index_by_name(zone_name) else {
         warn!("Remote sensor reading for unknown zone '{}'", zone_name);

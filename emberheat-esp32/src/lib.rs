@@ -23,6 +23,7 @@ pub mod onewire_rmt;
 pub mod persistence;
 pub mod persistence_nvs;
 pub mod sensor_i2c;
+pub mod sensor_remote;
 pub mod sensors;
 pub mod wifi;
 pub mod zone;
