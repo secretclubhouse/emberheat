@@ -1,7 +1,7 @@
 # Remote zone sensors over MQTT — design
 
 Date: 2026-11-14
-Status: draft, reviewed against the code, awaiting approval (open questions at the end)
+Status: approved by Josh 2026-11-14
 Depends on: `chore/upgrade-deps` (rust-mqtt 0.6, which can subscribe)
 
 ## Intent
@@ -35,10 +35,13 @@ bridge: it publishes sensor readings to MQTT and EmberHeat subscribes.
 
 ## Anti-goals
 
-- **Heating must never run on stale data.** If readings stop (Home Assistant
-  down, broker down, WiFi down, sensor battery dead), the zone turns heating OFF.
-  A design that keeps heating on the last known value is a failure even if
-  everything else works.
+- **Heating must never regulate against a stale reading as if it were fresh,
+  and must never run unbounded without readings.** If all of a zone's readings
+  stop (Home Assistant down, broker down, WiFi down, sensor battery dead), the
+  zone runs the bounded fallback described below for at most 6 hours, then
+  turns heating OFF. (Changed 2026-11-14 from "OFF after 10 minutes": Josh
+  would rather wake to a slightly warm room than a cold one after an overnight
+  outage.)
 - No retained MQTT messages: a retained value looks fresh after a reconnect.
 
 ## Approaches
@@ -88,6 +91,11 @@ New module `emberheat-core/src/remote.rs`:
   - Rejects NaN/infinite and values outside `MIN_VALID_TEMP_C..=MAX_VALID_TEMP_C`
     (the reading is dropped, the previous value for that sensor is kept and
     ages out normally).
+  - `MIN_VALID_TEMP_C` drops from 3 to 0 (Josh, 2026-11-14): readings from
+    0 °C up are real and heat normally. Below 0 °C the reading is rejected and
+    the zone ends up OFF; Josh's reasoning is that a room below freezing means
+    the heating has already failed. This is the shared core constant, so it
+    applies to every sensor type.
   - Updates the slot with the same id, else takes a free slot, else replaces a
     stale slot, else rejects the new sensor (all `N` slots hold fresh readings).
 - `average(now_secs, max_age_secs) -> Result<(TemperatureReading, usize), SensorError>`
@@ -96,12 +104,37 @@ New module `emberheat-core/src/remote.rs`:
 
 Time is passed in as seconds so the module has no clock dependency.
 
+New module `emberheat-core/src/fallback.rs` (Josh picked "recent duty cycle"
+on 2026-11-14; the numbers and mechanics below are Claude's calls):
+
+- `DutyTracker`: a running estimate of how much of the recent past the relay
+  was ON, as a fraction 0.0–1.0.
+  - `update(relay_on, dt_secs)`: exponential moving average with a 2-hour time
+    constant. Called once per control-loop pass, only while the zone is
+    regulating on fresh readings; frozen during fallback.
+  - Starts at 0.0 and is not persisted, so a short history underestimates and
+    errs toward less heat.
+- `fallback_relay(duty, elapsed_secs, &FallbackConfig) -> Option<bool>`
+  - `None` once `elapsed_secs > max_secs` (6 h): the caller treats this as a
+    sensor error and turns heating OFF.
+  - Otherwise the relay cycles on a fixed 30-minute period: ON for the first
+    `duty × period`, OFF for the rest.
+  - `duty` is capped at 0.75 so a zone that was recovering from a setback when
+    readings stopped cannot run flat out for 6 hours.
+  - An ON time under 3 minutes becomes 0 (not worth a relay cycle).
+- `FallbackConfig { max_secs: 21_600, period_secs: 1_800, max_duty: 0.75,
+  min_on_secs: 180 }` as the default.
+
+The hysteresis algorithm and its values are untouched; fallback only replaces
+it while there is no reading to feed it.
+
 ### Firmware (`emberheat-esp32`)
 
 - `config.rs`
   - Replace `USE_MOCK_SENSORS: bool` with `SENSOR_SOURCE: SensorSource`
     (`Mock` | `Mqtt`). Default stays `Mock` until hardware-tested.
   - `REMOTE_SENSOR_MAX_AGE_SECS = 600`, `MAX_REMOTE_SENSORS_PER_ZONE = 4`.
+  - `REMOTE_FALLBACK: FallbackConfig` with the defaults above.
 - New `sensor_remote.rs`
   - A static per-zone store: `[Mutex<CriticalSectionRawMutex, RefCell<ZoneReadings<4>>>; NUM_ZONES]`.
   - `record_remote_reading(zone_name, sensor_id, payload)` — called by the MQTT
@@ -126,8 +159,19 @@ Time is passed in as seconds so the module has no clock dependency.
     the running state keeps showing "heating". Add a bridge function that sets
     `LocalTemperature` to null and the running state to idle, and call it from
     the error path.
-  - Publish a zone sensor-status message when a zone goes from having readings
-    to having none and back, so Home Assistant can alert (Claude's call).
+  - **Fallback.** Each loop owns a `DutyTracker`. On a good reading it runs
+    hysteresis as today and updates the tracker. On `Unavailable` it notes when
+    readings were lost and drives the relay from `fallback_relay`; when that
+    returns `None` it takes the sensor-error path (relay OFF). During fallback:
+    `LocalTemperature` is null, the running state follows the actual relay,
+    system mode Off still forces the relay OFF, and setpoint changes have no
+    effect until a reading returns. The first fresh reading ends fallback and
+    hysteresis resumes. A zone that has never had a reading since boot does not
+    enter fallback (there is no history to replay) and stays OFF.
+  - Other sensor errors (not `Unavailable`) keep today's behaviour: relay OFF.
+  - Publish a zone sensor-status message (`ok` / `fallback` / `lost`) on every
+    change, so Home Assistant can alert as soon as fallback starts rather than
+    6 hours later (Claude's call).
 - MQTT task (`mqtt.rs::mqtt_connect_and_publish`, shared by both modes)
   - After CONNECT: subscribe to the wildcard filter, wait for the SUBACK, and
     only then publish the `online` status. Today `online` is published first;
@@ -144,8 +188,8 @@ Time is passed in as seconds so the module has no clock dependency.
     Reset the bump buffer after every event (not only publishes), once the
     event and any error borrowing it have been dropped.
   - Any client error returns from the function; the existing reconnect loop
-    with backoff handles it. While disconnected, readings age out and zones
-    turn OFF after `REMOTE_SENSOR_MAX_AGE_SECS`.
+    with backoff handles it. While disconnected, readings age out after
+    `REMOTE_SENSOR_MAX_AGE_SECS` and zones enter fallback.
   - The client's current const generics already allow one subscription and
     QoS 0 receipt; no change expected.
 - Status for Home Assistant: the per-zone temperature message the firmware
@@ -157,9 +201,13 @@ Time is passed in as seconds so the module has no clock dependency.
 |---|---|
 | Boot, no reading yet | Heating OFF until the first valid reading |
 | 1 of 3 sensors goes quiet | Average of the remaining 2 after 10 min |
-| All sensors quiet for 10 min | Sensor error → heating OFF, Matter temperature null |
-| Payload not a number / out of 3–37 °C | Reading ignored, logged |
-| Broker or WiFi drops | MQTT reconnects with backoff; control loop keeps running; OFF after 10 min without readings |
+| All sensors quiet for 10 min | Fallback: relay cycles at the zone's recent duty (max 75%) on a 30-min period; Matter temperature null; status `fallback` published |
+| A reading returns during fallback | Normal hysteresis control resumes immediately |
+| Thermostat set to Off during fallback | Heating OFF |
+| No readings for 6 h after fallback starts | Sensor error → heating OFF, status `lost` |
+| Reboot with no readings arriving | Heating OFF (duty history is not kept across reboots) |
+| Payload not a number / out of 0–37 °C | Reading ignored, logged |
+| Broker or WiFi drops | MQTT reconnects with backoff; control loop keeps running; fallback after 10 min without readings |
 | Fifth sensor for a zone | Ignored unless an existing slot is stale |
 
 ### Home Assistant side
@@ -206,13 +254,20 @@ it as fresh.
 - `emberheat-core` unit tests for `ZoneReadings`: single sensor, average of
   several, stale exclusion at the boundary, all stale → error, invalid values
   rejected without disturbing the stored value, slot reuse and overflow.
+- `emberheat-core` unit tests for fallback: tracker converges toward the real
+  duty and starts at 0; cycle ON/OFF edges within a period; duty cap; minimum
+  ON time; `None` past the 6-hour limit.
 - Firmware: `make build-esp32`, `make build-matter`,
   `make build-matter-dual-radio` and the `scan_sensors` binary build; existing
   68 tests still pass.
 - Hardware (Josh): with `SENSOR_SOURCE = Mqtt`, publish with `mosquitto_pub`,
-  confirm the relay follows the target, then stop publishing and confirm the
-  relay turns OFF after 10 minutes and Matter shows no temperature. Repeat the
-  stop test by shutting down the broker instead, with heating ON.
+  confirm the relay follows the target, then stop publishing and confirm that
+  after 10 minutes the zone enters fallback, Matter shows no temperature, and
+  the relay cycles. Repeat by shutting down the broker instead, with heating
+  ON. For the bench, temporarily shorten the fallback period and limit in
+  `config.rs` to see a full cycle and the final OFF without waiting 6 hours.
+- `CLAUDE.md` safety section is updated to describe fallback, since "heating
+  OFF on errors" no longer covers lost remote readings.
 
 ## Left to the builder
 
@@ -225,15 +280,10 @@ it as fresh.
 
 ## Open questions for Josh
 
-1. **Matter setpoint and mode are not wired into the control loop.** Both loops
-   regulate to the compile-time `default_target_c` with mode hardcoded to Heat;
-   `get_matter_setpoint` and `is_zone_enabled_in_matter` have no callers. So
-   changing the temperature or turning the thermostat off in Apple Home has no
-   effect on the relay today. Is fixing that part of this work, a separate
-   change done first, or out of scope?
-2. **Dead-sensor detection relies on the Home Assistant automation guard.**
-   Is that acceptable, or should the firmware enforce it itself (for example
-   the payload carries the reading's age)?
-3. **Readings below 3 °C are rejected as invalid**, so a zone whose room is
-   freezing gets no valid reading and heating stays OFF. This is the existing
-   validation rule; is it right for room sensors?
+1. ~~Matter setpoint and mode are not wired into the control loop.~~ Resolved:
+   done as a separate change before this work.
+2. ~~What a zone does when all its readings stop.~~ Resolved 2026-11-14:
+   recent-duty-cycle fallback for up to 6 hours, see Core logic. The
+   Home Assistant `last_reported` guard stays as the dead-sensor check.
+3. ~~Readings below 3 °C are rejected as invalid.~~ Resolved: the minimum
+   drops to 0 °C, see Core logic.
