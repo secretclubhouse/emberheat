@@ -3,21 +3,23 @@
 
 //! EmberHeat ESP32-C6 Multi-Zone Thermostat
 //!
-//! Embedded 7-zone thermostat controller using Embassy async runtime on ESP32-C6.
+//! Embedded multi-zone (up to 7) thermostat controller using Embassy async runtime on ESP32-C6.
 //! Implements the same control logic as the Raspberry Pi version but optimized
 //! for bare-metal embedded systems.
 //!
 //! # Architecture
 //!
 //! - Each zone runs an independent control loop as an Embassy task
-//! - Mock sensors are used for testing without hardware
+//! - Zone temperatures come from mock sensors or remote MQTT sensors
+//!   (`SENSOR_SOURCE`), with a bounded duty-cycle fallback when remote
+//!   readings stop
 //! - Real DS18B20 sensors share a single 1-Wire bus (future hardware support)
 //! - Each zone has its own relay GPIO pin
 //!
 //! # Configuration
 //!
 //! Zone configuration is defined in `config.rs`:
-//! - `ZONE_CONFIGS`: Array of 7 zone configurations
+//! - `NUM_ZONES` / `ZONE_CONFIGS`: number of zones and their configuration
 //! - `SENSOR_SOURCE`: Mock or MQTT remote sensors
 //! - `MOCK_TEMPERATURE_C`: Temperature returned by mock sensors
 
@@ -55,9 +57,9 @@ use static_cell::StaticCell;
 use config::MOCK_TEMPERATURE_C;
 #[cfg(feature = "matter")]
 use config::PERSIST_FLASH_RANGE;
-use config::REMOTE_FALLBACK;
 use config::{SensorSource, NUM_ZONES, SENSOR_SOURCE, ZONE_CONFIGS};
 use config::{MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID, MQTT_PASSWORD, MQTT_USERNAME};
+use config::{REMOTE_FALLBACK, REMOTE_SENSOR_MAX_AGE_SECS, SENSOR_STATUS_REPUBLISH_SECS};
 #[cfg(not(feature = "matter"))]
 use config::{WIFI_PASSWORD, WIFI_SSID};
 use core::fmt::Write as FmtWrite;
@@ -66,7 +68,9 @@ use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Instant;
-use emberheat_core::fallback::{FallbackController, FallbackDecision, SensorStatus};
+use emberheat_core::fallback::{
+    fallback_on_secs, FallbackController, FallbackDecision, SensorStatus,
+};
 use emberheat_core::{
     apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState, SensorError,
     TemperatureSensor,
@@ -74,7 +78,7 @@ use emberheat_core::{
 #[cfg(feature = "matter")]
 use esp_storage::FlashStorage;
 use gpio_impl::Esp32GpioPin;
-use mqtt::{MqttConfig, MqttMessage};
+use mqtt::MqttConfig;
 #[cfg(feature = "matter")]
 use persistence::{load_all_zones, FlashKvBlobStore};
 #[cfg(feature = "matter")]
@@ -198,13 +202,15 @@ fn build_temperature_message(
 // Zone Control Loop Implementation
 // =============================================================================
 
-/// Queue a message for MQTT, dropping it when the queue is full so control never waits on the network.
+/// Queue a message for MQTT, dropping it when the queue is full so control
+/// never waits on the network. Returns `true` if the message was queued.
 fn queue_mqtt(
     channel: &'static Channel<CriticalSectionRawMutex, mqtt::MqttMessage, MQTT_QUEUE_SIZE>,
     msg: mqtt::MqttMessage,
-) {
-    // Full queue: drop the message; the next control pass publishes a fresh one.
-    let _ = channel.try_send(msg);
+) -> bool {
+    // Full queue (normal during a broker outage): drop the message. Callers
+    // that must not lose it retry on a later pass.
+    channel.try_send(msg).is_ok()
 }
 
 /// Build an MQTT message reporting the health of a zone's temperature input.
@@ -229,31 +235,133 @@ fn build_sensor_status_message(zone_name: &str, status: SensorStatus) -> Option<
     Some(mqtt::MqttMessage { topic, payload })
 }
 
-/// Record this pass's sensor status, logging and publishing it only when it
-/// changed, so a long outage produces one line rather than one every pass.
-fn report_sensor_status(
-    zone_name: &str,
-    last: &mut Option<SensorStatus>,
-    status: SensorStatus,
-    duty: f32,
-    channel: &'static Channel<CriticalSectionRawMutex, mqtt::MqttMessage, MQTT_QUEUE_SIZE>,
-) {
-    if *last == Some(status) {
-        return;
+/// What the fallback cycle is doing with the relay, for the status log line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FallbackActivity {
+    /// Cycling the relay at the recent duty.
+    Cycling,
+    /// Relay held OFF because the thermostat mode is not Heat.
+    HeldOffNotHeat,
+    /// Relay held OFF because the recent duty is too low to be worth cycling.
+    HeldOffLowDuty,
+}
+
+impl FallbackActivity {
+    /// Classify a fallback pass. `heat_mode` is whether the thermostat mode
+    /// allows heating (always true without Matter).
+    fn classify(duty: f32, heat_mode: bool) -> Self {
+        if !heat_mode {
+            FallbackActivity::HeldOffNotHeat
+        } else if fallback_on_secs(duty, &REMOTE_FALLBACK) == 0 {
+            FallbackActivity::HeldOffLowDuty
+        } else {
+            FallbackActivity::Cycling
+        }
     }
-    match status {
-        SensorStatus::Ok => info!("[{}] Sensor status: ok", zone_name),
-        SensorStatus::Fallback => warn!(
-            "[{}] Sensor status: fallback (readings lost, cycling relay at {:.0}% duty)",
-            zone_name,
-            duty * 100.0
-        ),
-        SensorStatus::Lost => warn!("[{}] Sensor status: lost (heating OFF)", zone_name),
+}
+
+/// Per-zone sensor status reporting: logs each transition once and publishes
+/// the status until it has actually been queued, then again every
+/// `SENSOR_STATUS_REPUBLISH_SECS` so a restarted broker or Home Assistant
+/// picks it up.
+struct SensorStatusReporter {
+    /// Last status (and fallback activity) written to the log.
+    logged: Option<(SensorStatus, Option<FallbackActivity>)>,
+    /// Last status successfully queued for MQTT, and when.
+    queued: Option<(SensorStatus, u64)>,
+    /// Whether the "waiting for first reading" line has been logged.
+    waiting_logged: bool,
+    /// Whether the status topic overflowed and that was logged.
+    topic_error_logged: bool,
+}
+
+impl SensorStatusReporter {
+    const fn new() -> Self {
+        Self {
+            logged: None,
+            queued: None,
+            waiting_logged: false,
+            topic_error_logged: false,
+        }
     }
-    if let Some(msg) = build_sensor_status_message(zone_name, status) {
-        queue_mqtt(channel, msg);
+
+    /// Record this pass's status. `activity` is `Some` only for `Fallback`.
+    fn report(
+        &mut self,
+        zone_name: &str,
+        status: SensorStatus,
+        activity: Option<FallbackActivity>,
+        duty: f32,
+        channel: &'static Channel<CriticalSectionRawMutex, mqtt::MqttMessage, MQTT_QUEUE_SIZE>,
+    ) {
+        if self.logged != Some((status, activity)) {
+            match (status, activity) {
+                (SensorStatus::Ok, _) => info!("[{}] Sensor status: ok", zone_name),
+                (SensorStatus::Fallback, Some(FallbackActivity::HeldOffNotHeat)) => warn!(
+                    "[{}] Sensor status: fallback (readings lost, heating held OFF: mode is not Heat)",
+                    zone_name
+                ),
+                (SensorStatus::Fallback, Some(FallbackActivity::HeldOffLowDuty)) => warn!(
+                    "[{}] Sensor status: fallback (readings lost, heating held OFF: recent duty {:.0}% too low to cycle)",
+                    zone_name,
+                    duty * 100.0
+                ),
+                (SensorStatus::Fallback, _) => warn!(
+                    "[{}] Sensor status: fallback (readings lost, cycling relay at {:.0}% duty)",
+                    zone_name,
+                    duty * 100.0
+                ),
+                (SensorStatus::Lost, _) => {
+                    warn!("[{}] Sensor status: lost (heating OFF)", zone_name)
+                }
+            }
+            self.logged = Some((status, activity));
+        }
+
+        let now = Instant::now().as_secs();
+        let due = match self.queued {
+            Some((s, at)) => s != status || now.saturating_sub(at) >= SENSOR_STATUS_REPUBLISH_SECS,
+            None => true,
+        };
+        if !due {
+            return;
+        }
+        match build_sensor_status_message(zone_name, status) {
+            // Not queued (queue full during an outage): try again next pass.
+            Some(msg) => {
+                if queue_mqtt(channel, msg) {
+                    self.queued = Some((status, now));
+                }
+            }
+            None => {
+                if !self.topic_error_logged {
+                    error!(
+                        "[{}] Sensor status topic too long; status will not be published",
+                        zone_name
+                    );
+                    self.topic_error_logged = true;
+                }
+            }
+        }
     }
-    *last = Some(status);
+
+    /// Log, once, that the zone is waiting for its first reading after boot.
+    fn note_waiting_for_first_reading(&mut self, zone_name: &str) {
+        if !self.waiting_logged {
+            info!(
+                "[{}] Waiting for first reading (heating OFF, no status for up to {}s after boot)",
+                zone_name, REMOTE_SENSOR_MAX_AGE_SECS
+            );
+            self.waiting_logged = true;
+        }
+    }
+}
+
+/// Whether a pass with no reading and no history is still inside the
+/// post-boot window in which sensors are expected to report for the first
+/// time. Inside it the zone stays OFF quietly instead of reporting `lost`.
+fn in_boot_grace(decision: FallbackDecision) -> bool {
+    decision == FallbackDecision::NoHistory && Instant::now().as_secs() < REMOTE_SENSOR_MAX_AGE_SECS
 }
 
 /// Drive an active-low relay to `new_state` (ON = LOW, OFF = HIGH).
@@ -313,7 +421,7 @@ async fn zone_control_loop(
 
     // Duty history and outage clock for the fallback cycle (RAM only)
     let mut fallback = FallbackController::new();
-    let mut status: Option<SensorStatus> = None;
+    let mut status = SensorStatusReporter::new();
 
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
@@ -327,9 +435,8 @@ async fn zone_control_loop(
         // Readings unavailable (none fresh): keep cycling at the recent duty
         // for a bounded time. Any other outcome falls through to the match.
         if let Err(SensorError::Unavailable(_)) = reading {
-            if let FallbackDecision::Relay(on) =
-                fallback.on_unavailable(Instant::now().as_secs(), &REMOTE_FALLBACK)
-            {
+            let decision = fallback.on_unavailable(Instant::now().as_secs(), &REMOTE_FALLBACK);
+            if let FallbackDecision::Relay(on) = decision {
                 let new_relay_state = if on { RelayState::On } else { RelayState::Off };
                 if new_relay_state != current_relay_state {
                     info!(
@@ -345,13 +452,26 @@ async fn zone_control_loop(
                     state,
                     new_relay_state,
                 );
-                report_sensor_status(
+                status.report(
                     zone_name,
-                    &mut status,
                     SensorStatus::Fallback,
+                    Some(FallbackActivity::classify(fallback.duty(), true)),
                     fallback.duty(),
                     mqtt_channel,
                 );
+                continue;
+            }
+            if in_boot_grace(decision) {
+                // Just booted and no sensor has reported yet: relay OFF, but
+                // no `lost` status and no sensor error until the window ends.
+                write_relay(
+                    zone_name,
+                    relay_pin,
+                    &mut current_relay_state,
+                    state,
+                    RelayState::Off,
+                );
+                status.note_waiting_for_first_reading(zone_name);
                 continue;
             }
         }
@@ -413,10 +533,10 @@ async fn zone_control_loop(
                     current_relay_state == RelayState::On,
                     CONTROL_INTERVAL_SECS as u32,
                 );
-                report_sensor_status(
+                status.report(
                     zone_name,
-                    &mut status,
                     SensorStatus::Ok,
+                    None,
                     fallback.duty(),
                     mqtt_channel,
                 );
@@ -436,10 +556,10 @@ async fn zone_control_loop(
             Err(e) => {
                 // Not covered by fallback: other sensor errors, no history
                 // since boot, or the fallback time limit has passed.
-                report_sensor_status(
+                status.report(
                     zone_name,
-                    &mut status,
                     SensorStatus::Lost,
+                    None,
                     fallback.duty(),
                     mqtt_channel,
                 );
@@ -509,7 +629,7 @@ async fn zone_control_loop(
 
     // Duty history and outage clock for the fallback cycle (RAM only)
     let mut fallback = FallbackController::new();
-    let mut status: Option<SensorStatus> = None;
+    let mut status = SensorStatusReporter::new();
 
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
@@ -523,12 +643,12 @@ async fn zone_control_loop(
         // Readings unavailable (none fresh): keep cycling at the recent duty
         // for a bounded time. Any other outcome falls through to the match.
         if let Err(SensorError::Unavailable(_)) = reading {
-            if let FallbackDecision::Relay(on) =
-                fallback.on_unavailable(Instant::now().as_secs(), &REMOTE_FALLBACK)
-            {
+            let decision = fallback.on_unavailable(Instant::now().as_secs(), &REMOTE_FALLBACK);
+            if let FallbackDecision::Relay(on) = decision {
                 // The Matter mode still rules: only heat while it is Heat.
                 let (mode, _) = matter::get_control_target(zone_index);
-                let heat = on && mode != HeatingState::Off;
+                let heat_mode = mode != HeatingState::Off;
+                let heat = on && heat_mode;
                 let new_relay_state = if heat {
                     RelayState::On
                 } else {
@@ -552,13 +672,27 @@ async fn zone_control_loop(
                 // No reading: controllers show no temperature, and the
                 // running state follows the relay.
                 matter::update_matter_without_reading(zone_index, state.heating_active);
-                report_sensor_status(
+                status.report(
                     zone_name,
-                    &mut status,
                     SensorStatus::Fallback,
+                    Some(FallbackActivity::classify(fallback.duty(), heat_mode)),
                     fallback.duty(),
                     mqtt_channel,
                 );
+                continue;
+            }
+            if in_boot_grace(decision) {
+                // Just booted and no sensor has reported yet: relay OFF, but
+                // no `lost` status and no sensor error until the window ends.
+                write_relay(
+                    zone_name,
+                    relay_pin,
+                    &mut current_relay_state,
+                    state,
+                    RelayState::Off,
+                );
+                matter::update_matter_without_reading(zone_index, state.heating_active);
+                status.note_waiting_for_first_reading(zone_name);
                 continue;
             }
         }
@@ -631,10 +765,10 @@ async fn zone_control_loop(
                     current_relay_state == RelayState::On,
                     CONTROL_INTERVAL_SECS as u32,
                 );
-                report_sensor_status(
+                status.report(
                     zone_name,
-                    &mut status,
                     SensorStatus::Ok,
+                    None,
                     fallback.duty(),
                     mqtt_channel,
                 );
@@ -663,10 +797,10 @@ async fn zone_control_loop(
             Err(e) => {
                 // Not covered by fallback: other sensor errors, no history
                 // since boot, or the fallback time limit has passed.
-                report_sensor_status(
+                status.report(
                     zone_name,
-                    &mut status,
                     SensorStatus::Lost,
+                    None,
                     fallback.duty(),
                     mqtt_channel,
                 );

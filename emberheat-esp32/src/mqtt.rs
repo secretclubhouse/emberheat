@@ -45,6 +45,9 @@ const MQTT_MAX_PACKET_SIZE: u32 = 512;
 /// How long to wait for the broker to acknowledge the sensor subscription
 const SUBACK_TIMEOUT_SECS: u64 = 10;
 
+/// How long to wait for a packet body once its header has arrived
+const POLL_BODY_TIMEOUT_SECS: u64 = 10;
+
 /// Maximum topic length (thermostat/{device_id}/events/{zone})
 const MAX_TOPIC_LEN: usize = 64;
 
@@ -234,7 +237,8 @@ pub async fn mqtt_task(
     loop {
         info!("Connecting to MQTT broker...");
 
-        match mqtt_connect_and_publish(*stack, &config, rx_channel).await {
+        let mut subscribed = false;
+        match mqtt_connect_and_publish(*stack, &config, rx_channel, &mut subscribed).await {
             Ok(_) => {
                 info!("MQTT connection closed gracefully");
                 backoff_secs = 1; // Reset backoff on clean disconnect
@@ -242,6 +246,10 @@ pub async fn mqtt_task(
             Err(e) => {
                 error!("MQTT connection failed: {}", e);
             }
+        }
+        // A session that got as far as SUBACK was healthy; retry it promptly.
+        if subscribed {
+            backoff_secs = 1;
         }
 
         // Exponential backoff
@@ -253,10 +261,15 @@ pub async fn mqtt_task(
 
 /// Connect to MQTT broker, subscribe to remote sensors, and publish messages
 /// from the queue until the connection fails
+///
+/// Sets `subscribed` once the broker has acknowledged the sensor
+/// subscription, so callers can tell a working session that later dropped
+/// (reset the reconnect backoff) from a failure to connect at all.
 pub(crate) async fn mqtt_connect_and_publish(
     stack: Stack<'static>,
     config: &MqttConfig,
     rx_channel: &'static Channel<CriticalSectionRawMutex, MqttMessage, MQTT_QUEUE_SIZE>,
+    subscribed: &mut bool,
 ) -> Result<(), &'static str> {
     // Create TCP socket for MQTT connection
     let mut rx_buffer = [0; 4096];
@@ -387,6 +400,7 @@ pub(crate) async fn mqtt_connect_and_publish(
     .map_err(|_| "No SUBACK")??;
 
     info!("Subscribed to remote sensors");
+    *subscribed = true;
 
     // Publish device online status
     let mut status_topic: String<MAX_TOPIC_LEN> = String::new();
@@ -453,8 +467,23 @@ pub(crate) async fn mqtt_connect_and_publish(
                 })?;
                 // The event borrows the bump buffer; it is consumed inside this
                 // block so nothing references the buffer when it is reset.
+                //
+                // The body can stall forever if the link dies between header
+                // and body, so it gets a deadline. Dropping a half-read
+                // `poll_body` is safe only because the error return below
+                // discards this client and socket; the reconnect loop builds
+                // fresh ones.
                 {
-                    let event = client.poll_body(header).await.map_err(|e| {
+                    let event = with_timeout(
+                        Duration::from_secs(POLL_BODY_TIMEOUT_SECS),
+                        client.poll_body(header),
+                    )
+                    .await
+                    .map_err(|_| {
+                        error!("MQTT poll body timed out");
+                        "MQTT poll body timed out"
+                    })?
+                    .map_err(|e| {
                         error!("MQTT poll body error: {:?}", e);
                         "MQTT poll failed"
                     })?;
@@ -488,6 +517,11 @@ fn handle_sensor_publish(config: &MqttConfig, publish: &Publish<'_, 1, 0>) {
         return;
     };
     let topic = AsRef::<MqttString>::as_ref(topic).as_str();
+    // This only guards subscribe-time replays of retained messages (also
+    // refused via RetainHandling::NeverSend). Under MQTT v5 the broker clears
+    // the retain flag when forwarding a live publish to an existing
+    // subscription, so a reading published with -r while we are connected
+    // arrives with retain = false and is accepted, as it should be.
     if publish.retain {
         debug!("Retained MQTT message on {} dropped", topic);
         return;

@@ -272,6 +272,21 @@ pub const MAX_REMOTE_SENSORS_PER_ZONE: usize = 4;
 pub const REMOTE_FALLBACK: emberheat_core::fallback::FallbackConfig =
     emberheat_core::fallback::FallbackConfig::DEFAULT;
 
+// A hand-edited fallback config must not be able to heat continuously or
+// divide by zero; catch it at build time rather than on the boiler.
+const _: () = assert!(
+    REMOTE_FALLBACK.max_duty >= 0.0 && REMOTE_FALLBACK.max_duty <= 1.0,
+    "REMOTE_FALLBACK.max_duty must be within 0.0..=1.0"
+);
+const _: () = assert!(
+    REMOTE_FALLBACK.period_secs > 0,
+    "REMOTE_FALLBACK.period_secs must be greater than 0"
+);
+
+/// Republish each zone's sensor status this often (seconds) even when it has
+/// not changed, so a restarted broker or Home Assistant picks it up again.
+pub const SENSOR_STATUS_REPUBLISH_SECS: u64 = 300;
+
 /// Temperature returned by mock sensors (in Celsius)
 ///
 /// Only used when `SENSOR_SOURCE` is `SensorSource::Mock`.

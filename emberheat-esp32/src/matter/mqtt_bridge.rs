@@ -161,7 +161,8 @@ async fn mqtt_task_inner(
     loop {
         info!("Connecting to MQTT broker...");
 
-        match mqtt_connect_and_publish(stack, &config, rx_channel).await {
+        let mut subscribed = false;
+        match mqtt_connect_and_publish(stack, &config, rx_channel, &mut subscribed).await {
             Ok(_) => {
                 info!("MQTT connection closed gracefully");
                 backoff_secs = 1; // Reset backoff on clean disconnect
@@ -169,6 +170,10 @@ async fn mqtt_task_inner(
             Err(e) => {
                 error!("MQTT connection failed: {}", e);
             }
+        }
+        // A session that got as far as SUBACK was healthy; retry it promptly.
+        if subscribed {
+            backoff_secs = 1;
         }
 
         // Exponential backoff
