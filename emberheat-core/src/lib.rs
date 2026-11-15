@@ -17,6 +17,7 @@
 //! - `control`: Hysteresis-based control logic
 //! - `config`: Configuration types
 //! - `remote`: Remote (MQTT) sensor reading store, averaging and message parsing
+//! - `fallback`: Duty-cycle tracking and the bounded fallback relay cycle
 //!
 //! ## Example
 //!
@@ -47,6 +48,7 @@ extern crate alloc;
 
 pub mod config;
 pub mod control;
+pub mod fallback;
 pub mod gpio;
 pub mod persistence;
 pub mod remote;
