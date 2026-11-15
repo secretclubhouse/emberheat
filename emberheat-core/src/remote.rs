@@ -38,6 +38,10 @@ impl Slot {
 #[derive(Debug, Clone)]
 pub struct ZoneReadings<const N: usize> {
     slots: [Option<Slot>; N],
+    /// Last rejected reading above `MAX_VALID_TEMP_C` and when it arrived,
+    /// cleared by any later accepted reading. Lets `average` tell "the room
+    /// reads too hot" (heating off) apart from "no readings" (fallback).
+    too_hot: Option<(f32, u64)>,
 }
 
 impl<const N: usize> Default for ZoneReadings<N> {
@@ -53,6 +57,7 @@ impl<const N: usize> ZoneReadings<N> {
     pub const fn new() -> Self {
         Self {
             slots: [const { None }; N],
+            too_hot: None,
         }
     }
 
@@ -61,6 +66,7 @@ impl<const N: usize> ZoneReadings<N> {
     /// Invalid readings are rejected without touching the stored value, so a
     /// bad message never overwrites a good reading. A new sensor takes a free
     /// slot, else the stalest slot older than `STALE_SLOT_SECS`, else is rejected.
+    /// A rejected reading above the valid range is remembered (see `average`).
     pub fn record(
         &mut self,
         sensor_id: &str,
@@ -74,6 +80,9 @@ impl<const N: usize> ZoneReadings<N> {
             return Err(SensorError::InvalidData(msg("non-finite temperature")));
         }
         if !(MIN_VALID_TEMP_C..=MAX_VALID_TEMP_C).contains(&temp_c) {
+            if temp_c > MAX_VALID_TEMP_C {
+                self.too_hot = Some((temp_c, now_secs));
+            }
             return Err(SensorError::OutOfRange(temp_c));
         }
 
@@ -104,11 +113,14 @@ impl<const N: usize> ZoneReadings<N> {
             temp_c,
             received_at_secs: now_secs,
         });
+        self.too_hot = None;
         Ok(())
     }
 
     /// Averages readings no older than `max_age_secs`, returning the average
-    /// and the number of sensors used. `Unavailable` when none are fresh.
+    /// and the number of sensors used. When none are fresh: `OutOfRange` with
+    /// the rejected value if a too-hot reading arrived within `max_age_secs`
+    /// (so the zone gets heating off, not fallback), else `Unavailable`.
     pub fn average(
         &self,
         now_secs: u64,
@@ -121,6 +133,12 @@ impl<const N: usize> ZoneReadings<N> {
             .filter(|s| s.age(now_secs) <= max_age_secs)
             .fold((0.0f32, 0usize), |(sum, n), s| (sum + s.temp_c, n + 1));
         if count == 0 {
+            if let Some((temp_c, at_secs)) = self.too_hot {
+                // Saturating, like `Slot::age`, so a backwards clock cannot panic.
+                if now_secs.saturating_sub(at_secs) <= max_age_secs {
+                    return Err(SensorError::OutOfRange(temp_c));
+                }
+            }
             return Err(SensorError::Unavailable(msg("no fresh remote readings")));
         }
         Ok((TemperatureReading::from_celsius(sum / count as f32), count))
@@ -210,10 +228,57 @@ mod tests {
         z.record("a", 0.0, 20).unwrap(); // boundary is valid
     }
     #[test]
-    fn only_out_of_range_sensor_leaves_zone_unavailable() {
+    fn only_too_hot_sensor_reports_out_of_range_until_it_ages_out() {
         let mut z = ZoneReadings::<4>::new();
         let _ = z.record("a", 70.5, 0);
-        assert!(z.average(0, 600).is_err());
+        assert!(matches!(
+            z.average(600, 600),
+            Err(SensorError::OutOfRange(t)) if t == 70.5
+        ));
+        assert!(matches!(
+            z.average(601, 600),
+            Err(SensorError::Unavailable(_))
+        ));
+    }
+    #[test]
+    fn later_valid_reading_clears_too_hot_rejection() {
+        let mut z = ZoneReadings::<4>::new();
+        let _ = z.record("a", 70.5, 0);
+        z.record("b", 21.0, 10).unwrap();
+        // b is stale but accepted after the rejection, so the zone is merely unavailable.
+        assert!(matches!(
+            z.average(700, 600),
+            Err(SensorError::Unavailable(_))
+        ));
+    }
+    #[test]
+    fn fresh_valid_sensor_alongside_too_hot_one_averages_normally() {
+        let mut z = ZoneReadings::<4>::new();
+        z.record("b", 21.0, 0).unwrap();
+        let _ = z.record("a", 70.5, 10);
+        let (r, n) = z.average(10, 600).unwrap();
+        assert_eq!((r.celsius, n), (21.0, 1));
+    }
+    #[test]
+    fn only_too_cold_sensor_leaves_zone_unavailable() {
+        let mut z = ZoneReadings::<4>::new();
+        let _ = z.record("a", -5.0, 0);
+        assert!(matches!(
+            z.average(0, 600),
+            Err(SensorError::Unavailable(_))
+        ));
+    }
+    #[test]
+    fn full_store_replaces_stalest_of_two_stale_slots() {
+        let mut z = ZoneReadings::<3>::new();
+        z.record("a", 20.0, 100).unwrap();
+        z.record("b", 30.0, 0).unwrap();
+        z.record("c", 22.0, 900).unwrap();
+        // a and b are both stale; d must take b's slot, the stalest.
+        z.record("d", 24.0, 1000).unwrap();
+        // A wide age window counts every slot, so the survivors are visible.
+        let (r, n) = z.average(1000, 10_000).unwrap();
+        assert_eq!((r.celsius, n), (22.0, 3)); // (20 + 22 + 24) / 3; b's 30 is gone
     }
     #[test]
     fn full_store_rejects_new_sensor_until_a_slot_is_stale() {
