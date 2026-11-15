@@ -215,7 +215,7 @@ mod tests {
         let valid = TemperatureReading::from_celsius(20.0);
         assert!(valid.is_valid());
 
-        let too_cold = TemperatureReading::from_celsius(2.0);
+        let too_cold = TemperatureReading::from_celsius(MIN_VALID_TEMP_C - 0.1);
         assert!(!too_cold.is_valid());
 
         let edge_min = TemperatureReading::from_celsius(MIN_VALID_TEMP_C);
