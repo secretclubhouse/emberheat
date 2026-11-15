@@ -259,8 +259,10 @@ class Sheet:
         tree = ["symbol", ["lib_id", Q(lib_id)], ["at", mm(at[0]), mm(at[1]), str(rot)]]
         if mirror:
             tree.append(["mirror", mirror])
+        # bom.csv marks parts that keep their pads but are not fitted ("Not fitted.").
+        dnp = not power and BOM_ROWS[ref]["note"].startswith("Not fitted")
         tree += [["unit", "1"], ["exclude_from_sim", "no"], ["in_bom", "no" if power else "yes"],
-                 ["on_board", "no" if power else "yes"], ["dnp", "no"], ["uuid", new_uuid()]]
+                 ["on_board", "no" if power else "yes"], ["dnp", "yes" if dnp else "no"], ["uuid", new_uuid()]]
         # A field's stored angle is turned by the symbol's own rotation when
         # drawn; store the symbol's angle back so every label reads level.
         fangle = str(rot % 180)

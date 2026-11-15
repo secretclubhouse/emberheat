@@ -5,3 +5,4 @@ fp-info-cache
 tools/
 __pycache__/
 build/
+*.kicad_prl

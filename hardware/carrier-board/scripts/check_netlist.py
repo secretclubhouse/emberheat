@@ -12,6 +12,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 import expected as exp  # noqa: E402
+import netlist  # noqa: E402
 import sexp  # noqa: E402
 
 ROOT = os.path.dirname(HERE)
@@ -30,32 +31,8 @@ def read_netlist():
     with a real connection; KiCad's single-pin "unconnected-(...)" nets and
     power-symbol pins (#PWR, #FLG) are left out. components is {ref: set of
     pads} for every placed part, from the netlist's own part list."""
-    assert os.path.exists(NETLIST), "%s not found (run make sch)" % NETLIST
-    root = ET.parse(NETLIST).getroot()
-    nets = {}
-    for net in root.find("nets"):
-        name = net.get("name")
-        if name.startswith("unconnected-("):
-            continue
-        # Local labels on the (only) root sheet are named "/NET".
-        if name.startswith("/"):
-            name = name[1:]
-        nodes = {"%s.%s" % (n.get("ref"), n.get("pin")) for n in net if not n.get("ref").startswith("#")}
-        assert name not in nets, "net %s appears twice" % name
-        nets[name] = nodes
-    libparts = {}
-    for lp in root.find("libparts"):
-        key = (lp.get("lib"), lp.get("part"))
-        pins = lp.find("pins")
-        libparts[key] = {p.get("num") for p in pins} if pins is not None else set()
-    components = {}
-    for c in root.find("components"):
-        ref = c.get("ref")
-        if ref.startswith("#"):
-            continue
-        ls = c.find("libsource")
-        components[ref] = libparts[(ls.get("lib"), ls.get("part"))]
-    return nets, components
+    n = netlist.Netlist(NETLIST)
+    return n.nets, n.pins
 
 
 def bom_rows():

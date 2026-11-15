@@ -1,0 +1,8 @@
+(version 1)
+
+# Zone-side copper (net class Zone, Z1_A..Z7_B, and the relays' unconnected
+# normally-closed pad 12, which carries zone voltage whenever the relay is
+# off) stays 3.0 mm from all other copper, on both layers.
+(rule "zone separation"
+	(constraint clearance (min 3.0mm))
+	(condition "(A.NetClass == 'Zone' || (A.Type == 'Pad' && A.Pad_Number == '12' && A.memberOfFootprint('K*'))) && B.NetClass != 'Zone' && !(B.Type == 'Pad' && B.Pad_Number == '12' && B.memberOfFootprint('K*'))"))
