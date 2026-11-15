@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Checks on the circuit board (carrier-board.kicad_pcb, written by
-`make board`) against the netlist, bom.csv, part-checks.md and the placement
-rules of the design. Run with the KiCad Python (needs pcbnew).
-
-zone_side_items() and logic_side_items() are also used after routing (Task 5).
+`make board` and routed by `make route`) against the netlist, bom.csv,
+part-checks.md and the placement and routing rules of the design, ending
+with KiCad's own design rule check. Run with the KiCad Python (needs pcbnew).
 """
+import contextlib
 import csv
 import json
 import math
@@ -40,6 +40,39 @@ SILK_TEXT = ["ZONE WIRING 24 V AC", "rev 1", "5V ⎓ 3A USB-C", "+5V", "GND",
 
 ZONE_NET = re.compile(r"Z\d_[AB]")
 RELAY_CONTACTS = {"11", "12", "14"}
+
+# Track widths by net (mm): zone side 1.5, supply nets 1.0, signals 0.4.
+POWER_NETS = {"+5V", "GND", "+3V3", "VIN", "H2_3V3"}
+POWER_WIDTH = 1.0
+SIGNAL_WIDTH = 0.4
+ZONE_STRIP = "zone_strip"   # rule area over the zone strip (gen_board.py)
+POUR_NET = "GND"
+POUR_FILL_TOL = 0.001       # relative: saved fill area against a fresh refill
+VBUS_PADS = ("A9", "B9")    # J1 (USB-C) VBUS pads, net VIN
+VBUS_NECK_WIDTH = 0.5       # mm, track leaving them
+VBUS_NECK_MAX = 1.1         # mm, longest such neck
+
+
+@contextlib.contextmanager
+def quiet_stderr():
+    """Drop wxWidgets' harmless start-up chatter that pcbnew writes straight
+    to file descriptor 2 (no wxApp assert, duplicate image handlers); pass
+    every other line through."""
+    noise = re.compile(r"assert \"\"traits\"\" failed|Debug: Adding duplicate image handler")
+    sys.stderr.flush()
+    saved = os.dup(2)
+    with tempfile.TemporaryFile(mode="w+b") as buf:
+        os.dup2(buf.fileno(), 2)
+        try:
+            yield
+        finally:
+            sys.stderr.flush()
+            os.dup2(saved, 2)
+            os.close(saved)
+            buf.seek(0)
+            for line in buf.read().decode(errors="replace").splitlines():
+                if not noise.search(line):
+                    print(line, file=sys.stderr)
 
 
 def mm(v):
@@ -666,55 +699,341 @@ def test_silkscreen(board, nl):
     assert j4.GetAttributes() & pcbnew.FP_EXCLUDE_FROM_POS_FILES, "J4 is in the position files"
 
 
-def test_drc(board, nl):
-    """kicad-cli DRC, with the schematic parity check: no violations of any
-    kind and the board matches the schematic. Unrouted logic nets are
-    expected before Task 5; unrouted zone nets are not."""
+def run_drc(pcb, parity=True):
+    """kicad-cli DRC, all severities, exit code set on any violation or
+    unconnected item. Returns (exit code, report dict)."""
     with tempfile.TemporaryDirectory() as tmp:
         out = os.path.join(tmp, "drc.json")
-        r = subprocess.run([KICAD_CLI, "pcb", "drc", "--format", "json", "--severity-all", "--schematic-parity",
-                            "-o", out, BOARD], capture_output=True, text=True)
+        cmd = [KICAD_CLI, "pcb", "drc", "--format", "json", "--severity-all", "--exit-code-violations"]
+        if parity:
+            cmd.append("--schematic-parity")
+        r = subprocess.run(cmd + ["-o", out, pcb], capture_output=True, text=True)
         assert os.path.exists(out), "kicad-cli drc failed: %s" % r.stderr[-500:]
         with open(out) as f:
-            rep = json.load(f)
-    viol = []
-    allowed = []
-    for v in rep.get("violations", []):
-        # The dev board outlines are drawn on the silkscreen as the boards
-        # sit: the antenna end crosses the board edge and the USB end is flush
-        # with the notch side. That is the placement the design asks for; the
-        # board maker clips silkscreen at the edge.
-        descs = [i["description"] for i in v.get("items", [])]
-        if v["type"] == "silk_edge_clearance" and all(
-                d.startswith("Segment on Edge.Cuts") or re.fullmatch(r"Rectangle of A[12] on F.Silkscreen", d)
-                for d in descs):
-            allowed.append(v)
-        else:
-            viol.append(v)
+            return r.returncode, json.load(f)
+
+
+def test_drc_clean(board, nl):
+    """kicad-cli DRC with the schematic parity check: no violations of any
+    severity, no unconnected items, no parity problems, and kicad-cli's own
+    exit code agrees. The only relaxations are the custom rules in
+    carrier-board.kicad_dru (dev board outlines on the silkscreen may meet
+    the board edge); nothing is excluded."""
+    code, rep = run_drc(BOARD)
+    viol = rep.get("violations", [])
     kinds = {}
     for v in viol:
         kinds.setdefault(v["type"], []).append("; ".join(i["description"] for i in v.get("items", [])))
     unconnected = rep.get("unconnected_items", [])
-    zone_open = [u for u in unconnected if any(re.search(r"\[/?Z\d_[AB]\]", i["description"]) for i in u.get("items", []))]
     parity = rep.get("schematic_parity", [])
-    print("     DRC: %d violations %s; %d dev board outlines past the edge (allowed); %d unconnected (logic nets, routed in Task 5); %d schematic parity issues"
-          % (len(viol), {k: len(v) for k, v in kinds.items()}, len(allowed), len(unconnected), len(parity)))
+    print("     DRC: %d violations %s; %d unconnected items; %d schematic parity issues; kicad-cli exit code %d"
+          % (len(viol), {k: len(v) for k, v in kinds.items()}, len(unconnected), len(parity), code))
     assert not viol, "DRC violations: %s" % {k: v[:3] for k, v in kinds.items()}
+    assert not unconnected, "unconnected: %s" % ["; ".join(i["description"] for i in u.get("items", []))
+                                                  for u in unconnected[:3]]
     assert not parity, "board differs from the schematic: %s" % [p["description"] for p in parity[:3]]
-    assert not zone_open, "zone nets unconnected: %s" % zone_open[:3]
+    assert code == 0, "kicad-cli drc exit code %d" % code
+
+
+def _fresh_board():
+    import pcbnew
+    return pcbnew.LoadBoard(BOARD)
+
+
+def _fill(board):
+    import pcbnew
+    zones = board.Zones()
+    filler = pcbnew.ZONE_FILLER(board)
+    assert filler.Fill(zones), "zone fill failed"
+    board.BuildConnectivity()
+
+
+def test_fully_routed(board, nl):
+    """Every connection made, counted by KiCad after filling the pours (on a
+    fresh copy of the board, so the other tests see the saved fill)."""
+    b = _fresh_board()
+    _fill(b)
+    n = b.GetConnectivity().GetUnconnectedCount(True)
+    print("     %d unconnected connections after filling zones" % n)
+    assert n == 0, "%d connections unrouted" % n
+
+
+def _width_for(net):
+    if ZONE_NET.fullmatch(net):
+        return ZONE_TRACK_WIDTH
+    return POWER_WIDTH if net in POWER_NETS else SIGNAL_WIDTH
+
+
+def _vbus_neck(board, t, net, width):
+    """The one allowed narrowing: VIN leaving a USB-C VBUS pad (J1 A9, B9).
+    Those pads are 0.76 mm across with the CC pads 1.0 mm away, so a 1.0 mm
+    track cannot reach them with clearance; a VBUS_NECK_WIDTH track no
+    longer than VBUS_NECK_MAX from the pad centre can."""
+    if net != "VIN" or abs(width - VBUS_NECK_WIDTH) > 1e-6 or mm(t.GetLength()) > VBUS_NECK_MAX + 1e-6:
+        return False
+    j1 = board.FindFootprintByReference("J1")
+    centres = [p.GetPosition() for p in j1.Pads() if p.GetNumber() in VBUS_PADS]
+    return t.GetStart() in centres or t.GetEnd() in centres
+
+
+def test_track_widths(board, nl):
+    """Every track is exactly its net's width (zone 1.5, supply 1.0, signal
+    0.4 mm), which is also its net class's width in the project, except one
+    short neck from each USB-C VBUS pad (see _vbus_neck); vias are at least
+    the net class via. Prints the routing statistics."""
+    import pcbnew
+    length = {}
+    vias = []
+    necks = []
+    for t in board.GetTracks():
+        net = netlist.bare(t.GetNetname())
+        assert net, "track or via with no net at (%.2f, %.2f)" % (mm(t.GetStart().x), mm(t.GetStart().y))
+        nc = board.GetDesignSettings().m_NetSettings.GetEffectiveNetClass(t.GetNetname())
+        if t.GetClass() == "PCB_VIA":
+            vias.append(t)
+            assert t.GetWidth(pcbnew.F_Cu) >= nc.GetViaDiameter() and t.GetDrillValue() >= nc.GetViaDrill(), \
+                "via %s at (%.2f, %.2f) is %.2f/%.2f mm, net class %s wants %.2f/%.2f" % (
+                    net, mm(t.GetStart().x), mm(t.GetStart().y), mm(t.GetWidth(pcbnew.F_Cu)), mm(t.GetDrillValue()),
+                    nc.GetName(), mm(nc.GetViaDiameter()), mm(nc.GetViaDrill()))
+            continue
+        w = mm(t.GetWidth())
+        want = _width_for(net)
+        where = "%s track on %s at (%.2f, %.2f)" % (net, t.GetLayerName(), mm(t.GetStart().x), mm(t.GetStart().y))
+        length[t.GetLayerName()] = length.get(t.GetLayerName(), 0.0) + mm(t.GetLength())
+        if _vbus_neck(board, t, net, w):
+            necks.append(t)
+            continue
+        assert abs(w - want) < 1e-6, "%s is %.3f mm wide, want %.2f" % (where, w, want)
+        assert abs(w - mm(nc.GetTrackWidth())) < 1e-6, "%s is %.3f mm wide, net class %s says %.2f" % (
+            where, w, nc.GetName(), mm(nc.GetTrackWidth()))
+    assert len(necks) == len(VBUS_PADS), "%d VBUS necks, want one per pad %s" % (len(necks), VBUS_PADS)
+    print("     track length: %s; %d vias; %d VBUS necks of %.1f mm at J1"
+          % (", ".join("%s %.0f mm" % kv for kv in sorted(length.items())), len(vias), len(necks), VBUS_NECK_WIDTH))
+
+
+def test_vias(board, nl):
+    """No via under a relay body or a dev board's antenna, none on the zone
+    side."""
+    import pcbnew
+    relays = [board.FindFootprintByReference("K%d" % n) for n in ZONES]
+    where = []
+    for v in board.GetTracks():
+        if v.GetClass() != "PCB_VIA":
+            continue
+        net = netlist.bare(v.GetNetname())
+        assert not ZONE_NET.fullmatch(net), "via on zone net %s" % net
+        p = v.GetPosition()
+        where.append("%s (%.1f, %.1f)" % (net, mm(p.x), mm(p.y)))
+        ps = pcbnew.SHAPE_POLY_SET()
+        v.TransformShapeToPolygon(ps, pcbnew.F_Cu, 0, nm(0.002), pcbnew.ERROR_OUTSIDE)
+        for k in relays:
+            inter = pcbnew.SHAPE_POLY_SET(k.GetCourtyard(pcbnew.F_CrtYd))
+            inter.BooleanIntersection(ps)
+            assert not inter.OutlineCount(), "via %s at (%.2f, %.2f) is under relay %s" % (
+                net, mm(p.x), mm(p.y), k.GetReference())
+    print("     vias: %s" % ("; ".join(where) or "none"))
+
+
+def _pours(board):
+    return [z for z in board.Zones() if not z.GetIsRuleArea()]
+
+
+def test_ground_pour(board, nl):
+    """A GND pour on each copper layer, logic side only (outline below the
+    zone line), thermal reliefs on through-hole pads for hand soldering,
+    and the fill saved in the file is the fill KiCad makes now (not stale)."""
+    import pcbnew
+    pours = _pours(board)
+    y = zone_line_y(board)
+    layers = {}
+    for z in pours:
+        assert netlist.bare(z.GetNetname()) == POUR_NET, "pour on net %s" % z.GetNetname()
+        assert z.GetPadConnection() in (pcbnew.ZONE_CONNECTION_THERMAL, pcbnew.ZONE_CONNECTION_THT_THERMAL), \
+            "%s pour connects pads solid" % z.GetLayerName()
+        assert mm(z.Outline().BBox().GetTop()) >= y - 1e-6, "pour reaches above the zone line"
+        for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
+            if z.IsOnLayer(layer):
+                layers[layer] = z
+    assert set(layers) == {pcbnew.F_Cu, pcbnew.B_Cu}, "GND pour missing on %s" % sorted(
+        pcbnew.BOARD.GetStandardLayerName(l) for l in {pcbnew.F_Cu, pcbnew.B_Cu} - set(layers))
+    for fp in board.GetFootprints():
+        for pad in fp.Pads():
+            if netlist.bare(pad.GetNetname()) == POUR_NET and pad.GetAttribute() == pcbnew.PAD_ATTRIB_PTH:
+                assert pad.GetLocalZoneConnection() in (pcbnew.ZONE_CONNECTION_INHERITED, pcbnew.ZONE_CONNECTION_THERMAL), \
+                    "pad %s overrides the thermal relief" % _pad_name(pad)
+                assert fp.GetLocalZoneConnection() in (pcbnew.ZONE_CONNECTION_INHERITED, pcbnew.ZONE_CONNECTION_THERMAL), \
+                    "footprint %s overrides the thermal relief" % fp.GetReference()
+    for z in board.Zones():
+        if not z.GetIsRuleArea() or z.GetZoneName() == ZONE_STRIP:
+            continue
+        # route.py's pour keepouts over fill islands that would connect a
+        # pad to nothing (see fix_thermals there): pour only, one layer.
+        assert z.GetZoneName().startswith("no_pour_") and z.GetDoNotAllowCopperPour() \
+            and not (z.GetDoNotAllowTracks() or z.GetDoNotAllowVias() or z.GetDoNotAllowPads()
+                     or z.GetDoNotAllowFootprints()) and z.GetLayerSet().CuStack().size() == 1, \
+            "unexpected rule area %r" % z.GetZoneName()
+    saved = {}
+    for layer, z in layers.items():
+        assert z.HasFilledPolysForLayer(layer) and z.GetFilledPolysList(layer).OutlineCount(), \
+            "%s pour is not filled" % pcbnew.BOARD.GetStandardLayerName(layer)
+        saved[layer] = z.GetFilledPolysList(layer).Area()
+    fresh = _fresh_board()
+    _fill(fresh)
+    for z in _pours(fresh):
+        for layer in saved:
+            if z.IsOnLayer(layer):
+                a = z.GetFilledPolysList(layer).Area()
+                assert abs(a - saved[layer]) <= POUR_FILL_TOL * saved[layer], \
+                    "%s fill in the file (%.0f mm2) differs from a refill (%.0f mm2)" % (
+                        pcbnew.BOARD.GetStandardLayerName(layer), saved[layer] / 1e12, a / 1e12)
+    print("     GND pour fill: %s" % ", ".join("%s %.0f mm2" % (pcbnew.BOARD.GetStandardLayerName(l), a / 1e12)
+                                             for l, a in sorted(saved.items())))
+
+
+def test_zone_strip_rule(board, nl):
+    """The zone strip is a named rule area from the top edge to the zone
+    line across the whole board, and the custom rule that keeps logic copper
+    out of it fires: a logic track and via put in the strip of a copy of the
+    board are DRC violations, while the zone tracks there are not."""
+    import pcbnew
+    areas = [z for z in board.Zones() if z.GetIsRuleArea() and z.GetZoneName() == ZONE_STRIP]
+    assert len(areas) == 1, "%d rule areas named %s" % (len(areas), ZONE_STRIP)
+    area = areas[0]
+    assert area.IsOnLayer(pcbnew.F_Cu) and area.IsOnLayer(pcbnew.B_Cu), "zone strip area is not on both copper layers"
+    left, top, right, bottom = outline_box(board)
+    y = zone_line_y(board)
+    strip = rect_poly(left, top, right, y)
+    missing = pcbnew.SHAPE_POLY_SET(strip)
+    missing.BooleanSubtract(area.Outline())
+    assert not missing.OutlineCount() or missing.Area() < 1e6, "zone strip area does not cover the strip"
+    beyond = pcbnew.SHAPE_POLY_SET(area.Outline())
+    beyond.BooleanSubtract(strip)
+    assert not beyond.OutlineCount() or beyond.Area() < 1e6, "zone strip area reaches below the zone line"
+    with tempfile.TemporaryDirectory() as tmp:
+        for f in ("carrier-board.kicad_pro", "carrier-board.kicad_dru"):
+            with open(os.path.join(ROOT, f)) as src, open(os.path.join(tmp, f), "w") as dst:
+                dst.write(src.read())
+        b = _fresh_board()
+        gnd = b.FindNet(nl.full_names[POUR_NET])
+        # Bare board in the strip, far (> 3 mm) from any zone copper.
+        x0, y0 = 2.0, y - 8.0
+        t = pcbnew.PCB_TRACK(b)
+        t.SetStart(pcbnew.VECTOR2I(nm(x0), nm(y0)))
+        t.SetEnd(pcbnew.VECTOR2I(nm(x0 + 10), nm(y0)))
+        t.SetWidth(nm(POWER_WIDTH))
+        t.SetLayer(pcbnew.B_Cu)
+        t.SetNet(gnd)
+        b.Add(t)
+        v = pcbnew.PCB_VIA(b)
+        v.SetPosition(pcbnew.VECTOR2I(nm(x0 + 15), nm(y0)))
+        v.SetWidth(nm(0.8))
+        v.SetDrill(nm(0.4))
+        v.SetNet(gnd)
+        b.Add(v)
+        pcb = os.path.join(tmp, "carrier-board.kicad_pcb")
+        pcbnew.SaveBoard(pcb, b)
+        code, rep = run_drc(pcb, parity=False)
+    hits = [v for v in rep.get("violations", []) if v["type"] == "items_not_allowed"]
+    descs = ["; ".join(i["description"] for i in v.get("items", [])) for v in hits]
+    assert any(d.startswith("Track [GND]") for d in descs) and any(d.startswith("Via [GND]") for d in descs), \
+        "a GND track and via in the zone strip are not DRC violations: %s" % descs
+    assert not any(re.search(r"\[/?Z\d_[AB]\]", d) for d in descs), "zone tracks flagged in the strip: %s" % descs
+    print("     zone strip rule: test track and via in the strip flagged (%d items_not_allowed)" % len(hits))
+
+
+def _regenerated():
+    """The board as gen_board.py draws it now (placed, zone side routed),
+    saved to a temporary file and read back as s-expressions; also the
+    in-memory board."""
+    import pcbnew
+    import gen_board
+    import sexp
+    with tempfile.TemporaryDirectory() as tmp:
+        # The same project as `make board` sees: loading it uses up the same
+        # ids, so the regenerated tracks get the same uuids.
+        for f in ("carrier-board.kicad_pro", "carrier-board.kicad_dru"):
+            with open(os.path.join(ROOT, f)) as src, open(os.path.join(tmp, f), "w") as dst:
+                dst.write(src.read())
+        pcb = os.path.join(tmp, "carrier-board.kicad_pcb")
+        with quiet_stderr():
+            b = gen_board.build(netlist.Netlist(), pcb)
+            pcbnew.SaveBoard(pcb, b)
+        with open(pcb) as f:
+            return b, sexp.loads(f.read())
+
+
+def _zone_segments(tree):
+    """dumps() of every zone-net segment, the net number replaced by its
+    name, in file order."""
+    import sexp
+    names = {}
+    for node in tree:
+        if isinstance(node, list) and node and node[0] == "net" and len(node) == 3:
+            names[node[1]] = netlist.bare(node[2])
+    out = []
+    for node in tree:
+        if isinstance(node, list) and node and node[0] in ("segment", "arc", "via"):
+            net = [c for c in node if isinstance(c, list) and c and c[0] == "net"]
+            name = names.get(net[0][1]) if net else None
+            if name and ZONE_NET.fullmatch(name):
+                node = [["net", sexp.Q(name)] if (isinstance(c, list) and c and c[0] == "net") else c for c in node]
+                out.append(sexp.dumps(node))
+    return out
+
+
+_REGEN = []
+
+
+def regenerated():
+    if not _REGEN:
+        _REGEN.append(_regenerated())
+    return _REGEN[0]
+
+
+def test_zone_tracks_unchanged(board, nl):
+    """The zone-side tracks in the routed board are, text for text (uuid,
+    lock, width, ends), the ones gen_board.py draws."""
+    import sexp
+    _, want_tree = regenerated()
+    with open(BOARD) as f:
+        have_tree = sexp.loads(f.read())
+    want, have = _zone_segments(want_tree), _zone_segments(have_tree)
+    assert want, "gen_board.py drew no zone tracks"
+    extra = sorted(set(have) - set(want))
+    lost = sorted(set(want) - set(have))
+    assert not extra and not lost and len(have) == len(want), \
+        "zone tracks changed: %d added, %d lost, e.g. %s" % (len(extra), len(lost), (extra or lost)[:1])
+    print("     %d zone track segments identical to gen_board.py's" % len(have))
+
+
+def test_footprints_unmoved(board, nl):
+    """Routing moved no part: position, rotation and side as gen_board.py
+    places them."""
+    import pcbnew
+    want, _ = regenerated()
+    for fp in want.GetFootprints():
+        ref = fp.GetReference()
+        got = board.FindFootprintByReference(ref)
+        assert got, "%s missing" % ref
+        assert got.GetPosition() == fp.GetPosition() and got.GetOrientationDegrees() == fp.GetOrientationDegrees() \
+            and got.GetLayer() == fp.GetLayer(), "%s moved: (%.3f, %.3f) %g, gen_board.py has (%.3f, %.3f) %g" % (
+                ref, mm(got.GetPosition().x), mm(got.GetPosition().y), got.GetOrientationDegrees(),
+                mm(fp.GetPosition().x), mm(fp.GetPosition().y), fp.GetOrientationDegrees())
 
 
 TESTS = [test_all_parts_present, test_pad_nets_match_netlist, test_zone_separation, test_zone_line,
          test_no_pour_in_zone_strip, test_inside_outline, test_dev_board_placement, test_notch_width,
          test_terminal_order, test_mounting_holes, test_zone_tracks, test_power_and_middle,
-         test_silkscreen, test_drc]
+         test_silkscreen, test_zone_strip_rule, test_zone_tracks_unchanged, test_footprints_unmoved,
+         test_fully_routed, test_track_widths, test_vias, test_ground_pour, test_drc_clean]
 
 
 def main():
     try:
         import pcbnew
         assert os.path.exists(BOARD), "%s not found (run make board)" % BOARD
-        board = pcbnew.LoadBoard(BOARD)
+        with quiet_stderr():
+            board = pcbnew.LoadBoard(BOARD)
         nl = netlist.Netlist()
     except (OSError, AssertionError, ImportError) as e:
         print("FAIL board: %s" % e)
@@ -722,7 +1041,8 @@ def main():
     failed = 0
     for t in TESTS:
         try:
-            t(board, nl)
+            with quiet_stderr():
+                t(board, nl)
             print("ok   %s" % t.__name__)
         except Exception as e:  # report every failure, not just the first
             failed += 1

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Build carrier-board.kicad_pcb from the schematic's netlist: place every
 part, draw the outline (with the notch for the dev boards' USB plugs) and
-the silkscreen, route the zone side (24 V AC). The logic side is left
-unrouted for Task 5. Also writes the net classes into carrier-board.kicad_pro
-and the zone separation rule into carrier-board.kicad_dru.
+the silkscreen, route the zone side (24 V AC, locked tracks) and mark the
+zone strip with a named rule area. The logic side is left unrouted for
+route.py (`make route`). Also writes the net classes into
+carrier-board.kicad_pro and the custom rules into carrier-board.kicad_dru.
 
 Board frame: x to the right, y down, origin at the top-left corner, as the
 board hangs on the wall (zone terminals at the top). Units are mm.
@@ -68,6 +69,8 @@ RAIL_Y = H / 2
 CLIP_RAIL_FROM_ROUND = 16.14             # part-checks.md: rail centre at x 16.14 in the clip frame
 CLIP_X = (28.2, 162.4)
 
+ZONE_STRIP = "zone_strip"  # name of the rule area over the zone strip
+
 SILK_W = 0.15
 REF_SIZE = 0.8
 
@@ -75,8 +78,10 @@ REF_SIZE = 0.8
 # --------------------------------------------------------------------------
 
 def mm(v):
-    import pcbnew
-    return pcbnew.FromMM(v)
+    """mm to KiCad's nm, rounded to the nearest nm (pcbnew.FromMM truncates,
+    so 78.76 became 78759999 nm, which the router's session file then
+    rounded back: a 1 nm "move" of the part)."""
+    return int(round(v * 1e6))
 
 
 def pt(x, y):
@@ -96,12 +101,16 @@ def load_footprint(spec):
 
 
 class Board:
-    def __init__(self, nl):
+    def __init__(self, nl, path):
         import pcbnew
         self.pcbnew = pcbnew
+        # NewBoard writes an empty board (and project) at path.
+        self.board = pcbnew.NewBoard(path)
         # Fixed seed: the same netlist gives the same file, UUIDs included.
+        # Seeded after NewBoard, whose project loading uses up a varying
+        # number of ids (more when another board is already open, as in
+        # check_board.py).
         pcbnew.KIID.SeedGenerator(4)
-        self.board = pcbnew.NewBoard(PCB)
         self.nl = nl
         self.nets = {}
         for bare, full in sorted(nl.full_names.items()):
@@ -191,6 +200,8 @@ class Board:
         self.board.Add(s)
 
     def track(self, net, points, width):
+        """Zone-side track, locked: the logic-side router and anyone editing
+        the board by hand must not move it."""
         pcbnew = self.pcbnew
         for (x1, y1), (x2, y2) in zip(points, points[1:]):
             t = pcbnew.PCB_TRACK(self.board)
@@ -199,6 +210,7 @@ class Board:
             t.SetWidth(mm(width))
             t.SetLayer(pcbnew.F_Cu)
             t.SetNet(self.nets[net])
+            t.SetLocked(True)
             self.board.Add(t)
 
 
@@ -251,8 +263,10 @@ def power(b):
     vin, gnd = b.pad("J2", "1"), b.pad("J2", "2")
     b.text("+5V", 11.4, vin[1], 1.0, justify="left")
     b.text("GND", 11.4, gnd[1], 1.0, justify="left")
-    b.place("R1", 17.55, 50.6, 270, ref_at=(17.55, 63.1))
-    b.place("R2", 20.95, 50.6, 270, ref_at=(20.95, 63.1))
+    # CC1 (J1 pad A5) is above CC2 (B5) at the socket, so CC1's resistor is
+    # the right-hand one: the two tracks leave rightwards without crossing.
+    b.place("R1", 20.95, 50.6, 270, ref_at=(20.95, 63.1))
+    b.place("R2", 17.55, 50.6, 270, ref_at=(17.55, 63.1))
     b.place("F1", 2.9, 65.6, 0, ref_at=(5.5, 69.25))
     b.place("C2", 13.1, 66.0, 0, ref_at=(20.8, 66.0))
     b.place("D8", 2.2, 72.3, 0, ref_at=(3.5, 75.7))
@@ -317,6 +331,32 @@ def mounting(b):
         b.text("RAIL", x, RAIL_Y, 1.0, layer=pcbnew.B_SilkS)
 
 
+def zone_strip_area(b):
+    """A named rule area over the zone strip (board top to the zone line, full
+    width, both copper layers). It forbids nothing itself: a keepout would
+    also flag the zone tracks drawn inside it. The custom rule "no logic
+    copper in the zone strip" in carrier-board.kicad_dru refers to it by name
+    and forbids logic-side tracks, vias and pours there; route.py turns its
+    keepouts on only for the router's copy of the board."""
+    pcbnew = b.pcbnew
+    z = pcbnew.ZONE(b.board)
+    z.SetIsRuleArea(True)
+    z.SetZoneName(ZONE_STRIP)
+    layers = pcbnew.LSET()
+    layers.AddLayer(pcbnew.F_Cu)
+    layers.AddLayer(pcbnew.B_Cu)
+    z.SetLayerSet(layers)
+    for setter in (z.SetDoNotAllowTracks, z.SetDoNotAllowVias, z.SetDoNotAllowCopperPour,
+                   z.SetDoNotAllowPads, z.SetDoNotAllowFootprints):
+        setter(False)
+    o = z.Outline()
+    o.NewOutline()
+    for x, y in ((0, 0), (W, 0), (W, ZONE_LINE_Y), (0, ZONE_LINE_Y)):
+        o.Append(mm(x), mm(y))
+    z.SetLocked(True)
+    b.board.Add(z)
+
+
 def silkscreen(b, relay_x):
     pcbnew = b.pcbnew
     # Zone line, broken where it passes under each relay body.
@@ -371,7 +411,24 @@ def write_rules():
 (rule "zone separation"
 \t(constraint clearance (min 3.0mm))
 \t(condition "(A.NetClass == 'Zone' || (A.Type == 'Pad' && A.Pad_Number == '12' && A.memberOfFootprint('K*'))) && B.NetClass != 'Zone' && !(B.Type == 'Pad' && B.Pad_Number == '12' && B.memberOfFootprint('K*'))"))
-""")
+
+# Nothing of the logic side in the zone strip (the rule area named
+# %(strip)s, from the board top down to the zone line): no track, via or
+# copper pour of any net outside net class Zone. Written as a rule rather
+# than as keepouts on the area, which would also flag the zone tracks.
+(rule "no logic copper in the zone strip"
+\t(constraint disallow track via zone)
+\t(condition "A.NetClass != 'Zone' && A.intersectsArea('%(strip)s')"))
+
+# The dev boards' outlines are drawn on the silkscreen as the boards sit: the
+# antenna end crosses the board edge and the USB end is flush with the notch
+# side. That is the placement the design asks for; the board maker clips
+# silkscreen at the edge. Only those outlines against Edge.Cuts are exempt.
+(rule "dev board outlines may meet the board edge"
+\t(constraint silk_clearance)
+\t(severity ignore)
+\t(condition "(A.memberOfFootprint('A?') && A.Layer == 'F.Silkscreen' && B.Layer == 'Edge.Cuts') || (B.memberOfFootprint('A?') && B.Layer == 'F.Silkscreen' && A.Layer == 'Edge.Cuts')"))
+""" % {"strip": ZONE_STRIP})
 
 
 def bom_footprints():
@@ -383,6 +440,25 @@ def bom_footprints():
     return out
 
 
+def build(nl, path=PCB):
+    """The placed board with the zone side routed, in memory (KiCad's
+    NewBoard leaves an empty board file at path). Also used by check_board.py,
+    with a temporary path, to confirm routing left the zone tracks and the
+    placement as drawn here."""
+    b = Board(nl, path)
+    outline(b)
+    relay_x = [zone_column(b, n)[1] for n in range(1, 8)]
+    power(b)
+    middle(b)
+    dev_boards(b)
+    mounting(b)
+    silkscreen(b, relay_x)
+    zone_strip_area(b)
+    missing = sorted(set(nl.parts) - set(b.fps))
+    assert not missing, "not placed: %s" % missing
+    return b.board
+
+
 def main():
     import pcbnew
     nl = netlist.Netlist()
@@ -391,17 +467,8 @@ def main():
         assert part["footprint"] == bom[ref], "%s: netlist footprint %s, bom.csv %s" % (ref, part["footprint"], bom[ref])
     write_project(nl)
     write_rules()
-    b = Board(nl)
-    outline(b)
-    relay_x = [zone_column(b, n)[1] for n in range(1, 8)]
-    power(b)
-    middle(b)
-    dev_boards(b)
-    mounting(b)
-    silkscreen(b, relay_x)
-    missing = sorted(set(nl.parts) - set(b.fps))
-    assert not missing, "not placed: %s" % missing
-    pcbnew.SaveBoard(PCB, b.board)
+    board = build(nl)
+    pcbnew.SaveBoard(PCB, board)
     # A board KiCad cannot read back is not done.
     again = pcbnew.LoadBoard(PCB)
     assert len(again.GetFootprints()) == len(nl.parts), "reloaded board has %d footprints" % len(again.GetFootprints())

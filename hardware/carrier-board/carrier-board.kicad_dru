@@ -6,3 +6,20 @@
 (rule "zone separation"
 	(constraint clearance (min 3.0mm))
 	(condition "(A.NetClass == 'Zone' || (A.Type == 'Pad' && A.Pad_Number == '12' && A.memberOfFootprint('K*'))) && B.NetClass != 'Zone' && !(B.Type == 'Pad' && B.Pad_Number == '12' && B.memberOfFootprint('K*'))"))
+
+# Nothing of the logic side in the zone strip (the rule area named
+# zone_strip, from the board top down to the zone line): no track, via or
+# copper pour of any net outside net class Zone. Written as a rule rather
+# than as keepouts on the area, which would also flag the zone tracks.
+(rule "no logic copper in the zone strip"
+	(constraint disallow track via zone)
+	(condition "A.NetClass != 'Zone' && A.intersectsArea('zone_strip')"))
+
+# The dev boards' outlines are drawn on the silkscreen as the boards sit: the
+# antenna end crosses the board edge and the USB end is flush with the notch
+# side. That is the placement the design asks for; the board maker clips
+# silkscreen at the edge. Only those outlines against Edge.Cuts are exempt.
+(rule "dev board outlines may meet the board edge"
+	(constraint silk_clearance)
+	(severity ignore)
+	(condition "(A.memberOfFootprint('A?') && A.Layer == 'F.Silkscreen' && B.Layer == 'Edge.Cuts') || (B.memberOfFootprint('A?') && B.Layer == 'F.Silkscreen' && A.Layer == 'Edge.Cuts')"))
