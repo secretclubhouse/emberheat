@@ -55,6 +55,7 @@ use static_cell::StaticCell;
 use config::MOCK_TEMPERATURE_C;
 #[cfg(feature = "matter")]
 use config::PERSIST_FLASH_RANGE;
+use config::REMOTE_FALLBACK;
 use config::{SensorSource, NUM_ZONES, SENSOR_SOURCE, ZONE_CONFIGS};
 use config::{MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_DEVICE_ID, MQTT_PASSWORD, MQTT_USERNAME};
 #[cfg(not(feature = "matter"))]
@@ -64,8 +65,10 @@ use core::fmt::Write as FmtWrite;
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
+use embassy_time::Instant;
+use emberheat_core::fallback::{FallbackController, FallbackDecision, SensorStatus};
 use emberheat_core::{
-    apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState,
+    apply_hysteresis_control, HeatingState, HysteresisConfig, OutputPin, RelayState, SensorError,
     TemperatureSensor,
 };
 #[cfg(feature = "matter")]
@@ -204,6 +207,84 @@ fn queue_mqtt(
     let _ = channel.try_send(msg);
 }
 
+/// Build an MQTT message reporting the health of a zone's temperature input.
+///
+/// Topic `thermostat/<device_id>/zone/<zone>/sensor_status`, payload
+/// `ok`, `fallback` or `lost`.
+fn build_sensor_status_message(zone_name: &str, status: SensorStatus) -> Option<mqtt::MqttMessage> {
+    let mut topic: heapless::String<64> = heapless::String::new();
+    if write!(
+        topic,
+        "thermostat/{}/zone/{}/sensor_status",
+        MQTT_DEVICE_ID, zone_name
+    )
+    .is_err()
+    {
+        return None;
+    }
+
+    let mut payload: heapless::String<256> = heapless::String::new();
+    payload.push_str(status.as_str()).ok()?;
+
+    Some(mqtt::MqttMessage { topic, payload })
+}
+
+/// Record this pass's sensor status, logging and publishing it only when it
+/// changed, so a long outage produces one line rather than one every pass.
+fn report_sensor_status(
+    zone_name: &str,
+    last: &mut Option<SensorStatus>,
+    status: SensorStatus,
+    duty: f32,
+    channel: &'static Channel<CriticalSectionRawMutex, mqtt::MqttMessage, MQTT_QUEUE_SIZE>,
+) {
+    if *last == Some(status) {
+        return;
+    }
+    match status {
+        SensorStatus::Ok => info!("[{}] Sensor status: ok", zone_name),
+        SensorStatus::Fallback => warn!(
+            "[{}] Sensor status: fallback (readings lost, cycling relay at {:.0}% duty)",
+            zone_name,
+            duty * 100.0
+        ),
+        SensorStatus::Lost => warn!("[{}] Sensor status: lost (heating OFF)", zone_name),
+    }
+    if let Some(msg) = build_sensor_status_message(zone_name, status) {
+        queue_mqtt(channel, msg);
+    }
+    *last = Some(status);
+}
+
+/// Drive an active-low relay to `new_state` (ON = LOW, OFF = HIGH).
+///
+/// `current` and `state.heating_active` change only when the GPIO write
+/// succeeds, so they always reflect what the pin was last set to.
+fn write_relay(
+    zone_name: &str,
+    relay_pin: &mut Esp32GpioPin,
+    current: &mut RelayState,
+    state: &mut ZoneState,
+    new_state: RelayState,
+) {
+    if new_state == *current {
+        return;
+    }
+    let relay_result = match new_state {
+        RelayState::On => relay_pin.set_low(), // Active-low: LOW = ON
+        RelayState::Off => relay_pin.set_high(), // Active-low: HIGH = OFF
+    };
+    match relay_result {
+        Ok(()) => {
+            *current = new_state;
+            state.heating_active = new_state == RelayState::On;
+        }
+        Err(e) => {
+            error!("[{}] Failed to set relay state: {:?}", zone_name, e);
+        }
+    }
+}
+
 /// Run the control loop for a single zone (MQTT mode)
 ///
 /// This function runs indefinitely, reading temperature from the sensor,
@@ -230,6 +311,10 @@ async fn zone_control_loop(
     // Track relay state
     let mut current_relay_state = RelayState::Off;
 
+    // Duty history and outage clock for the fallback cycle (RAM only)
+    let mut fallback = FallbackController::new();
+    let mut status: Option<SensorStatus> = None;
+
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
 
@@ -237,7 +322,41 @@ async fn zone_control_loop(
         ticker.next().await;
 
         // Read temperature from sensor
-        match sensor.read_temperature().await {
+        let reading = sensor.read_temperature().await;
+
+        // Readings unavailable (none fresh): keep cycling at the recent duty
+        // for a bounded time. Any other outcome falls through to the match.
+        if let Err(SensorError::Unavailable(_)) = reading {
+            if let FallbackDecision::Relay(on) =
+                fallback.on_unavailable(Instant::now().as_secs(), &REMOTE_FALLBACK)
+            {
+                let new_relay_state = if on { RelayState::On } else { RelayState::Off };
+                if new_relay_state != current_relay_state {
+                    info!(
+                        "[{}] Fallback: turning heating {}",
+                        zone_name,
+                        if on { "ON" } else { "OFF" }
+                    );
+                }
+                write_relay(
+                    zone_name,
+                    relay_pin,
+                    &mut current_relay_state,
+                    state,
+                    new_relay_state,
+                );
+                report_sensor_status(
+                    zone_name,
+                    &mut status,
+                    SensorStatus::Fallback,
+                    fallback.duty(),
+                    mqtt_channel,
+                );
+                continue;
+            }
+        }
+
+        match reading {
             Ok(reading) => {
                 // Clear errors on successful read
                 if state.error_count > 0 {
@@ -269,33 +388,38 @@ async fn zone_control_loop(
 
                 // Update relay if state changed
                 if new_relay_state != current_relay_state {
-                    let relay_result = match new_relay_state {
-                        RelayState::On => {
-                            info!(
-                                "[{}] Turning heating ON (temp: {:.1}C, target: {:.1}C)",
-                                zone_name, reading.celsius, state.target_temp_c
-                            );
-                            relay_pin.set_low() // Active-low: LOW = ON
-                        }
-                        RelayState::Off => {
-                            info!(
-                                "[{}] Turning heating OFF (temp: {:.1}C, target: {:.1}C)",
-                                zone_name, reading.celsius, state.target_temp_c
-                            );
-                            relay_pin.set_high() // Active-low: HIGH = OFF
-                        }
-                    };
-
-                    match relay_result {
-                        Ok(()) => {
-                            current_relay_state = new_relay_state;
-                            state.heating_active = new_relay_state == RelayState::On;
-                        }
-                        Err(e) => {
-                            error!("[{}] Failed to set relay state: {:?}", zone_name, e);
-                        }
-                    }
+                    info!(
+                        "[{}] Turning heating {} (temp: {:.1}C, target: {:.1}C)",
+                        zone_name,
+                        if new_relay_state == RelayState::On {
+                            "ON"
+                        } else {
+                            "OFF"
+                        },
+                        reading.celsius,
+                        state.target_temp_c
+                    );
+                    write_relay(
+                        zone_name,
+                        relay_pin,
+                        &mut current_relay_state,
+                        state,
+                        new_relay_state,
+                    );
                 }
+
+                // Fold this pass into the duty history the fallback runs on
+                fallback.on_reading(
+                    current_relay_state == RelayState::On,
+                    CONTROL_INTERVAL_SECS as u32,
+                );
+                report_sensor_status(
+                    zone_name,
+                    &mut status,
+                    SensorStatus::Ok,
+                    fallback.duty(),
+                    mqtt_channel,
+                );
 
                 // Publish temperature to MQTT after the relay is updated; never
                 // waits, so a down broker cannot stall control.
@@ -310,6 +434,16 @@ async fn zone_control_loop(
                 }
             }
             Err(e) => {
+                // Not covered by fallback: other sensor errors, no history
+                // since boot, or the fallback time limit has passed.
+                report_sensor_status(
+                    zone_name,
+                    &mut status,
+                    SensorStatus::Lost,
+                    fallback.duty(),
+                    mqtt_channel,
+                );
+
                 // Sensor error handling
                 state.increment_errors();
 
@@ -373,6 +507,10 @@ async fn zone_control_loop(
     // Index of this zone's Matter state (its position in ZONE_CONFIGS)
     let zone_index = zone_index_by_name(zone_name).unwrap_or(0);
 
+    // Duty history and outage clock for the fallback cycle (RAM only)
+    let mut fallback = FallbackController::new();
+    let mut status: Option<SensorStatus> = None;
+
     // Control loop ticker
     let mut ticker = Ticker::every(Duration::from_secs(CONTROL_INTERVAL_SECS));
 
@@ -380,7 +518,52 @@ async fn zone_control_loop(
         ticker.next().await;
 
         // Read temperature from sensor
-        match sensor.read_temperature().await {
+        let reading = sensor.read_temperature().await;
+
+        // Readings unavailable (none fresh): keep cycling at the recent duty
+        // for a bounded time. Any other outcome falls through to the match.
+        if let Err(SensorError::Unavailable(_)) = reading {
+            if let FallbackDecision::Relay(on) =
+                fallback.on_unavailable(Instant::now().as_secs(), &REMOTE_FALLBACK)
+            {
+                // The Matter mode still rules: only heat while it is Heat.
+                let (mode, _) = matter::get_control_target(zone_index);
+                let heat = on && mode != HeatingState::Off;
+                let new_relay_state = if heat {
+                    RelayState::On
+                } else {
+                    RelayState::Off
+                };
+                if new_relay_state != current_relay_state {
+                    info!(
+                        "[{}] Fallback: turning heating {}",
+                        zone_name,
+                        if heat { "ON" } else { "OFF" }
+                    );
+                }
+                write_relay(
+                    zone_name,
+                    relay_pin,
+                    &mut current_relay_state,
+                    state,
+                    new_relay_state,
+                );
+
+                // No reading: controllers show no temperature, and the
+                // running state follows the relay.
+                matter::update_matter_without_reading(zone_index, state.heating_active);
+                report_sensor_status(
+                    zone_name,
+                    &mut status,
+                    SensorStatus::Fallback,
+                    fallback.duty(),
+                    mqtt_channel,
+                );
+                continue;
+            }
+        }
+
+        match reading {
             Ok(reading) => {
                 // Clear errors on successful read
                 if state.error_count > 0 {
@@ -423,33 +606,38 @@ async fn zone_control_loop(
 
                 // Update relay if state changed
                 if new_relay_state != current_relay_state {
-                    let relay_result = match new_relay_state {
-                        RelayState::On => {
-                            info!(
-                                "[{}] Turning heating ON (temp: {:.1}C, target: {:.1}C)",
-                                zone_name, reading.celsius, state.target_temp_c
-                            );
-                            relay_pin.set_low() // Active-low: LOW = ON
-                        }
-                        RelayState::Off => {
-                            info!(
-                                "[{}] Turning heating OFF (temp: {:.1}C, target: {:.1}C)",
-                                zone_name, reading.celsius, state.target_temp_c
-                            );
-                            relay_pin.set_high() // Active-low: HIGH = OFF
-                        }
-                    };
-
-                    match relay_result {
-                        Ok(()) => {
-                            current_relay_state = new_relay_state;
-                            state.heating_active = new_relay_state == RelayState::On;
-                        }
-                        Err(e) => {
-                            error!("[{}] Failed to set relay state: {:?}", zone_name, e);
-                        }
-                    }
+                    info!(
+                        "[{}] Turning heating {} (temp: {:.1}C, target: {:.1}C)",
+                        zone_name,
+                        if new_relay_state == RelayState::On {
+                            "ON"
+                        } else {
+                            "OFF"
+                        },
+                        reading.celsius,
+                        state.target_temp_c
+                    );
+                    write_relay(
+                        zone_name,
+                        relay_pin,
+                        &mut current_relay_state,
+                        state,
+                        new_relay_state,
+                    );
                 }
+
+                // Fold this pass into the duty history the fallback runs on
+                fallback.on_reading(
+                    current_relay_state == RelayState::On,
+                    CONTROL_INTERVAL_SECS as u32,
+                );
+                report_sensor_status(
+                    zone_name,
+                    &mut status,
+                    SensorStatus::Ok,
+                    fallback.duty(),
+                    mqtt_channel,
+                );
 
                 // Sync temperature and running state to Matter (so
                 // HomeKit/Google/Alexa can see them). Done after the relay
@@ -473,6 +661,16 @@ async fn zone_control_loop(
                 }
             }
             Err(e) => {
+                // Not covered by fallback: other sensor errors, no history
+                // since boot, or the fallback time limit has passed.
+                report_sensor_status(
+                    zone_name,
+                    &mut status,
+                    SensorStatus::Lost,
+                    fallback.duty(),
+                    mqtt_channel,
+                );
+
                 // Sensor error handling
                 state.increment_errors();
 
@@ -973,16 +1171,32 @@ async fn main(spawner: Spawner) {
         // Create MQTT bridge that runs inside Matter's UserTask
         let mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
 
-        // Sync initial temperature to Matter state BEFORE spawning Matter task
-        // This ensures HomeKit sees valid LocalTemperature during commissioning
-        // (otherwise it may cache "not supported" status from NULL temperature)
-        for zone_index in 0..NUM_ZONES {
-            matter::update_matter_from_control_loop(zone_index, MOCK_TEMPERATURE_C, false);
+        // Mock source: sync the placeholder temperature to Matter state BEFORE
+        // spawning the Matter task, so HomeKit sees a valid LocalTemperature
+        // during commissioning (otherwise it may cache "not supported" status
+        // from NULL temperature).
+        // Mqtt source: a zone shows no temperature (NULL) and heating OFF
+        // until its first remote reading, so no placeholder is seeded.
+        match SENSOR_SOURCE {
+            SensorSource::Mock => {
+                for zone_index in 0..NUM_ZONES {
+                    matter::update_matter_from_control_loop(zone_index, MOCK_TEMPERATURE_C, false);
+                }
+                info!(
+                    "Initial temperature ({:.1}C) synced to Matter state for {} zones",
+                    MOCK_TEMPERATURE_C, NUM_ZONES
+                );
+            }
+            SensorSource::Mqtt => {
+                for zone_index in 0..NUM_ZONES {
+                    matter::update_matter_without_reading(zone_index, false);
+                }
+                info!(
+                    "No initial temperature for {} zones until remote readings arrive",
+                    NUM_ZONES
+                );
+            }
         }
-        info!(
-            "Initial temperature ({:.1}C) synced to Matter state for {} zones",
-            MOCK_TEMPERATURE_C, NUM_ZONES
-        );
 
         // Spawn Matter task (handles WiFi + MQTT)
         spawner.spawn(
@@ -1075,16 +1289,32 @@ async fn main(spawner: Spawner) {
         // Create MQTT bridge that runs inside Matter's UserTask
         let mqtt_bridge = matter::MqttBridge::new(mqtt_config, &MQTT_CHANNEL);
 
-        // Sync initial temperature to Matter state BEFORE spawning Matter task
-        // This ensures HomeKit sees valid LocalTemperature during commissioning
-        // (otherwise it may cache "not supported" status from NULL temperature)
-        for zone_index in 0..NUM_ZONES {
-            matter::update_matter_from_control_loop(zone_index, MOCK_TEMPERATURE_C, false);
+        // Mock source: sync the placeholder temperature to Matter state BEFORE
+        // spawning the Matter task, so HomeKit sees a valid LocalTemperature
+        // during commissioning (otherwise it may cache "not supported" status
+        // from NULL temperature).
+        // Mqtt source: a zone shows no temperature (NULL) and heating OFF
+        // until its first remote reading, so no placeholder is seeded.
+        match SENSOR_SOURCE {
+            SensorSource::Mock => {
+                for zone_index in 0..NUM_ZONES {
+                    matter::update_matter_from_control_loop(zone_index, MOCK_TEMPERATURE_C, false);
+                }
+                info!(
+                    "Initial temperature ({:.1}C) synced to Matter state for {} zones",
+                    MOCK_TEMPERATURE_C, NUM_ZONES
+                );
+            }
+            SensorSource::Mqtt => {
+                for zone_index in 0..NUM_ZONES {
+                    matter::update_matter_without_reading(zone_index, false);
+                }
+                info!(
+                    "No initial temperature for {} zones until remote readings arrive",
+                    NUM_ZONES
+                );
+            }
         }
-        info!(
-            "Initial temperature ({:.1}C) synced to Matter state for {} zones",
-            MOCK_TEMPERATURE_C, NUM_ZONES
-        );
 
         // Spawn dual-radio Matter task (C6 WiFi + H2 BLE)
         spawner.spawn(
