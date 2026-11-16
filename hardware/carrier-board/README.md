@@ -174,7 +174,7 @@ Files in `enclosure/out/` (and the `test-piece` below), each already in its prin
 |---|---|---|---|
 | base | `base.stl` | floor on the bed | 190.8 x 121.8 x 9.0 mm |
 | cover | `cover.stl` | face on the bed | 190.8 x 121.8 x 34.6 mm; the face takes the bed's texture |
-| dial strip | `dial-strip.stl` | back on the bed, lettering up | one body, 132.5 x 42.1 x 2.2 mm (plate 1.8 mm plus the lettering) |
+| dial strip | `dial-strip.stl` | back on the bed, lettering up | one body, 142.7 x 42.1 x 2.2 mm (plate 1.8 mm plus the lettering) |
 | pane | `pane.stl` | flat | 126 x 16 x 1.5 mm; print it in clear filament (PETG is the clearest) |
 
 Material: ASA, ABS or PETG all suit. The intended material is an off-white ("natural") glass-filled ASA for the base, cover and strip, with black ASA for the lettering. Glass-filled filament is more brittle round the heat-set inserts: do not over-press them and do not over-tighten the screws.
@@ -223,7 +223,7 @@ The cover's rim bears on about 1.8 mm of the 2.4 mm wall (the base rim's edge is
 - Back-side component leads are not modelled. Leads up to about 3 mm are fine in the box; trim flush where you can.
 - The lights sit about 20 mm behind the window, so they read best from straight on.
 - Brass inserts and steel screws near the antennas (see Hardware); the magnets are at least 20 mm from both antennas.
-- The power light shows through an open 3 mm hole.
+- The power light shows through an open 3 mm hole. It is where the light is on this board, so it cannot line up with the strip; a later revision that moves off the dev boards could put the lights in a better place (owner's note).
 - Printed plastic has no flame rating. The board carries 5 V and switches 24 V AC from a class 2 transformer.
 - The clip's release latch is under the box. Reaching it with a screwdriver from below is untried.
 - The checks use the dimensions in this repository (the Hammond clip's body, the plug and USB-C plug bodies as boxes). A moulded USB-C plug larger than 13 x 8 mm will not pass the left notch.
@@ -329,6 +329,7 @@ What route.py does around the router:
 
 From going through the design (`docs/plans/2026-11-15-carrier-board-design.md`) section by section against the board, the netlist and this README. Items marked "not confirmed" could not be checked from here.
 
+- **Enclosure: the power light's hole cannot line up with the dial strip.** It is where the light is on this board; a later revision that moves off the dev boards could put the lights in a better place (owner's note).
 - **Nothing has been built.** The board has not been fabricated or assembled and no part has been test-fitted. Every footprint comes from KiCad's library or a datasheet drawing; the paper print is the first physical check. Distributor stock came from search snapshots, not live pages, and was not rechecked.
 - **Gap between the board's back and the DIN rail: not established** (Hammond's drawing does not give where the rail's flanges seat). 16 logic-side joints lie over the top flange and 6 over the bottom one (60 and 16 allowing 2 mm for the rail's position), including every relay coil pin. The owner must measure it and add an insulating sheet if the board is mounted bare; see Assembly. The enclosure's floor takes the place of the sheet.
 - **Zone circuit current: not measured.** The relay (6 A) and varistor (35 V AC continuous; clamps 110 V at a 2.5 A test current, higher at higher surge current) were chosen without it.

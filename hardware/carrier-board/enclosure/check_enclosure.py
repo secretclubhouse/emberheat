@@ -623,8 +623,19 @@ def test_dial_strip():
     wx1 = max(c.BoundingBox().xmax for c in word)
     wy1 = max(c.BoundingBox().ymax for c in word)
     lay = (cw.xmin - P.strip_reach, cw.ymin - P.strip_reach, cw.xmax + P.strip_reach)   # the layout rectangle
-    m = [lay[0] - pb.xmin, pb.xmax - lay[2], lay[1] - pb.ymin, pb.ymax - wy1]
-    assert max(m) - min(m) <= 0.01, "strip margins %s are not equal" % ["%.2f" % v for v in m]
+    m = [pb.xmax - lay[2], lay[1] - pb.ymin, pb.ymax - wy1]
+    assert max(m) - min(m) <= 0.01, "strip margins (right, top, below wordmark) %s are not equal" % ["%.2f" % v for v in m]
+    left = lay[0] - pb.xmin
+    assert left > m[0] + 1.0, "left margin %.2f is not the larger, derived one" % left
+    # Centred on the face in x: equal gaps to the cover's outside edges.
+    gl, gr = pb.xmin - cb.xmin, cb.xmax - pb.xmax
+    assert abs(gl - gr) <= 0.05, "strip not centred on the face: gaps %.2f left, %.2f right" % (gl, gr)
+    # The power light's hole stays clear of the (now wider) recess: at least
+    # 2 mm of face between the hole's edge and the recess edge.
+    ph = g["power_light"]
+    rx0, ry0, rx1, ry1 = gen_enclosure.dial(g, P)["recess"]
+    dx, dy = max(rx0 - ph["x"], 0, ph["x"] - rx1), max(ry0 - ph["y"], 0, ph["y"] - ry1)
+    assert (dx * dx + dy * dy) ** 0.5 - P.power_hole_d / 2 >= 2.0, "power light hole is under 2 mm from the recess"
     assert abs(wx1 - lay[2]) <= 0.01, "wordmark ends at x %.2f, margin at %.2f" % (wx1, lay[2])
     assert sw.xmin - pb.xmin > 2.0 and pb.xmax - sw.xmax > 2.0 and sw.ymin - pb.ymin > 2.0, "strip is thin round its window"
     # The wordmark reads `emberheat`: each glyph, in x order, is that letter.
@@ -952,6 +963,8 @@ def test_exports_are_the_real_part():
     ct = load_step("test-piece-cover").rotate(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 180).translate(cq.Vector(0, 0, f.z_top))
     assert len(ct.Solids()) == 3, "cover test piece should be three bodies"
     wy = -lights_centre(g)[1]
+    rx0 = gen_enclosure.dial(g, P)["recess"][0]
+    assert not inside(ct, rx0 + 1.5, wy, 26.0) and inside(ct, rx0 - 1.5, wy, 26.0), "cover test piece: recess left end missing"
     assert not inside(ct, 40.0, wy, 26.0) and inside(ct, 27.0, wy, 26.0), "cover test piece: window end not at its mirrored place"
     assert inside(ct, 0.0, -117.2, 5.0), "cover test piece: corner wall not at the mirrored place"
     assert not inside(ct, mx, my, -2.0) and inside(ct, mx + 3.5, my, -2.0), "cover test piece: magnet pocket not at its mirrored place"

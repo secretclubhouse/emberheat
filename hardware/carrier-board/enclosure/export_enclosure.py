@@ -42,7 +42,7 @@ TEST_REGIONS = [(-11.4, 94.0, 16.0, 118.4), (58.0, 100.0, 80.0, 118.4)]
 
 # One end of the cover's window with its rim, the strip's recess and a pane rail
 # (board frame, x0, y0, x1, y1), for the cover's test piece.
-WINDOW_REGION = (14.0, 22.0, 50.0, 72.0)
+WINDOW_REGION = (6.0, 22.0, 50.0, 74.0)
 
 
 def real_part(shape):

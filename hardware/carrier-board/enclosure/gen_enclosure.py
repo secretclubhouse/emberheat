@@ -336,8 +336,9 @@ def dial(geom, p):
     strip_window: the strip's window, round the collar with fit clearance;
     layout: the window grown by strip_reach, from which the strip's outline
     and the lettering are laid out;
-    strip: the strip, strip_margin outside the layout rectangle on the left,
-    top and right, and below the wordmark; recess: the strip plus fit clearance;
+    strip: the strip, strip_margin outside the layout rectangle on the top and
+    right and below the wordmark, and centred on the face in x (its left
+    margin is whatever that takes); recess: the strip plus fit clearance;
     backing: the plate behind the recess; pane: the clear pane.
     Also z_floor (recess floor = strip back), z_front (strip front, strip_t above it), z_backing (inside of the plate
     behind the strip, which the pane lies against), numerals (per light:
@@ -370,7 +371,12 @@ def dial(geom, p):
     wordmark = w.translate((lay[2] - b.xmax, word_top - b.ymin, 0))
     word_bottom = word_top + b.ylen
 
-    strip = (lay[0] - p.strip_margin, lay[1] - p.strip_margin, lay[2] + p.strip_margin, word_bottom + p.strip_margin)
+    strip_right = lay[2] + p.strip_margin
+    # Centred on the face in x: the left edge is the mirror of the right edge
+    # about the face's centre, so only the left margin grows.
+    strip_left = f.outside[0] + f.outside[2] - strip_right
+    assert strip_left <= lay[0] - p.strip_margin, "strip cannot be centred by extending it left"
+    strip = (strip_left, lay[1] - p.strip_margin, strip_right, word_bottom + p.strip_margin)
     recess = grow(strip, p.fit_clearance)
     z_backing = min(f.z_face_inside, z_floor) - p.backing_t
     pane = (cx - p.pane_w / 2, cy - p.pane_h / 2, cx + p.pane_w / 2, cy + p.pane_h / 2)
