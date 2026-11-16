@@ -1100,12 +1100,56 @@ def test_footprints_unmoved(board, nl):
                 mm(fp.GetPosition().x), mm(fp.GetPosition().y), fp.GetOrientationDegrees())
 
 
+FAB = os.path.join(ROOT, "fab")
+FAB_FILES = ["carrier-board-F_Cu.gtl", "carrier-board-B_Cu.gbl", "carrier-board-F_Mask.gts",
+             "carrier-board-B_Mask.gbs", "carrier-board-F_Silkscreen.gto", "carrier-board-B_Silkscreen.gbo",
+             "carrier-board-Edge_Cuts.gm1", "carrier-board-PTH.drl", "carrier-board-NPTH.drl",
+             "carrier-board-gerbers.zip", "print-template.pdf", "schematic.pdf"]
+
+
+def _drill_hits(path):
+    """Holes in an Excellon file: one per coordinate line after a tool is
+    selected; a slot (G85 line) is one hole."""
+    n, in_body = 0, False
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line == "%":
+                in_body = True
+            elif in_body and re.match(r"X-?[\d.]+Y-?[\d.]+", line):
+                n += 1
+    return n
+
+
+def test_fab_outputs(board, nl):
+    """fab/ (make fab) has every expected file, is from this board (the
+    board's SHA-256 is stored beside it, so a fresh clone cannot look stale),
+    and its drill files hold exactly the board's holes."""
+    import hashlib
+    assert os.path.isdir(FAB), "fab/ missing (run make fab)"
+    missing = [n for n in FAB_FILES + ["source.sha256"] if not os.path.isfile(os.path.join(FAB, n))]
+    assert not missing, "fab/ lacks %s (run make fab)" % ", ".join(missing)
+    empty = [n for n in FAB_FILES if os.path.getsize(os.path.join(FAB, n)) == 0]
+    assert not empty, "empty: %s" % ", ".join(empty)
+    with open(BOARD, "rb") as f:
+        digest = hashlib.sha256(f.read()).hexdigest()
+    with open(os.path.join(FAB, "source.sha256")) as f:
+        stored = f.read().split()[0]
+    assert stored == digest, "fab/ was made from a different carrier-board.kicad_pcb (run make fab)"
+    want = sum(1 for fp in board.GetFootprints() for p in fp.Pads() if p.GetDrillSizeX() > 0)
+    want += sum(1 for t in board.GetTracks() if t.GetClass() == "PCB_VIA")
+    have = _drill_hits(os.path.join(FAB, "carrier-board-PTH.drl")) + \
+        _drill_hits(os.path.join(FAB, "carrier-board-NPTH.drl"))
+    assert have == want, "drill files hold %d holes, board has %d" % (have, want)
+    print("     %d holes in the drill files, as on the board" % have)
+
+
 TESTS = [test_all_parts_present, test_pad_nets_match_netlist, test_zone_separation, test_zone_line,
          test_no_pour_in_zone_strip, test_inside_outline, test_dev_board_placement, test_notch_width,
          test_terminal_order, test_mounting_holes, test_zone_tracks, test_power_and_middle,
          test_silkscreen, test_zone_strip_rule, test_zone_tracks_unchanged, test_footprints_unmoved,
          test_fully_routed, test_track_widths, test_track_to_through_hole_pads, test_vias, test_ground_pour,
-         test_drc_clean]
+         test_drc_clean, test_fab_outputs]
 
 
 def main():
