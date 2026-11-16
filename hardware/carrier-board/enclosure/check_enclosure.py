@@ -799,11 +799,178 @@ def test_printable_cover():
     letters = s["dial_lettering"]
     assert not overhangs(letters, 1, letters.BoundingBox().zmin, lambda fc: 0.0), "lettering overhangs"
 
+# --- Exports ------------------------------------------------------------------
+
+OUT = os.path.join(HERE, "out")
+EXPORT_NAMES = ("base", "cover", "dial-strip", "pane")
+
+
+def sha256(path):
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def hashes_file():
+    """enclosure/out/hashes.txt as a dict: 'name: value' lines."""
+    path = os.path.join(OUT, "hashes.txt")
+    assert os.path.exists(path), "no out/hashes.txt (run make enclosure)"
+    out = {}
+    with open(path) as f:
+        for line in f:
+            if ":" in line and not line.startswith("#"):
+                k, v = line.split(":", 1)
+                out[k.strip()] = v.strip()
+    return out
+
+
+def test_exports_current():
+    for name in EXPORT_NAMES:
+        for ext in ("step", "stl"):
+            path = os.path.join(OUT, "%s.%s" % (name, ext))
+            assert os.path.exists(path) and os.path.getsize(path) > 500, "export %s missing or empty (run make enclosure)" % path
+    h = hashes_file()
+    sources = {"board-geometry.json": "board-geometry.json", "params.py": "params.py",
+               "gen_enclosure.py": "gen_enclosure.py", "font": os.path.join("fonts", "Inter-SemiBold.ttf")}
+    for key, rel in sources.items():
+        assert key in h, "hashes.txt has no %s" % key
+        assert h[key] == sha256(os.path.join(HERE, rel)), "%s changed since the export (run make enclosure)" % key
+    assert float(h["lettering_start_height_mm"]) > 0
+
+
+def load_step(name):
+    import cadquery as cq
+    return cq.importers.importStep(os.path.join(OUT, name + ".step")).val()
+
+
+def stl_triangles(name):
+    """Binary STL as an (n, 3, 3) array."""
+    import numpy as np
+    with open(os.path.join(OUT, name + ".stl"), "rb") as f:
+        data = f.read()
+    assert not data.startswith(b"solid") or len(data) == 84 + 50 * int.from_bytes(data[80:84], "little"), "%s.stl is not binary" % name
+    n = int.from_bytes(data[80:84], "little")
+    assert len(data) == 84 + 50 * n, "%s.stl size does not match its triangle count" % name
+    rec = np.frombuffer(data, dtype=np.dtype([("n", "<f4", 3), ("v", "<f4", (3, 3)), ("a", "<u2")]), count=n, offset=84)
+    return rec["v"].astype(float)
+
+
+def inside(shape, x, y, z):
+    import cadquery as cq
+    return shape.isInside(cq.Vector(x, y, z))
+
+
+def test_exports_stl_match_step():
+    """Each STL is a closed, correctly wound copy of its STEP: same box, volume
+    within 1 % (a mirrored mesh without flipped winding would be negative)."""
+    for name in EXPORT_NAMES:
+        s = load_step(name)
+        bb = s.BoundingBox()
+        tri = stl_triangles(name)
+        lo, hi = tri.reshape(-1, 3).min(axis=0), tri.reshape(-1, 3).max(axis=0)
+        for got, want, ax in ((lo[0], bb.xmin, "xmin"), (hi[0], bb.xmax, "xmax"), (lo[1], bb.ymin, "ymin"),
+                              (hi[1], bb.ymax, "ymax"), (lo[2], bb.zmin, "zmin"), (hi[2], bb.zmax, "zmax")):
+            assert abs(got - want) < 0.05, "%s.stl %s %.3f, STEP %.3f" % (name, ax, got, want)
+        v = (tri[:, 0] * __import__("numpy").cross(tri[:, 1], tri[:, 2])).sum() / 6.0
+        assert abs(v - s.Volume()) <= 0.01 * s.Volume(), "%s.stl volume %.0f, STEP %.0f" % (name, v, s.Volume())
+        assert abs(bb.zmin) < 1e-6, "%s is not on the bed (zmin %.4f)" % (name, bb.zmin)
+        assert bb.xlen <= 300 and bb.ylen <= 300, "%s does not fit the bed" % name
+
+
+def test_exports_are_the_real_part():
+    """The model is built in the board frame (x right, y down, z toward the
+    viewer), which is left-handed: every export must be mirrored in y. Proved
+    on the exported files, put back into the assembled position (z only for the
+    base and strip; the cover is turned 180 degrees about x for printing, so
+    turn it back)."""
+    import cadquery as cq
+    import gen_enclosure
+    from params import P
+    g = geometry()
+    f = gen_enclosure.frame(g, P)
+
+    # Base, as assembled: floor on the bed, so z = bed + (assembled z - z_bottom).
+    base = load_step("base")
+    zf = -9.5 - f.z_bottom    # a height in the 1.6 mm of floor under the clip holes, above the bed
+    clips = gen_enclosure.clip_positions(g, P)
+    assert len(clips) == 2
+    for c in clips:
+        x = c["x"]
+        slot_y, hole_y = -c["slot_centre"][1], -c["round_hole"][1]   # mirrored
+        assert slot_y > hole_y, "DIN clip slot (hook end) is not at larger Y than the round hole"
+        assert not inside(base, x, slot_y + 2.4, zf) and not inside(base, x, slot_y - 2.4, zf), "no slot at its mirrored place"
+        assert not inside(base, x, hole_y, zf), "no round hole at its mirrored place"
+        assert inside(base, x + 5.5, slot_y, zf) and inside(base, x + 5.5, hole_y, zf), "no floor beside the clip holes"
+        assert inside(base, x, hole_y + 2.4, zf) and inside(base, x, hole_y - 2.4, zf), "hole is a slot, not round"
+    # Lip breaks: power input notch at smaller X, zone terminal notches at larger Y.
+    zl = (f.z_split + f.z_lip_top) / 2 - f.z_bottom
+    lx = (f.lip_outer[0] + f.lip_inner[0]) / 2
+    ty = -(f.lip_outer[1] + f.lip_inner[1]) / 2
+    by = -(f.lip_outer[3] + f.lip_inner[3]) / 2
+    left = [b for b in f.lip_breaks if b[0] == "left"][0]
+    top = [b for b in f.lip_breaks if b[0] == "top"]
+    assert not inside(base, lx, -(left[1] + left[2]) / 2, zl), "no left lip break at the mirrored place"
+    assert inside(base, lx, -20.0, zl), "left lip is not solid away from its break"
+    for _, x0, x1 in top:
+        assert not inside(base, (x0 + x1) / 2, ty, zl), "no top lip break at the mirrored place"
+        assert inside(base, (x0 + x1) / 2, by, zl), "bottom lip is not solid under a zone break"
+    assert ty > by, "zone terminals' side of the lip is not at larger Y"
+
+    # Cover: turn back (rotate 180 about x, then z -> top 27).
+    cover = load_step("cover").rotate(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 180).translate(cq.Vector(0, 0, f.z_top))
+    zc = 5.0
+    wall_top = -(f.outside[1] + f.inside[1]) / 2
+    wall_bot = -(f.outside[3] + f.inside[3]) / 2
+    wall_left = (f.outside[0] + f.inside[0]) / 2
+    for _, x0, x1 in top:
+        xm = (x0 + x1) / 2
+        assert not inside(cover, xm, wall_top, zc), "cover has no zone notch at its mirrored place"
+        assert inside(cover, xm, wall_bot, zc), "cover bottom wall is cut under a zone notch"
+        assert inside(cover, xm + 9, wall_top, zc), "cover wall is not solid between notches"
+    assert not inside(cover, wall_left, -(left[1] + left[2]) / 2, zc), "cover has no power input notch at the mirrored place"
+    assert inside(cover, wall_left, -20.0, zc), "cover left wall is not solid away from its notch"
+    # The face is on the bed in the print file.
+    cp = load_step("cover")
+    assert abs(cp.BoundingBox().zmin) < 1e-6 and inside(cp, 84, 100, 1.0), "cover face is not on the bed"
+
+    # Dial strip: viewed from +z (lettering up) the lettering reads left to right.
+    strip = load_step("dial-strip")
+    start = gen_enclosure.dial(g, P)["z_floor"]
+    t0 = float(hashes_file()["lettering_start_height_mm"])
+    assert near(t0, P.dial_t, 1e-3), "lettering start %.3f, strip is %.3f thick" % (t0, P.dial_t)
+    z_shift = -start          # assembled z -> bed z
+    ref = gen_enclosure.build(g, P)["dial_lettering"].val()
+    mirrored = ref.mirror("XZ").translate(cq.Vector(0, 0, z_shift))
+    plain = ref.translate(cq.Vector(0, 0, z_shift))
+    top_part = strip.intersect(cq.Solid.makeBox(400, 400, 5, cq.Vector(-100, -300, t0 + 0.001)))
+    lv = top_part.Volume()
+    assert lv > 0.98 * ref.Volume(), "lettering is missing from the strip body (%.1f of %.1f mm3)" % (lv, ref.Volume())
+    common_ok = top_part.intersect(mirrored.intersect(cq.Solid.makeBox(400, 400, 5, cq.Vector(-100, -300, t0 + 0.001)))).Volume()
+    common_bad = top_part.intersect(plain.intersect(cq.Solid.makeBox(400, 400, 5, cq.Vector(-100, -300, t0 + 0.001)))).Volume()
+    assert common_ok > 0.98 * lv, "exported lettering is not the y-mirrored lettering (%.1f of %.1f mm3 match)" % (common_ok, lv)
+    assert common_bad < 0.5 * lv, "exported lettering matches the unmirrored model (%.1f of %.1f mm3)" % (common_bad, lv)
+    # Left to right: numeral 1 at smaller X than 7; in the wordmark e at smaller X than t.
+    glyphs = sorted(top_part.Solids(), key=lambda s: s.Center().x)
+    assert len(glyphs) == 16, "%d lettering glyphs, want 16" % len(glyphs)
+    ref_g = {}
+    for ch in "17et":
+        ref_g[ch] = gen_enclosure.text_solid(ch, gen_enclosure.label_size(P), 0, 0, 0, P.letter_proud).val().Volume()
+    nums = [s for s in glyphs if s.Center().y > -57]         # numeral row is above the wordmark (larger Y)
+    word = [s for s in glyphs if s.Center().y <= -57]
+    assert len(nums) == 7 and len(word) == 9, "%d numerals and %d wordmark glyphs" % (len(nums), len(word))
+    assert abs(nums[0].Volume() - ref_g["1"]) < 0.01 * ref_g["1"], "first numeral is not a 1"
+    assert abs(nums[-1].Volume() - ref_g["7"]) < 0.01 * ref_g["7"], "last numeral is not a 7"
+    assert abs(word[0].Volume() - ref_g["e"]) < 0.01 * ref_g["e"], "wordmark does not start with e"
+    assert abs(word[-1].Volume() - ref_g["t"]) < 0.01 * ref_g["t"], "wordmark does not end with t"
+    assert nums[0].Center().x < nums[-1].Center().x and word[0].Center().x < word[-1].Center().x
+    # The wordmark is under the numerals in the real part: lower on the face = smaller Y.
+    assert max(s.Center().y for s in word) < min(s.Center().y for s in nums)
+
 
 TESTS = [test_geometry_sanity, test_board_model, test_standoffs, test_base_clear_of_board,
          test_clips, test_magnets_base, test_printable_base, test_lip, test_cover_clear_of_board,
          test_cover_lifts_off, test_cover_seats, test_lights, test_dial_strip, test_pane,
-         test_styling, test_printable_cover]
+         test_styling, test_printable_cover, test_exports_current,
+         test_exports_stl_match_step, test_exports_are_the_real_part]
 
 
 def main():

@@ -2,7 +2,7 @@ KICAD_CLI ?= /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
 KICAD_PY  ?= /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
 MAGICK    ?= /opt/homebrew/bin/magick
 
-.PHONY: all lib sch board route autoroute erc render render-board fab check clean enclosure-venv enclosure-geometry enclosure-check
+.PHONY: all lib sch board route autoroute erc render render-board fab check clean enclosure-venv enclosure-geometry enclosure-check enclosure-export enclosure-render enclosure
 
 # From scratch: library, schematic, placed board, routed board, fab outputs, checks.
 all: lib sch route fab check
@@ -136,6 +136,18 @@ enclosure-geometry:
 
 enclosure-check:
 	$(CAD_PY) enclosure/check_enclosure.py
+
+# enclosure/out/ (STEP and STL in print orientation, hashes.txt) from the
+# board geometry and the parts.
+enclosure-export:
+	$(CAD_PY) enclosure/export_enclosure.py
+
+# renders/enclosure-*.png, shaded.
+enclosure-render:
+	$(CAD_PY) enclosure/render_enclosure.py
+
+# Everything: geometry from the board, exports, images, then the checks.
+enclosure: enclosure-geometry enclosure-export enclosure-render enclosure-check
 
 clean:
 	rm -rf *-backups fp-info-cache build

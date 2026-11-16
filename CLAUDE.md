@@ -68,7 +68,7 @@ emberheat/
 │       ├── mqtt.rs         # MQTT client and JSON publishing
 │       ├── dual_radio.rs   # ESP32-H2 BLE over UART HCI
 │       └── mocks.rs        # Test mocks
-├── hardware/carrier-board/ # KiCad carrier board for the C6 + H2 dev boards, 7 relay outputs (see its README.md)
+├── hardware/carrier-board/ # KiCad carrier board for the C6 + H2 dev boards, 7 relay outputs, and its CadQuery-generated printable enclosure (see its README.md)
 └── emberheat-linux/        # Linux implementation (preserved, not active)
 ```
 

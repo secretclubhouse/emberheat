@@ -1,0 +1,7 @@
+# SHA-256 of the files the exports were made from; check_enclosure.py compares them.
+board-geometry.json: cf295878d87c4df36645e87106c7904e908d5ebc33dbf3e176fa6db1d2abbc07
+params.py: c35943fdd958215ee9bbd633b0ce90b665681efc41fcc6bb12ff06cb57241d94
+gen_enclosure.py: d3fd40757b25d31cb19114294c1a028bd7c97049ee35b3d983f70a490518ea7e
+font: 78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3
+cadquery: 2.8.0
+lettering_start_height_mm: 2.000

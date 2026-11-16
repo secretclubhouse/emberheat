@@ -131,3 +131,30 @@ The rounded corners must not cut into the 9 mm side gaps where the magnet pads s
 - Printed plastic has no flame rating. The board carries 5 V and switches 24 V AC from a class 2 transformer.
 - The clip's release latch is under the box. Reaching it with a screwdriver from below is untried.
 - The clip screw heads stand about 1 mm above the floor under the board, about 4 mm below the solder joints. They touch nothing but plastic.
+
+## As built
+
+Status: built and checked by software (`make -C hardware/carrier-board enclosure`); nothing printed. Files are in `hardware/carrier-board/enclosure/out/`, images in `hardware/carrier-board/renders/enclosure-*.png`, assembly in the carrier board README's "Enclosure" section.
+
+**Outside size** of the closed box: 190.8 x 121.8 x 37.6 mm (base 9.0 mm high, cover 34.6 mm, overlapping by the 3 mm floor: base from z -10.6, cover to z 27 in the board frame). Inside 186 x 117 mm as specified.
+
+**Handedness.** The model is built in the board frame (x right, y down, z toward the viewer), which is left-handed. Every exported solid and every render is mirrored in y (y -> -y) so it is the real part; the print orientations are then rotations and translations only. `test_exports_are_the_real_part` loads the exported STEP files back and checks it: the DIN clip slot (hook end) is at larger Y than the round hole, the power input notch is at smaller X and the zone notches at larger Y, and the strip's lettering is the y-mirrored lettering (and not the unmirrored one), with `1` left of `7` and `e` left of `t`.
+
+**Exports.** Print orientations: base floor down; cover face down (turned 180 degrees about x); dial strip back down, lettering up, one body; pane flat. The lettering starts 2.0 mm from the bed (the strip's thickness), the filament change height. STL tolerance 0.02 mm, binary, each under 0.4 MB; `hashes.txt` records the hashes of `board-geometry.json`, `params.py`, `gen_enclosure.py` and the font, and a test fails if any has changed since the export.
+
+**Changes from the design above, and why:**
+
+- **The pane slides in along y, not x**, between rails at its two ends (the spec's "two rails ... slides in from one end against a stop at the other" is kept, with rails running along y). A rigid 126 mm pane cannot slide along x inside a 186 mm box whose window spans x 28 to 150 without going through a side wall, and tilting it in does not fit the 32 mm depth. It enters from the open back above the rails and slides down onto two stops; on the wall gravity holds it. It is held only at its two ends, so it can slide out when the cover is handled face down: fit it last.
+- **Numerals and wordmark are 5.5 mm tall**, not about 3 mm. In Inter SemiBold at 3.5 mm several strokes (the `e` bar, the `1` flag, the `m` and `h` arches, the `a` bowl) are 0.3 to 0.45 mm. 5.5 mm is the smallest cap height at which every stroke is at least 0.5 mm. Inter's arch-to-stem joins stay about 0.3 mm wide at any reasonable size (the typeface thins them on purpose); the check is a morphological opening (no stroke thinner than 0.5 mm, no lost piece longer than 0.8 mm), not erosion connectivity. They print as slightly filled corners.
+- **A 1.0 mm rim round the cover's window**, flush with the face. Printed face down, the plate behind the strip is a bridge over the strip's recess; without the rim the window's edge would hang free. The strip's window (124.5 x 14.5 mm) is therefore larger than the cover's (122 x 12 mm): the rim plus the 0.25 mm fit on each side. From the front there is a thin seam ring round the window.
+- **The dial strip sits about 5 mm right of the face's centre**, because it follows the lights (window centre x 89.1, face centre x 84). Its margins are equal on the left, top and right and below the wordmark.
+- **Magnets meet at the lip top.** Pockets are exactly 3.0 mm deep (`magnet_recess` 0.0), and a seated pair has its faces 0.25 mm apart; the walls, not the pads, carry the cover. The cover's pads are short blocks with a 45 degree wedge to the wall, so the bottom wall's vent row stays free. Magnet pocket walls in the pads are 0.7 mm thick (test print).
+- **Insert holes are 4.4 mm** (for the 5 mm OD x 4 mm insert), 7.0 mm deep.
+- **Vents:** 25 slots, 2 x 10 mm, 4.5 mm pitch, centred on the bottom wall between the pads and the face.
+- **The cover's rim bears on about 1.8 mm of the 2.4 mm wall**, the rest being the base rim's 0.6 mm chamfer.
+- **Markings on the back** (`HOOK`, `UP`) are drawn as stroke block capitals, not in the font, 0.6 mm deep.
+- **The clip counterbores** are 7.6 mm round and 7.6 x 9.1 mm at the slot.
+
+**New in the README's text:** the carrier board README's DIN clip and "Distance to the rail" text now say which mounting applies: bare board (clips on the board, insulating sheet) or the enclosure (clips on the base, floor as insulation, no sheet).
+
+**Not verified, as in "Known limits" above:** nothing printed; part heights are estimates; back-side component leads are not modelled (trim them flush); the lights read best from straight on.
