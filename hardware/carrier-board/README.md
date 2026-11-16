@@ -168,7 +168,7 @@ Images (`renders/`): `enclosure-closed.png`, `enclosure-open.png` (base and boar
 
 ### What to print
 
-Files in `enclosure/out/`, each already in its print orientation (STEP and STL; the STL files are binary). No supports.
+Files in `enclosure/out/` (and the `test-piece` below), each already in its print orientation (STEP and STL; the STL files are binary). No supports.
 
 | part | file | orientation | notes |
 |---|---|---|---|
@@ -193,16 +193,20 @@ The lettering is 5.5 mm tall. Inter's thin joins (where an arch meets a stem on 
 
 ### Test print first
 
-Before the whole box, print one standoff (a post with its foot, from the base), one magnet pad (its pocket walls are only 0.7 mm thick) and a lip corner, as a small piece cut from `base.step` in your slicer or CAD. Check on it: the insert goes in and holds, a magnet drops in flush with its pocket, the 0.25 mm fit of the lip against a cover wall (print a corner of the cover the same way). If any is too tight or too loose, change `fit_clearance`, `insert_hole_d` or the pocket size in `enclosure/params.py` and run `make enclosure`.
+Before the whole box, print `enclosure/out/test-piece.stl` (print orientation, floor down, about 91 x 24 x 9 mm). It is cut from the real base and has two bodies: the bottom-left corner of the base (one standoff with its foot and insert hole, the lip's corner and the wall's rim) and the bottom magnet pad nearest the notch (its pocket walls are only 0.7 mm thick) with a stretch of lip. Check on it: a heat-set insert goes into the standoff and holds, and a magnet drops flush into the pad's pocket (it must be no taller than the pocket is deep, 3.0 mm). To check the 0.25 mm fit of the lip against a cover wall, print a corner of the cover too, cut in your slicer or CAD from `cover.step`. If anything is too tight or too loose, change `fit_clearance`, `insert_hole_d` or the pocket size in `enclosure/params.py` and run `make enclosure`.
 
 ### Assembly
 
 1. Press the four heat-set inserts into the standoffs with a soldering iron, square and flush; let the plastic cool before turning anything.
-2. Magnets: push one into each of the four pockets in the base, and one into each of the four pockets in the cover. **Check polarity pair by pair before gluing**: put a base magnet in its pocket, hold a cover magnet over it, and make sure they attract; mark the top face of each cover magnet with a pen when it does, then glue each into place with that face outward. Glue goes round the side of the magnet, not under it. Seated, the two faces are 0.25 mm apart.
-3. DIN clips on the base, from the front (the inside): **hook end up**. The base's back is marked `HOOK` and `UP`, above each clip's hook end; the slot is at the hook end, the round hole at the latch end. Screw heads sit in the counterbores, about 4 mm below the solder joints; they touch nothing but plastic.
+2. Magnets, in this order so the polarity cannot come out wrong:
+   1. Glue the four magnets into the four base pockets first (glue round the side, not under), pressed in flush. Their orientation is now fixed.
+   2. Take one cover magnet and let it snap onto its base magnet (they attract, so you will feel which way round it wants to go). With a pen, mark the face that points **away** from the base magnet.
+   3. Glue that magnet into the matching cover pocket with the **marked face going in first**, deep in the pocket, so the unmarked face, the one that was attracted to the base magnet, is at the pocket's open end. Check that the pair attracts (the cover magnet is pulled towards the base magnet when you hold the cover over the base) before the glue sets.
+   4. Repeat for the other three pairs. Seated, the two faces of a pair are 0.25 mm apart.
+3. DIN clips on the base, from the front (the inside): **hook end up**. The base's back is marked `HOOK` and `UP`, above each clip's hook end; the slot is at the hook end, the round hole at the latch end. Screw heads sit in the counterbores, about 4 mm below the solder joints; they touch nothing but plastic. **Then clip the base onto the rail, now, before the board goes in**: it is light and the screws and the clip latches are easy to reach. (Fit the board into a base already on the rail; the checks assume the board's back is 6 mm off the floor either way.)
 4. Board: build it and trim every lead on the back flush first. The enclosure does not model back-side component leads, and the board sits 6 mm off the floor, so long leads would reach it. Lower the board onto the four standoffs and fix it with the four M3 screws. Connect the zone plugs, the USB-C cable and the J2 power wires (they leave through the notches).
 5. Dial strip: with the cover off the wall and face up, set the strip in the recess in its face, lettering up. It fits with 0.25 mm all round and is flush with the face; a few spots of glue at the back keep it there (the recess is open to the front, so nothing else holds it on a wall). The strip is a separate part so it can be reprinted alone to change the labels.
-6. Pane: hold the cover upright, face towards the bench, and lower the pane from the open back into the gap above the rails, then slide it down (towards the bottom of the box, +y in the board frame) onto the stops. The rails hold it only at its two ends, so it can slide out when the cover is handled face down; fit it last and put the cover straight on the wall. Once the cover is on the wall, gravity keeps the pane on its stops.
+6. Pane: let the glue under the dial strip cure first. Lay the cover face down on the bench with its open back up. Lower the pane in between the two end rails and slide it towards the cover's bottom edge (the side opposite the zone terminal notches) until it meets the stops. Carry the cover to the wall with the notches at the top, so the pane's stop end is down and gravity keeps it on the stops. Do not tip the cover notch-side down while carrying it: the rails hold the pane only at its two ends and it would slide out.
 7. Cover: with the base on the wall and the board fitted, lower the cover on straight (the lip locates it, the magnets pull it down the last 0.25 mm). To open, lift it straight off in +z; nothing is under it.
 
 The cover's rim bears on about 1.8 mm of the 2.4 mm wall (the base rim's edge is chamfered).

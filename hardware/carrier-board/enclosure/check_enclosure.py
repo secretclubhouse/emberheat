@@ -802,7 +802,7 @@ def test_printable_cover():
 # --- Exports ------------------------------------------------------------------
 
 OUT = os.path.join(HERE, "out")
-EXPORT_NAMES = ("base", "cover", "dial-strip", "pane")
+EXPORT_NAMES = ("base", "cover", "dial-strip", "pane", "test-piece")
 
 
 def sha256(path):
@@ -830,7 +830,8 @@ def test_exports_current():
             assert os.path.exists(path) and os.path.getsize(path) > 500, "export %s missing or empty (run make enclosure)" % path
     h = hashes_file()
     sources = {"board-geometry.json": "board-geometry.json", "params.py": "params.py",
-               "gen_enclosure.py": "gen_enclosure.py", "font": os.path.join("fonts", "Inter-SemiBold.ttf")}
+               "gen_enclosure.py": "gen_enclosure.py", "font": os.path.join("fonts", "Inter-SemiBold.ttf"),
+               "export_enclosure.py": "export_enclosure.py", "render_enclosure.py": "render_enclosure.py"}
     for key, rel in sources.items():
         assert key in h, "hashes.txt has no %s" % key
         assert h[key] == sha256(os.path.join(HERE, rel)), "%s changed since the export (run make enclosure)" % key
@@ -914,6 +915,18 @@ def test_exports_are_the_real_part():
         assert not inside(base, (x0 + x1) / 2, ty, zl), "no top lip break at the mirrored place"
         assert inside(base, (x0 + x1) / 2, by, zl), "bottom lip is not solid under a zone break"
     assert ty > by, "zone terminals' side of the lip is not at larger Y"
+
+    # Test piece: the same mirrored base, cut down. Standoff H3 at board (4, 110):
+    # insert hole open at the centre, plastic round it; the magnet pocket of the
+    # bottom pad at (68.96, 111.925) open, plastic round it.
+    tp = load_step("test-piece")
+    assert len(tp.Solids()) == 2, "test piece should be two bodies"
+    zi = -4.0 - f.z_bottom
+    hx, hy = 4.0, -110.0
+    assert not inside(tp, hx, hy, zi) and inside(tp, hx + 3.0, hy, zi) and inside(tp, hx, hy - 3.0, zi), "test piece: standoff not at its mirrored place"
+    mx, my = 68.96, -111.925
+    assert not inside(tp, mx, my, zi) and inside(tp, mx + 3.5, my, zi), "test piece: magnet pocket not at its mirrored place"
+    assert tp.Volume() < 0.2 * base.Volume()
 
     # Cover: turn back (rotate 180 about x, then z -> top 27).
     cover = load_step("cover").rotate(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 180).translate(cq.Vector(0, 0, f.z_top))

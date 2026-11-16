@@ -12,6 +12,7 @@ mirror. In the exported files:
   cover       face on the bed: turned 180 degrees about x
   dial-strip  back on the bed, lettering up, one body (plate and lettering)
   pane        flat
+  test-piece  two bits cut from the base for a first test print (see TEST_REGIONS)
 
 Run with the CadQuery environment: make enclosure."""
 import hashlib
@@ -29,6 +30,13 @@ STL_TOL = 0.02
 STL_ANGLE = 0.2
 
 
+# Regions of the base (board frame, x0, y0, x1, y1; full height) for the test
+# print: the bottom-left corner (standoff H3's post and insert hole, the lip's
+# corner, the wall's rim) and the bottom magnet pad nearest the notch with its
+# pocket and a stretch of lip. Cut from the real base so they cannot drift.
+TEST_REGIONS = [(-11.4, 94.0, 16.0, 118.4), (58.0, 100.0, 80.0, 118.4)]
+
+
 def real_part(shape):
     """The real part from a board-frame shape: mirrored in y."""
     return shape.mirror("XZ")
@@ -39,7 +47,9 @@ def sources():
     return [("board-geometry.json", os.path.join(HERE, "board-geometry.json")),
             ("params.py", os.path.join(HERE, "params.py")),
             ("gen_enclosure.py", os.path.join(HERE, "gen_enclosure.py")),
-            ("font", os.path.join(HERE, "fonts", "Inter-SemiBold.ttf"))]
+            ("font", os.path.join(HERE, "fonts", "Inter-SemiBold.ttf")),
+            ("export_enclosure.py", os.path.join(HERE, "export_enclosure.py")),
+            ("render_enclosure.py", os.path.join(HERE, "render_enclosure.py"))]
 
 
 def sha256(path):
@@ -55,6 +65,11 @@ def print_parts(geom, p):
     strip = built["dial_strip"].union(built["dial_lettering"]).val()
     shapes = {"base": built["base"].val(), "cover": built["cover"].val(), "dial-strip": strip,
               "pane": built["pane"].val()}
+    base = shapes["base"]
+    bb = base.BoundingBox()
+    pieces = [base.intersect(cq.Solid.makeBox(x1 - x0, y1 - y0, bb.zlen + 2, cq.Vector(x0, y0, bb.zmin - 1)))
+              for x0, y0, x1, y1 in TEST_REGIONS]
+    shapes["test-piece"] = cq.Compound.makeCompound([sol for pc in pieces for sol in pc.Solids()])
     out = {}
     for name, s in shapes.items():
         s = real_part(s)
