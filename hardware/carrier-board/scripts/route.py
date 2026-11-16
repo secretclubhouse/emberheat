@@ -17,7 +17,9 @@ the SHA-256 of the exported DSN recorded beside the session.
 1. Refuse a board that already has logic-side copper.
 2. Draw the pre-routed tracks (USB-C VBUS, see pre_route). Router's copy:
    router-only keepouts (zone strip less a moat round the zone copper, the
-   board edges, vias under relays); export Specctra DSN (zone and
+   board edges, vias under relays) and through-hole pads grown by PAD_GROW
+   a side, so the router's 0.25 mm clearance keeps every wire 0.5 mm from
+   the real pads of other nets (hand soldering); export Specctra DSN (zone and
    pre-routed tracks go out as fixed wires; the antenna rule areas as
    keepouts).
 3. With --autoroute: Freerouting headless (no window, no dialogs, bounded
@@ -69,21 +71,31 @@ WIDTH = {"power": 1.0, "signal": 0.4}
 # smallest copper neck (mm). Spokes as wide as a signal track, gap wide
 # enough that an iron heats the pad, not the plane.
 POUR_NET = "GND"
-POUR_CLEARANCE = 0.5
+POUR_CLEARANCE = 0.52      # 0.5 for hand soldering, plus the fill's arc approximation
 POUR_MIN_WIDTH = 0.3
 THERMAL_GAP = 0.5
 THERMAL_SPOKE = 0.5
 
 KICAD_CLI = "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli"
 THERMAL_ROUNDS = 4
+HAND_SOLDER_GAP = 0.5      # mm, wire to through-hole pin of another net (hand soldering)
+CLEARANCE = 0.25           # mm, the net classes' clearance: the router's only clearance
+PAD_GROW = HAND_SOLDER_GAP - CLEARANCE   # router's copy: through-hole pads grow this much a side
 EDGE_KEEP = 0.5           # copper to board edge (board rule min_copper_edge_clearance)
 VIA = (0.8, 0.4)           # diameter, drill: the net classes' via
 
 # USB-C VBUS (net VIN) at J1, drawn by pre_route(); see there.
 VBUS_NECK = 0.5            # track width leaving pads A9/B9
 VBUS_NECK_LEN = 1.07       # from the pad centre to where the track widens (pad edge + 0.47)
-VBUS_RUN_X = 7.6           # A9's run down the front to J2
+VBUS_RUN_X = 7.8           # A9's run down the front to J2 (0.6 mm clear of J1's shield pin)
 VBUS_VIA_X = 8.4           # B9's via to the back
+
+
+def need(ok, message):
+    """Raise unless ok. Not an assert: these guard the board and must hold
+    even under python -O."""
+    if not ok:
+        raise RuntimeError(message)
 
 
 def mm(v):
@@ -129,7 +141,7 @@ def is_zone_net(item):
 
 def strip_area(board):
     areas = [z for z in board.Zones() if z.GetIsRuleArea() and z.GetZoneName() == ZONE_STRIP]
-    assert len(areas) == 1, "expected one rule area named %s, found %d" % (ZONE_STRIP, len(areas))
+    need(len(areas) == 1, "expected one rule area named %s, found %d" % (ZONE_STRIP, len(areas)))
     return areas[0]
 
 
@@ -147,11 +159,11 @@ def snapshot(board):
 def check_start(board):
     logic = [t for t in board.GetTracks() if not is_zone_net(t)]
     pours = [z for z in board.Zones() if not z.GetIsRuleArea()]
-    assert not logic and not pours, \
-        "%s already has %d logic-side tracks/vias and %d pours: run `make board` first (`make route` does)" \
-        % (os.path.basename(PCB), len(logic), len(pours))
+    need(not logic and not pours,
+        "%s already has %d logic-side tracks/vias and %d pours: run `make board` first (`make route` does)"
+        % (os.path.basename(PCB), len(logic), len(pours)))
     zone = [t for t in board.GetTracks() if is_zone_net(t)]
-    assert zone and all(t.IsLocked() for t in zone), "zone tracks missing or not locked"
+    need(zone and all(t.IsLocked() for t in zone), "zone tracks missing or not locked")
 
 
 def keepout(board, name, chain, tracks=True, vias=True):
@@ -211,7 +223,7 @@ def hole_free(region):
             slab.Append(x, y)
         slab.BooleanIntersection(region)
         for i in range(slab.OutlineCount()):
-            assert slab.HoleCount(i) == 0, "keepout piece between x %.2f and %.2f has a hole" % (to_mm(x0), to_mm(x1))
+            need(slab.HoleCount(i) == 0, "keepout piece between x %.2f and %.2f has a hole" % (to_mm(x0), to_mm(x1)))
             out.append(pcbnew.SHAPE_LINE_CHAIN(slab.COutline(i)))   # a copy: slab is freed
     return out
 
@@ -242,7 +254,7 @@ def router_keepouts(board):
     for n in range(1, 8):
         k = board.FindFootprintByReference("K%d" % n)
         cy = k.GetCourtyard(pcbnew.F_CrtYd)
-        assert cy.OutlineCount() == 1, "K%d courtyard" % n
+        need(cy.OutlineCount() == 1, "K%d courtyard" % n)
         keepout(board, "router_no_via_K%d" % n, cy.COutline(0), tracks=False)
 
 
@@ -254,7 +266,7 @@ def edge_keepouts(board):
     board's copper-to-edge rule is 0.5 mm."""
     import pcbnew
     outline = pcbnew.SHAPE_POLY_SET()
-    assert board.GetBoardPolygonOutlines(outline), "board outline is not closed"
+    need(board.GetBoardPolygonOutlines(outline), "board outline is not closed")
     edge = outline.COutline(0)
     n = edge.PointCount()
     d = mm(EDGE_KEEP)
@@ -263,7 +275,7 @@ def edge_keepouts(board):
         a, b = edge.CPoint(i), edge.CPoint((i + 1) % n)
         if a == b:
             continue
-        assert a.x == b.x or a.y == b.y, "outline edge not axis-aligned"
+        need(a.x == b.x or a.y == b.y, "outline edge not axis-aligned")
         mx, my = (a.x + b.x) // 2, (a.y + b.y) // 2
         if a.x == b.x:      # vertical: inward is the side the board is on
             sx = 1 if outline.Contains(pcbnew.VECTOR2I(mx + d, my)) else -1
@@ -329,7 +341,7 @@ def pre_route(board):
 def pad_xy(board, ref, number):
     fp = board.FindFootprintByReference(ref)
     pads = [p for p in fp.Pads() if p.GetNumber() == number]
-    assert len(pads) == 1, (ref, number)
+    need(len(pads) == 1, (ref, number))
     return to_mm(pads[0].GetPosition().x), to_mm(pads[0].GetPosition().y)
 
 
@@ -358,6 +370,104 @@ def split_fixed_wires(dsn):
     with open(dsn, "w") as f:
         f.write(text)
     return count[0]
+
+
+def enlarge_through_hole_pads(board):
+    """Hand-soldering clearance for the router, by geometry: on the router's
+    copy only, every through-hole pad's copper grows by PAD_GROW on every
+    side (diameter or both dimensions + 2 PAD_GROW), so a wire the router
+    keeps its ordinary CLEARANCE from the grown pad is HAND_SOLDER_GAP from
+    the real one. Wires end on pad centres, so the real board's connections
+    are the same. The USB-C socket's surface-mount pads are not grown.
+
+    Two pads of a footprint so close that their grown copper would be nearer
+    than CLEARANCE (the 3 mm LEDs: 1.8 mm pads on 2.54 mm pitch) grow less
+    on the side facing each other only: GROW_FACING there, PAD_GROW
+    elsewhere, by a pad offset away from the partner. No wire fits between
+    them anyway (0.74 mm). Returns the references whose pads grew that way."""
+    import math
+    import pcbnew
+    grow = mm(PAD_GROW)
+    trimmed = set()
+    for fp in board.GetFootprints():
+        pth = [p for p in fp.Pads() if p.GetAttribute() == pcbnew.PAD_ATTRIB_PTH]
+        for p in pth:
+            need(p.GetShape(pcbnew.F_Cu) in (pcbnew.PAD_SHAPE_CIRCLE, pcbnew.PAD_SHAPE_RECTANGLE,
+                                             pcbnew.PAD_SHAPE_OVAL, pcbnew.PAD_SHAPE_ROUNDRECT),
+                 "%s.%s: pad shape %d not handled" % (fp.GetReference(), p.GetNumber(), p.GetShape(pcbnew.F_Cu)))
+            need(p.GetOffset(pcbnew.F_Cu) == pcbnew.VECTOR2I(0, 0), "%s.%s has a pad offset" % (fp.GetReference(), p.GetNumber()))
+        # Partners: another PTH pad of the footprint, different net, whose
+        # grown copper would come within CLEARANCE of this pad's.
+        facing = {}
+        for p in pth:
+            for q in pth:
+                if q is p or q.GetNetCode() == p.GetNetCode():
+                    continue
+                a, b = p.GetFPRelativePosition(), q.GetFPRelativePosition()
+                dx, dy = b.x - a.x, b.y - a.y
+                if dx and dy:
+                    continue        # not side by side on an axis: grown_pad_gaps() decides
+                gap = math.hypot(dx, dy) - (p.GetSize(pcbnew.F_Cu).x if dy == 0 else p.GetSize(pcbnew.F_Cu).y) / 2 \
+                    - (q.GetSize(pcbnew.F_Cu).x if dy == 0 else q.GetSize(pcbnew.F_Cu).y) / 2
+                if gap - 2 * grow < mm(CLEARANCE + 0.05):
+                    need(p.GetFPRelativeOrientation().AsDegrees() % 180 == 0,
+                         "%s.%s is turned in its footprint" % (fp.GetReference(), p.GetNumber()))
+                    facing[p.m_Uuid.AsString()] = (dx, dy, gap)
+        for p in pth:
+            size = p.GetSize(pcbnew.F_Cu)
+            if p.m_Uuid.AsString() in facing:
+                dx, dy, gap = facing[p.m_Uuid.AsString()]
+                facing_grow = min(grow, int(gap - mm(CLEARANCE + 0.05)) // 2)
+                need(facing_grow >= 0, "%s.%s: pads too close to grow" % (fp.GetReference(), p.GetNumber()))
+                shift = (grow - facing_grow) // 2          # away from the partner
+                if dy == 0:
+                    p.SetSize(pcbnew.F_Cu, pcbnew.VECTOR2I(size.x + grow + facing_grow, size.y + 2 * grow))
+                    p.SetOffset(pcbnew.F_Cu, pcbnew.VECTOR2I(-shift if dx > 0 else shift, 0))
+                else:
+                    p.SetSize(pcbnew.F_Cu, pcbnew.VECTOR2I(size.x + 2 * grow, size.y + grow + facing_grow))
+                    p.SetOffset(pcbnew.F_Cu, pcbnew.VECTOR2I(0, -shift if dy > 0 else shift))
+                if p.GetShape(pcbnew.F_Cu) == pcbnew.PAD_SHAPE_CIRCLE:
+                    p.SetShape(pcbnew.F_Cu, pcbnew.PAD_SHAPE_OVAL)   # no longer round; an oval still covers the circle
+                trimmed.add(fp.GetReference())
+            else:
+                p.SetSize(pcbnew.F_Cu, pcbnew.VECTOR2I(size.x + 2 * grow, size.y + 2 * grow))
+        for p in pth:
+            p.BuildEffectiveShapes()
+    return sorted(trimmed)
+
+
+def grown_pad_gaps(board):
+    """Smallest gap (mm) between grown copper of two different-net pads on
+    the router's copy, and where: must be at least CLEARANCE, or the router
+    starts with violations it cannot fix."""
+    import pcbnew
+    items = []
+    for fp in board.GetFootprints():
+        for p in fp.Pads():
+            for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
+                if p.IsOnLayer(layer) and p.GetAttribute() in (pcbnew.PAD_ATTRIB_PTH, pcbnew.PAD_ATTRIB_SMD):
+                    ps = pcbnew.SHAPE_POLY_SET()
+                    p.TransformShapeToPolygon(ps, layer, 0, mm(0.002), pcbnew.ERROR_OUTSIDE)
+                    need(ps.OutlineCount() == 1, "%s.%s copper is %d pieces" % (fp.GetReference(), p.GetNumber(), ps.OutlineCount()))
+                    items.append((layer, p.GetNetCode(), "%s.%s" % (fp.GetReference(), p.GetNumber()),
+                                  pcbnew.SHAPE_LINE_CHAIN(ps.COutline(0)), ps.BBox()))   # a copy: ps is freed
+    worst = (float("inf"), None)
+    near = mm(CLEARANCE + 1.0)
+    for i, (la, na, ida, ca, ba) in enumerate(items):
+        for lb, nb, idb, cb, bb in items[i + 1:]:
+            if la != lb or na == nb:
+                continue
+            if ba.GetRight() + near < bb.GetLeft() or bb.GetRight() + near < ba.GetLeft() \
+                    or ba.GetBottom() + near < bb.GetTop() or bb.GetBottom() + near < ba.GetTop():
+                continue
+            # Closest approach of two disjoint polygons: a vertex of one to
+            # an edge of the other (0 if they overlap at a vertex).
+            d2 = min(min(ca.SquaredDistance(cb.CPoint(k)) for k in range(cb.PointCount())),
+                     min(cb.SquaredDistance(ca.CPoint(k)) for k in range(ca.PointCount())))
+            d = to_mm(int(round(d2 ** 0.5)))
+            if d < worst[0]:
+                worst = (d, "%s and %s" % (ida, idb))
+    return worst
 
 
 def sha256(path):
@@ -403,9 +513,9 @@ def session_stats(ses):
 def run_freerouting(run):
     """One headless Freerouting run on DSN. Returns (unrouted connections,
     vias, wire mm, session path, log path)."""
-    assert os.path.exists(JAR), "%s missing: see README.md (Freerouting) for the download" % JAR
+    need(os.path.exists(JAR), "%s missing: see README.md (Freerouting) for the download" % JAR)
     got = sha256(JAR)
-    assert got == JAR_SHA256, "%s has SHA-256 %s, README.md records %s" % (JAR, got, JAR_SHA256)
+    need(got == JAR_SHA256, "%s has SHA-256 %s, README.md records %s" % (JAR, got, JAR_SHA256))
     ses = os.path.join(WORK, "run%d.ses" % run)
     log_path = os.path.join(WORK, "run%d.log" % run)
     if os.path.exists(ses):
@@ -416,8 +526,8 @@ def run_freerouting(run):
         log.flush()
         r = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                            timeout=TIMEOUT_S, cwd=WORK)
-    assert r.returncode == 0, "Freerouting exited %d; see %s" % (r.returncode, log_path)
-    assert os.path.exists(ses), "Freerouting wrote no session; see %s" % log_path
+    need(r.returncode == 0, "Freerouting exited %d; see %s" % (r.returncode, log_path))
+    need(os.path.exists(ses), "Freerouting wrote no session; see %s" % log_path)
     with open(log_path) as f:
         left = sum(int(n) for n in re.findall(r"Net '[^']+' \((\d+) unrouted", f.read()))
     vias, length = session_stats(ses)
@@ -442,7 +552,7 @@ def autoroute():
     import shutil
     runs = [run_freerouting(i) for i in range(1, AUTOROUTE_RUNS + 1)]
     best = min(runs, key=lambda r: (r[0], r[1], r[2]))
-    assert best[0] == 0, "no Freerouting run routed everything; see %s" % best[4]
+    need(best[0] == 0, "no Freerouting run routed everything; see %s" % best[4])
     os.makedirs(os.path.dirname(SESSION), exist_ok=True)
     shutil.copy(best[3], SESSION)
     with open(SESSION_INPUT, "w") as f:
@@ -452,13 +562,13 @@ def autoroute():
 
 
 def check_session():
-    assert os.path.exists(SESSION) and os.path.exists(SESSION_INPUT), \
-        "%s missing: run `make autoroute`" % os.path.relpath(SESSION, ROOT)
+    need(os.path.exists(SESSION) and os.path.exists(SESSION_INPUT),
+        "%s missing: run `make autoroute`" % os.path.relpath(SESSION, ROOT))
     with open(SESSION_INPUT) as f:
         recorded = f.read().split()[0]
-    assert recorded == dsn_hash(), \
-        "the router's input changed since %s was made (placement, rules or pre-routed tracks): " \
-        "run `make autoroute`" % os.path.relpath(SESSION, ROOT)
+    need(recorded == dsn_hash(),
+        "the router's input changed since %s was made (placement, rules or pre-routed tracks): "
+        "run `make autoroute`" % os.path.relpath(SESSION, ROOT))
 
 
 def export_dsn(board):
@@ -467,10 +577,15 @@ def export_dsn(board):
     import pcbnew
     router_keepouts(board)
     edge_keepouts(board)
+    trimmed = enlarge_through_hole_pads(board)
+    gap, where = grown_pad_gaps(board)
+    need(gap >= CLEARANCE, "grown pads %s are %.3f mm apart, under the router's %.2f mm" % (where, gap, CLEARANCE))
     with quiet_stderr():
-        assert pcbnew.ExportSpecctraDSN(board, DSN), "DSN export failed"
+        need(pcbnew.ExportSpecctraDSN(board, DSN), "DSN export failed")
     split = split_fixed_wires(DSN)
-    print("exported %s (%d fixed wires split into segments)" % (os.path.relpath(DSN, ROOT), split))
+    print("exported %s: through-hole pads grown by %.2f mm a side (less between the pads of %s), smallest "
+          "grown pad-to-pad gap %.3f mm (%s); %d fixed wires split into segments"
+          % (os.path.relpath(DSN, ROOT), PAD_GROW, ", ".join(trimmed) or "none", gap, where, split))
 
 
 def routed_board(ses):
@@ -483,7 +598,7 @@ def routed_board(ses):
     pcbnew.KIID.SeedGenerator(5)     # new tracks get the same uuids every run
     pre_route(board)
     with quiet_stderr():
-        assert pcbnew.ImportSpecctraSES(board, ses), "SES import failed: %s" % ses
+        need(pcbnew.ImportSpecctraSES(board, ses), "SES import failed: %s" % ses)
     return board
 
 
@@ -505,7 +620,7 @@ def ground_pours(board, line_y):
     zone line. The fill keeps out of the antenna rule areas by itself."""
     import pcbnew
     outline = pcbnew.SHAPE_POLY_SET()
-    assert board.GetBoardPolygonOutlines(outline), "board outline is not closed"
+    need(board.GetBoardPolygonOutlines(outline), "board outline is not closed")
     bb = outline.BBox()
     below = pcbnew.SHAPE_POLY_SET()
     below.NewOutline()
@@ -513,9 +628,9 @@ def ground_pours(board, line_y):
                  (bb.GetRight(), bb.GetBottom()), (bb.GetLeft(), bb.GetBottom())):
         below.Append(x, y)
     below.BooleanIntersection(outline)
-    assert below.OutlineCount() == 1, "logic side is %d pieces" % below.OutlineCount()
+    need(below.OutlineCount() == 1, "logic side is %d pieces" % below.OutlineCount())
     gnd = board.FindNet(netlist.Netlist().full_names[POUR_NET])
-    assert gnd, "no %s net" % POUR_NET
+    need(gnd, "no %s net" % POUR_NET)
     pours = []
     for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
         z = pcbnew.ZONE(board)
@@ -538,7 +653,7 @@ def ground_pours(board, line_y):
 def fill(board):
     import pcbnew
     filler = pcbnew.ZONE_FILLER(board)
-    assert filler.Fill(board.Zones()), "zone fill failed"
+    need(filler.Fill(board.Zones()), "zone fill failed")
     board.BuildConnectivity()
 
 
@@ -550,7 +665,7 @@ def fill_areas(board):
             continue
         for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
             if z.IsOnLayer(layer):
-                assert z.HasFilledPolysForLayer(layer), "%s not filled" % z.GetZoneName()
+                need(z.HasFilledPolysForLayer(layer), "%s not filled" % z.GetZoneName())
                 out[pcbnew.BOARD.GetStandardLayerName(layer)] = z.GetFilledPolysList(layer).Area()
     return out
 
@@ -572,8 +687,13 @@ def drc(board):
     with quiet_stderr():
         pcbnew.SaveBoard(pcb, board)
     out = os.path.join(WORK, "drc.json")
-    subprocess.run([KICAD_CLI, "pcb", "drc", "--format", "json", "--severity-all", "-o", out, pcb],
-                   capture_output=True, text=True)
+    if os.path.exists(out):
+        os.remove(out)      # never read a report from an earlier run
+    r = subprocess.run([KICAD_CLI, "pcb", "drc", "--format", "json", "--severity-all", "-o", out, pcb],
+                       capture_output=True, text=True)
+    # kicad-cli drc exits 0 without --exit-code-violations unless it failed.
+    need(r.returncode == 0 and os.path.exists(out),
+         "kicad-cli drc failed (exit %d): %s" % (r.returncode, r.stderr.strip()[-500:]))
     with open(out) as f:
         return json.load(f)
 
@@ -610,10 +730,10 @@ def starved_pad(board, v):
     m = re.search(r"layer ([FB])\.Cu", v["description"])
     layer = pcbnew.F_Cu if m.group(1) == "F" else pcbnew.B_Cu
     item = [i for i in v["items"] if re.match(r"(PTH )?pad ", i["description"])]
-    assert item, "starved thermal without a pad: %s" % v
+    need(item, "starved thermal without a pad: %s" % v)
     pos = pcbnew.VECTOR2I(mm(item[0]["pos"]["x"]), mm(item[0]["pos"]["y"]))
     pads = [p for fp in board.GetFootprints() for p in fp.Pads() if p.GetPosition() == pos]
-    assert len(pads) == 1, "no single pad at %s" % item[0]
+    need(len(pads) == 1, "no single pad at %s" % item[0])
     return pads[0], layer
 
 
@@ -667,7 +787,7 @@ def fix_thermals(board):
                 done.append("kept the pour clear of %s on %s" % (name, lname))
         fill(board)
     left = [v["description"] for v in drc(board).get("violations", []) if v["type"] == "starved_thermal"]
-    assert not left, "thermal reliefs still starved: %s" % left
+    need(not left, "thermal reliefs still starved: %s" % left)
     return done
 
 
@@ -687,9 +807,9 @@ def main(argv):
     board = routed_board(SESSION)
     widened = logic_widths(board)
     tracks2, fps2 = snapshot(board)
-    assert tracks2 == zone_tracks, "zone tracks differ after the session import"
+    need(tracks2 == zone_tracks, "zone tracks differ after the session import")
     moved = sorted(r for r in fps if fps2.get(r) != fps[r])
-    assert not moved, "parts moved by the session import: %s" % moved
+    need(not moved, "parts moved by the session import: %s" % moved)
 
     ground_pours(board, zone_line_y(board))
     fill(board)
@@ -702,7 +822,7 @@ def main(argv):
 
     again = load()
     again_areas = fill_areas(again)
-    assert again_areas == areas, "fill changed on reload: %s, saved %s" % (again_areas, areas)
+    need(again_areas == areas, "fill changed on reload: %s, saved %s" % (again_areas, areas))
 
     tracks = [t for t in again.GetTracks() if t.GetClass() == "PCB_TRACK" and not is_zone_net(t)]
     vias = [t for t in again.GetTracks() if t.GetClass() == "PCB_VIA"]

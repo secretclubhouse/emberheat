@@ -48,6 +48,7 @@ SIGNAL_WIDTH = 0.4
 ZONE_STRIP = "zone_strip"   # rule area over the zone strip (gen_board.py)
 POUR_NET = "GND"
 POUR_FILL_TOL = 0.001       # relative: saved fill area against a fresh refill
+HAND_SOLDER_GAP = 0.5       # mm, track to a through-hole pad of another net
 VBUS_PADS = ("A9", "B9")    # J1 (USB-C) VBUS pads, net VIN
 VBUS_NECK_WIDTH = 0.5       # mm, track leaving them
 VBUS_NECK_MAX = 1.1         # mm, longest such neck
@@ -811,11 +812,86 @@ def test_track_widths(board, nl):
           % (", ".join("%s %.0f mm" % kv for kv in sorted(length.items())), len(vias), len(necks), VBUS_NECK_WIDTH))
 
 
+def test_track_to_through_hole_pads(board, nl):
+    """Hand soldering: every track is at least HAND_SOLDER_GAP (copper edge
+    to copper edge) from every through-hole pad of another net, on each
+    layer, so a solder bridge at a joint does not short it. Unconnected pads
+    count as another net. Computed here from the geometry, independently of
+    KiCad's DRC (which checks the same through carrier-board.kicad_dru)."""
+    import pcbnew
+    pads = []
+    for fp in board.GetFootprints():
+        for p in fp.Pads():
+            if p.GetAttribute() != pcbnew.PAD_ATTRIB_PTH:
+                continue
+            for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
+                if p.IsOnLayer(layer):
+                    ps = _pad_poly(p, layer)
+                    pads.append((layer, p.GetNetCode(), ps, _bbox(ps), _pad_name(p)))
+    reach = nm(HAND_SOLDER_GAP + 1.0)
+    worst = (float("inf"), None, None)
+    short = 0
+    for t in board.GetTracks():
+        if t.GetClass() == "PCB_VIA":
+            continue
+        layer = t.GetLayer()
+        ps = pcbnew.SHAPE_POLY_SET()
+        t.TransformShapeToPolygon(ps, layer, 0, nm(0.002), pcbnew.ERROR_OUTSIDE)
+        box = _bbox(ps)
+        for pl, net, pps, pbox, name in pads:
+            if pl != layer or net == t.GetNetCode() or _box_gap(box, pbox) > reach:
+                continue
+            d = mm(poly_distance(ps, pps, box, pbox, reach))
+            if d < HAND_SOLDER_GAP - 1e-6:
+                short += 1
+            if d < worst[0]:
+                worst = (d, "%s track on %s at (%.2f, %.2f)-(%.2f, %.2f)" % (
+                    netlist.bare(t.GetNetname()), t.GetLayerName(), mm(t.GetStart().x), mm(t.GetStart().y),
+                    mm(t.GetEnd().x), mm(t.GetEnd().y)), name)
+    print("     smallest track to other-net through-hole pad: %.3f mm (%s, pad %s); %d gaps under %.1f mm"
+          % (worst[0], worst[1], worst[2], short, HAND_SOLDER_GAP))
+    assert worst[0] >= HAND_SOLDER_GAP - 1e-6, "%s is %.3f mm from pad %s" % (worst[1], worst[0], worst[2])
+    # The ground pour too (its own pads connect by thermal reliefs and are
+    # the same net, so they are left out).
+    pworst = (float("inf"), None)
+    for z in _pours(board):
+        for layer in (pcbnew.F_Cu, pcbnew.B_Cu):
+            if not (z.IsOnLayer(layer) and z.HasFilledPolysForLayer(layer)):
+                continue
+            fill = z.GetFilledPolysList(layer)
+            for pl, net, pps, pbox, name in pads:
+                if pl != layer or net == z.GetNetCode():
+                    continue
+                near = pcbnew.SHAPE_POLY_SET(pps)
+                near.Inflate(reach, pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, nm(0.002))
+                near.BooleanIntersection(fill)
+                if not near.OutlineCount():
+                    continue
+                d = mm(poly_distance(pps, near, pbox, _bbox(near), reach))
+                if d < pworst[0]:
+                    pworst = (d, "%s, pad %s" % (pcbnew.BOARD.GetStandardLayerName(layer), name))
+    print("     smallest ground pour to other-net through-hole pad: %.3f mm (%s)" % pworst)
+    assert pworst[0] >= HAND_SOLDER_GAP - 1e-6, "ground pour %.3f mm from %s" % pworst
+
+
 def test_vias(board, nl):
     """No via under a relay body or a dev board's antenna, none on the zone
-    side."""
+    side, none in a dev board socket row (the strip of a header row's pads,
+    end to end)."""
     import pcbnew
     relays = [board.FindFootprintByReference("K%d" % n) for n in ZONES]
+    rows = []
+    for ref in ("A1", "A2"):
+        by_y = {}
+        for p in board.FindFootprintByReference(ref).Pads():
+            if p.GetAttribute() == pcbnew.PAD_ATTRIB_PTH:
+                by_y.setdefault(p.GetPosition().y, []).append(p)
+        assert len(by_y) == 2, "%s: %d pad rows" % (ref, len(by_y))
+        for row in by_y.values():
+            bb = row[0].GetBoundingBox()
+            for p in row[1:]:
+                bb.Merge(p.GetBoundingBox())
+            rows.append((ref, (bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom())))
     where = []
     for v in board.GetTracks():
         if v.GetClass() != "PCB_VIA":
@@ -831,6 +907,9 @@ def test_vias(board, nl):
             inter.BooleanIntersection(ps)
             assert not inter.OutlineCount(), "via %s at (%.2f, %.2f) is under relay %s" % (
                 net, mm(p.x), mm(p.y), k.GetReference())
+        for ref, box in rows:
+            assert _box_gap(_bbox(ps), box) > 0, "via %s at (%.2f, %.2f) is in a socket row of %s" % (
+                net, mm(p.x), mm(p.y), ref)
     print("     vias: %s" % ("; ".join(where) or "none"))
 
 
@@ -1025,7 +1104,8 @@ TESTS = [test_all_parts_present, test_pad_nets_match_netlist, test_zone_separati
          test_no_pour_in_zone_strip, test_inside_outline, test_dev_board_placement, test_notch_width,
          test_terminal_order, test_mounting_holes, test_zone_tracks, test_power_and_middle,
          test_silkscreen, test_zone_strip_rule, test_zone_tracks_unchanged, test_footprints_unmoved,
-         test_fully_routed, test_track_widths, test_vias, test_ground_pour, test_drc_clean]
+         test_fully_routed, test_track_widths, test_track_to_through_hole_pads, test_vias, test_ground_pour,
+         test_drc_clean]
 
 
 def main():

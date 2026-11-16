@@ -46,7 +46,9 @@ COL_PITCH = 18.0           # also the terminal pitch
 LED_PAD1_Y = 40.03         # zone lights, beside the relay coils
 OPTO_PAD1_Y = 37.4
 DIODE_Y = 48.0
-RESISTOR_Y = (51.4, 54.8, 58.2, 61.6)   # Rn1, Rn2, Rn3, Rn4
+RESISTOR_Y = (50.9, 54.6, 57.9, 61.6)   # Rn1, Rn2, Rn3, Rn4. Rows 1-2 and 3-4 are 3.7 mm apart so a 1.0 mm
+                                        # supply track passes between them over 0.5 mm clear of the pads
+                                        # (2-3 is 3.3: the diodes and transistors leave no more room)
 TRANSISTOR_Y = 66.0
 
 # Middle, above the notch: pull-up resistors, then the headers in one row.
@@ -404,6 +406,14 @@ def write_project(nl):
 def write_rules():
     with open(DRU, "w") as f:
         f.write("""(version 1)
+
+# Hand soldering: every track stays 0.5 mm from every through-hole pad of
+# another net (unconnected pads included), so a solder bridge at a joint
+# does not reach it. Before the zone rule: where both apply, the later rule
+# (3.0 mm) wins.
+(rule "tracks 0.5 mm from other-net through-hole pads"
+\t(constraint clearance (min 0.5mm))
+\t(condition "(A.Type == 'Track' && B.Type == 'Pad' && B.Pad_Type == 'Through-hole' && A.Net != B.Net) || (B.Type == 'Track' && A.Type == 'Pad' && A.Pad_Type == 'Through-hole' && A.Net != B.Net)"))
 
 # Zone-side copper (net class Zone, Z1_A..Z7_B, and the relays' unconnected
 # normally-closed pad 12, which carries zone voltage whenever the relay is
