@@ -316,3 +316,17 @@ By Josh, after assembly and before connecting zone wires:
 - Placement and routing within the mechanical rules.
 - Whether the resistors are through-hole or 0805.
 - Fabrication output format details for the chosen board house.
+
+## As built
+
+Where the board in `hardware/carrier-board/` differs from the design text above (recorded after the final review, 2026-11-15; the design above is unchanged). Details and sources are in `hardware/carrier-board/README.md` and `part-checks.md`.
+
+- Board 168 × 114 mm (the design expected roughly 160 × 100 mm). The dev boards sit 8 mm up from the bottom edge so the bottom corner holes clear their pins.
+- DIN clips (Hammond 1427DINCLIP) are fixed with the clip maker's #6 × 1/4 in self-tapping screws through 4.0 mm clearance holes and a 4.0 × 5.5 mm slot, not to M3 holes. The four corner holes are M3.
+- No track, via or ground pour within 4.5 mm of any mounting hole's centre line (the whole slot for the clips), on both layers, so a screw head or washer never sits over copper.
+- Every track and the ground pour stay at least 0.5 mm from through-hole pads of other nets (hand soldering), tighter than the 0.25 mm general clearance.
+- The relay (Finder 34.51.7.005.5010) is a changeover type; its normally-closed pin 12 is unconnected. Its coil takes 38.4 mA at 5 V (the design allowed up to 80 mA).
+- The varistors (Littelfuse V56ZA2P, body up to 9 mm across and 5 mm thick) stand beside their relays rather than between relay and terminal, on a project footprint with 1.0 mm holes.
+- Two supply leads at the bottom corners (+3V3 from the C6, GND at the H2) are drawn by hand under the dev boards, because the corner hole keepouts close the strip below the socket rows there.
+- Zone and power lights are Kingbright 3 mm (T-1) LEDs, WP710A10ID and WP710A10GD.
+- J2 (the 5 V screw terminal) has no reverse-polarity protection, and with no wall supply a computer on the C6 board's USB port powers the whole carrier through the dev board's diode.

@@ -221,6 +221,42 @@ def test_din_clip():
     assert drill[1] == "oval" and close(float(drill[2]), exp.DIN_SLOT_L) and close(float(drill[3]), exp.DIN_SLOT_W), "slot drill %s" % drill
     size = one(slot, "size")
     assert close(float(size[1]), exp.DIN_SLOT_L) and close(float(size[2]), exp.DIN_SLOT_W)
+    # A clearance hole for the #6 screw (not a tapping hole), and the slot
+    # still slides the +/- 0.75 mm spacing tolerance.
+    assert exp.DIN_HOLE_DIA >= exp.DIN_SCREW_MAJOR_MAX + 0.25 and exp.DIN_SLOT_W >= exp.DIN_SCREW_MAJOR_MAX + 0.25, \
+        "DIN clip holes %.2f / %.2f mm do not clear a %.2f mm screw" % (exp.DIN_HOLE_DIA, exp.DIN_SLOT_W, exp.DIN_SCREW_MAJOR_MAX)
+    assert close(exp.DIN_SLOT_L - exp.DIN_SLOT_W, 1.5), "slot travel is not +/- 0.75 mm"
+
+
+def test_varistor():
+    """The varistor footprint fits the Littelfuse ZA 7mm model's leads and
+    body: drill at least 0.2 mm over the largest lead, a pad that leaves a
+    hand-solderable ring, pad spacing inside the datasheet's e and e1
+    ranges, and a courtyard that covers the largest body (E x D) centred
+    between the leads."""
+    name = exp.VARISTOR_FOOTPRINT
+    tree = footprint_tree(name)
+    pads = kids(tree, "pad")
+    assert len(pads) == 2, "%s has %d pads" % (name, len(pads))
+    for p in pads:
+        assert p[2] == "thru_hole", "%s pad %s is not through-hole" % (name, p[1])
+        drill = float(one(p, "drill")[1])
+        size = [float(v) for v in one(p, "size")[1:]]
+        assert drill >= exp.VARISTOR_LEAD_MAX + 0.2 - TOL, "%s drill %.2f mm, lead up to %.3f mm" % (name, drill, exp.VARISTOR_LEAD_MAX)
+        assert min(size) - drill >= 0.9 - TOL, "%s pad %s leaves a %.2f mm ring" % (name, p[1], (min(size) - drill) / 2)
+    at = footprint_pads(name)
+    dx, dy = abs(at["2"][0] - at["1"][0]), abs(at["2"][1] - at["1"][1])
+    assert exp.VARISTOR_PITCH[0] <= dy <= exp.VARISTOR_PITCH[1], "%s lead spacing %.2f mm" % (name, dy)
+    assert exp.VARISTOR_OFFSET[0] <= dx <= exp.VARISTOR_OFFSET[1], "%s lead offset %.2f mm" % (name, dx)
+    crt = [r_ for r_ in kids(tree, "fp_rect") if one(r_, "layer")[1] == "F.CrtYd"]
+    assert len(crt) == 1, "%s: want one courtyard rectangle, found %d" % (name, len(crt))
+    s, e = one(crt[0], "start"), one(crt[0], "end")
+    l, r = sorted((float(s[1]), float(e[1])))
+    t, b = sorted((float(s[2]), float(e[2])))
+    cx, cyy = (at["1"][0] + at["2"][0]) / 2, (at["1"][1] + at["2"][1]) / 2
+    assert l <= cx - exp.VARISTOR_BODY_E_MAX / 2 and r >= cx + exp.VARISTOR_BODY_E_MAX / 2, "%s courtyard narrower than the body" % name
+    assert t <= cyy - exp.VARISTOR_BODY_D_MAX / 2 and b >= cyy + exp.VARISTOR_BODY_D_MAX / 2, "%s courtyard shorter than the body" % name
+    print("     %s: drill %.2f mm, courtyard %.2f x %.2f mm" % (name, float(one(pads[0], "drill")[1]), r - l, b - t))
 
 
 def p_at(pad):
@@ -231,7 +267,7 @@ def p_at(pad):
 def test_kicad_loads_every_footprint():
     import pcbnew
     names = sorted(f[:-len(".kicad_mod")] for f in os.listdir(PRETTY) if f.endswith(".kicad_mod"))
-    assert names == sorted(list(exp.BOARDS) + ["DIN_Clip"]), "unexpected footprints %s" % names
+    assert names == sorted(list(exp.BOARDS) + ["DIN_Clip", exp.VARISTOR_FOOTPRINT]), "unexpected footprints %s" % names
     for n in names:
         assert pcbnew.FootprintLoad(PRETTY, n) is not None, "%s did not load" % n
 
@@ -277,7 +313,7 @@ def flat(tree):
 
 def main():
     tests = [test_sexp_round_trip, test_pad_counts, test_pad_shape, test_row_geometry,
-             test_socket_orientation, test_symbol_matches_footprint, test_din_clip,
+             test_socket_orientation, test_symbol_matches_footprint, test_din_clip, test_varistor,
              test_kicad_loads_every_footprint, test_kicad_loads_symbols, test_lib_tables]
     failed = 0
     for t in tests:

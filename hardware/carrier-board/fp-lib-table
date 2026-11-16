@@ -5,6 +5,7 @@
 		(type "KiCad")
 		(uri "${KIPRJMOD}/lib/emberheat.pretty")
 		(options "")
-		(descr "Dev board and DIN clip footprints for the EmberHeat carrier board")
+		(descr "Dev board, DIN clip and varistor footprints for the EmberHeat carrier board"
+		)
 	)
 )

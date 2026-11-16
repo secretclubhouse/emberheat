@@ -138,18 +138,71 @@ def board_footprint(b):
     return fp
 
 
-def din_clip():
-    name = "DIN_Clip"
-    d, slot_w, slot_l, spacing = 3.5, 3.5, 5.0, 29.75
+# DIN clip holes: clearance for the clip's #6 screws, whose thread is at
+# most 0.139 in (3.53 mm) across (ASME B18.6.3 type AB table, part-checks.md),
+# so the screw passes freely and the slot can slide. The slot is as long as
+# the hole plus the clip's +/- 0.75 mm hole-spacing tolerance.
+DIN_HOLE = 4.0
+DIN_SLOT_W = 4.0
+DIN_SLOT_L = DIN_HOLE + 1.5
+DIN_SPACING = 29.75
+HOLE_KEEPOUT = 4.5          # no track, via or pour this close to a hole's centre line (gen_board.py)
+
+# Varistor RV1-RV7, Littelfuse V56ZA2P (ZA series, "7mm" model size), from
+# Littelfuse's ZA datasheet (part-checks.md): body diameter D at most 9 mm,
+# thickness E at most 5 mm, lead spacing e 4-6 mm, lead offset across the
+# thickness e1 1-3 mm (V8ZA-V56ZA), lead diameter 0.585-0.685 mm. Stood on
+# its leads, the disc's footprint on the board is E x D; the leads lie
+# along D, e apart, and e1 apart across E.
+VAR_NAME = "Varistor_Littelfuse_ZA_7mm"
+VAR_D, VAR_E = 9.0, 5.0
+VAR_PITCH = 5.0             # e, nominal
+VAR_OFFSET = 2.0            # e1, middle of 1-3 mm
+VAR_DRILL = 1.0             # >= 0.685 + 0.2 (+0.115 more for the e1 spread)
+VAR_PAD = 2.0
+COURTYARD_MARGIN = 0.25
+
+
+def varistor():
+    """Disc varistor standing on its leads. Pad 1 at the origin, pad 2
+    VAR_OFFSET along +x and VAR_PITCH along +y: the disc's diameter runs
+    along y, its thickness along x. Fab outline and courtyard come from the
+    maximum body (E x D), centred between the leads."""
+    name = VAR_NAME
+    cx, cy = VAR_OFFSET / 2.0, VAR_PITCH / 2.0
+    x0, x1 = cx - VAR_E / 2.0, cx + VAR_E / 2.0
+    y0, y1 = cy - VAR_D / 2.0, cy + VAR_D / 2.0
+    m = COURTYARD_MARGIN
     fp = ["footprint", Q(name), ["version", "20241229"], ["generator", Q("gen_lib")],
           ["generator_version", Q("1")], ["layer", Q("F.Cu")],
-          ["descr", Q("Hammond 1427DINCLIP mounting holes: round hole at the origin, slot 29.75 mm away along +x. No copper.")],
+          ["descr", Q("Littelfuse ZA series disc varistor, 7mm model size (body up to 9 mm diameter, 5 mm thick), "
+                      "standing, leads 5 mm apart along the diameter and 2 mm apart across the thickness")],
+          ["tags", Q("varistor MOV disc Littelfuse ZA")],
+          prop("Reference", "REF**", cx, y0 - 1.0, "F.SilkS"), prop("Value", name, cx, y1 + 1.0, "F.Fab"),
+          ["attr", "through_hole"]]
+    fp.append(rect(name, "fab", "F.Fab", x0, y0, x1, y1, 0.1))
+    fp.append(rect(name, "silk", "F.SilkS", x0 - 0.12, y0 - 0.12, x1 + 0.12, y1 + 0.12, 0.12))
+    fp.append(["fp_rect", ["start"] + xy(x0 - m, y0 - m), ["end"] + xy(x1 + m, y1 + m), stroke(0.05),
+               ["fill", "no"], ["layer", Q("F.CrtYd")], ["uuid", uid(name, "crtyd")]])
+    for num_, (x, y) in (("1", (0, 0)), ("2", (VAR_OFFSET, VAR_PITCH))):
+        fp.append(["pad", Q(num_), "thru_hole", "circle", ["at"] + xy(x, y), ["size", num(VAR_PAD), num(VAR_PAD)],
+                   ["drill", num(VAR_DRILL)], ["layers", Q("*.Cu"), Q("*.Mask")], ["remove_unused_layers", "no"],
+                   ["uuid", uid(name, "pad", num_)]])
+    return fp
+
+
+def din_clip():
+    name = "DIN_Clip"
+    d, slot_w, slot_l, spacing = DIN_HOLE, DIN_SLOT_W, DIN_SLOT_L, DIN_SPACING
+    fp = ["footprint", Q(name), ["version", "20241229"], ["generator", Q("gen_lib")],
+          ["generator_version", Q("1")], ["layer", Q("F.Cu")],
+          ["descr", Q("Hammond 1427DINCLIP mounting holes for #6 screws: round hole at the origin, slot 29.75 mm away along +x. No copper.")],
           ["tags", Q("DIN rail clip mounting")],
           prop("Reference", "REF**", spacing / 2.0, -6, "F.Fab"), prop("Value", name, spacing / 2.0, 6, "F.Fab"),
           ["attr", "exclude_from_pos_files", "exclude_from_bom"]]
-    # 8 mm of clearance for each screw head: 8 mm across, centred on the hole.
-    # The slot allows the head +/- 0.75 mm along x.
-    r = 4.0
+    # Courtyard: the copper keepout round each screw (HOLE_KEEPOUT from the
+    # hole centre; the slot lets the head move +/- 0.75 mm along x).
+    r = HOLE_KEEPOUT
     slide = (slot_l - slot_w) / 2.0
     fp.append(["fp_circle", ["center"] + xy(0, 0), ["end"] + xy(r, 0), stroke(0.05), ["fill", "no"],
                ["layer", Q("F.CrtYd")], ["uuid", uid(name, "crtyd-round")]])
@@ -228,6 +281,7 @@ def main():
     for b in BOARDS:
         write(os.path.join(PRETTY, b["name"] + ".kicad_mod"), dumps(board_footprint(b)))
     write(os.path.join(PRETTY, "DIN_Clip.kicad_mod"), dumps(din_clip()))
+    write(os.path.join(PRETTY, VAR_NAME + ".kicad_mod"), dumps(varistor()))
     write(os.path.join(ROOT, "sym-lib-table"), dumps(
         ["sym_lib_table", ["version", "7"],
          ["lib", ["name", Q("emberheat")], ["type", Q("KiCad")], ["uri", Q("${KIPRJMOD}/lib/emberheat.kicad_sym")],
@@ -235,8 +289,8 @@ def main():
     write(os.path.join(ROOT, "fp-lib-table"), dumps(
         ["fp_lib_table", ["version", "7"],
          ["lib", ["name", Q("emberheat")], ["type", Q("KiCad")], ["uri", Q("${KIPRJMOD}/lib/emberheat.pretty")],
-          ["options", Q("")], ["descr", Q("Dev board and DIN clip footprints for the EmberHeat carrier board")]]]))
-    print("wrote lib/emberheat.kicad_sym, lib/emberheat.pretty (%d footprints), sym-lib-table, fp-lib-table" % (len(BOARDS) + 1))
+          ["options", Q("")], ["descr", Q("Dev board, DIN clip and varistor footprints for the EmberHeat carrier board")]]]))
+    print("wrote lib/emberheat.kicad_sym, lib/emberheat.pretty (%d footprints), sym-lib-table, fp-lib-table" % (len(BOARDS) + 2))
 
 
 if __name__ == "__main__":

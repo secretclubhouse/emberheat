@@ -34,8 +34,16 @@ W, H = 168.0, 114.0
 
 # Top strip (zone side): terminals at the top edge, varistor, relay contacts.
 TERMINAL_PAD_Y = 10.6      # header pins; the plug opening is 10.1 mm above, at the edge
-VARISTOR_PAD_Y = 15.2      # varistor pad 1
 RELAY_A1_Y = 41.45         # relay coil pad A1; contact pad 14 is 21.25 mm above it
+# Varistor: the Littelfuse ZA 7mm body (up to 9 mm across, 5 mm thick)
+# does not fit between the terminal header and the relay (about 5.6 mm
+# between the bodies), so it stands right of its relay: pad 1 at
+# x0 + VARISTOR_X, level with relay pad 14, pad 2 2 mm right and 5 mm down,
+# level with pad 11. Body x x0 + 11.5 .. 16.5: 1.2 mm clear of the relay
+# body (x0 + 10.26), clear of the next column; y 18.2 .. 27.2, 5.5 mm below
+# the terminal header body.
+VARISTOR_X = 13.0
+ZONE_A_X = 17.4            # Zn_A's run down the right of the varistor
 # The strip's lower limit is the middle of the relay's coil-to-contact gap
 # (pad 12 bottom edge at RELAY_A1_Y - 11.25 + 1.2, pad A1 top edge at RELAY_A1_Y - 1.0).
 ZONE_LINE_Y = ((RELAY_A1_Y - 11.25 + 1.2) + (RELAY_A1_Y - 1.0)) / 2
@@ -72,6 +80,10 @@ CLIP_RAIL_FROM_ROUND = 16.14             # part-checks.md: rail centre at x 16.1
 CLIP_X = (28.2, 162.4)
 
 ZONE_STRIP = "zone_strip"  # name of the rule area over the zone strip
+# No track, via or pour within this of a mounting hole's centre line: the
+# largest hardware, an M3 washer 7 mm across or a #6 pan head 6.86 mm
+# across (part-checks.md), plus 0.5 mm, rounded up.
+HOLE_KEEPOUT = 4.5
 
 SILK_W = 0.15
 REF_SIZE = 0.8
@@ -234,8 +246,11 @@ def zone_column(b, n):
     # Zone side. Terminal turned 180 so the plug enters from the top edge;
     # pin 1 is then on the right.
     b.place("J1%d" % n, x0 + 10.16, TERMINAL_PAD_Y, 180, ref_at=(x0 + 13.6, 14.6))
-    b.place("RV%d" % n, x0 + 5.08, VARISTOR_PAD_Y, 0, ref_at=(x0 + 13.6, 16.6))
-    b.place("K%d" % n, rx, RELAY_A1_Y, 90, ref_at=(x0 + 13.6, 26.0))
+    b.place("K%d" % n, rx, RELAY_A1_Y, 90, ref_at=(x0 + 2.5, 30.0))
+    k14 = b.pad("K%d" % n, "14")
+    # Varistor beside the relay, right of it, its pad 1 level with contact
+    # pad 14 (see VARISTOR_X).
+    b.place("RV%d" % n, x0 + VARISTOR_X, k14[1], 0, ref_at=(x0 + VARISTOR_X + 1.0, 28.6))
     b.text("Z%d" % n, x0 + 2.2, 15.4, 1.2, bold=True)            # terminal
     b.text("Z%d" % n, x0 + 2.5, 26.0, 1.2, bold=True)            # relay
     # Driver band.
@@ -246,13 +261,19 @@ def zone_column(b, n):
     for i, y in enumerate(RESISTOR_Y, start=1):
         b.place("R%d%d" % (n, i), x0 + 4.4, y, 0, ref_at=(x0 + 1.7, y))
     b.place("Q%d" % n, x0 + 4.4, TRANSISTOR_Y, 0, ref_at=(x0 + 1.7, TRANSISTOR_Y))
-    # Zone-side tracks: K pad 14 -> J pin 2 through varistor pad 1 (Zn_B),
-    # K pad 11 -> J pin 1 through varistor pad 2 (Zn_A). 45-degree bends.
+    # Zone-side tracks, front layer only, 45-degree bends. Zn_B: J pin 2 down
+    # the left of the relay pads to K pad 14, then straight right under the
+    # relay body to varistor pad 1. Zn_A: J pin 1 diagonally right, down
+    # the right of the varistor, back left to varistor pad 2 and on under
+    # the relay body to K pad 11. The two never cross: Zn_B stays above
+    # Zn_A's return along the line of pad 11.
     j1, j2 = b.pad("J1%d" % n, "1"), b.pad("J1%d" % n, "2")
     v1, v2 = b.pad("RV%d" % n, "1"), b.pad("RV%d" % n, "2")
-    k11, k14 = b.pad("K%d" % n, "11"), b.pad("K%d" % n, "14")
-    b.track("Z%d_B" % n, [j2, v1, (v1[0], k14[1] - (k14[0] - v1[0])), k14], 1.5)
-    b.track("Z%d_A" % n, [j1, v2, (v2[0], k11[1] - (v2[0] - k11[0])), k11], 1.5)
+    k11 = b.pad("K%d" % n, "11")
+    assert abs(v2[1] - k11[1]) < 1e-6, "varistor pad 2 is not level with relay pad 11"
+    b.track("Z%d_B" % n, [j2, (j2[0], k14[1] - (k14[0] - j2[0])), k14, v1], 1.5)
+    xa = x0 + ZONE_A_X
+    b.track("Z%d_A" % n, [j1, (xa, j1[1] + (xa - j1[0])), (xa, v2[1] - (xa - v2[0])), v2, k11], 1.5)
     return x0, rx
 
 
@@ -272,7 +293,11 @@ def power(b):
     b.place("F1", 2.9, 65.6, 0, ref_at=(5.5, 69.25))
     b.place("C2", 13.1, 66.0, 0, ref_at=(20.8, 66.0))
     b.place("D8", 2.2, 72.3, 0, ref_at=(3.5, 75.7))
-    b.place("R3", 8.4, 72.3, 0, ref_at=(21.0, 72.3))
+    # R3 (power light resistor) lies in the band between C1 and R1/R2, not
+    # beside D8: that leaves the strip above the C6 socket row (y 68-81)
+    # free for the tracks coming in to the row from the right, under the
+    # left DIN clip's lower hole keepout. Pad 1 (+5V) right, pad 2 left.
+    b.place("R3", 21.26, 47.4, 180, ref_at=(9.6, 45.6))
     b.text("PWR", 3.5, 77.3, 0.9)
 
 
@@ -331,6 +356,71 @@ def mounting(b):
         b.rect(x - 5.0, ry - 40.9, x + 5.0, ry + 4.5, pcbnew.B_SilkS)
         b.text("HOOK", x, ry - 37.5, 1.0, layer=pcbnew.B_SilkS)
         b.text("RAIL", x, RAIL_Y, 1.0, layer=pcbnew.B_SilkS)
+    for ref in ("H1", "H2", "H3", "H4", "H5", "H6"):
+        hole_keepouts(b, ref)
+
+
+def hole_centre_lines(fp):
+    """(a, b) in mm for each hole of a mounting footprint: a == b for a
+    round hole, the segment between the end-circle centres for a slot."""
+    import math
+    import pcbnew
+    out = []
+    for p in fp.Pads():
+        if p.GetAttribute() != pcbnew.PAD_ATTRIB_NPTH:
+            continue
+        c = (pcbnew.ToMM(p.GetPosition().x), pcbnew.ToMM(p.GetPosition().y))
+        dx, dy = pcbnew.ToMM(p.GetDrillSize().x), pcbnew.ToMM(p.GetDrillSize().y)
+        half = abs(dx - dy) / 2
+        t = math.radians(p.GetOrientation().AsDegrees() + (0 if dx >= dy else 90))
+        u = (math.cos(t), -math.sin(t))          # KiCad turns counter-clockwise, y down
+        out.append(((c[0] - u[0] * half, c[1] - u[1] * half), (c[0] + u[0] * half, c[1] + u[1] * half)))
+    return out
+
+
+def hole_keepouts(b, ref):
+    """A keepout round each hole of a mounting footprint, both copper
+    layers: no track, via or copper pour within HOLE_KEEPOUT of the hole's
+    centre line (for a slot, the whole line the screw can slide along).
+    Pads are allowed (they are the parts'; check_board.py holds them to
+    their own minimum). The board's DRC enforces it and route.py's DSN
+    export hands it to the router as a keepout. Clipped to the board."""
+    import math
+    import pcbnew
+    for i, (a, c) in enumerate(hole_centre_lines(b.fps[ref])):
+        n = 48
+        r = HOLE_KEEPOUT / math.cos(math.pi / n)          # circumscribed: covers the true radius
+        ang = math.atan2(c[1] - a[1], c[0] - a[0])
+        pts = []
+        for end, start in ((c, ang - math.pi / 2), (a, ang + math.pi / 2)):
+            for k in range(n // 2 + 1):
+                t = start + math.pi * k / (n // 2)
+                pts.append((end[0] + r * math.cos(t), end[1] + r * math.sin(t)))
+        poly = pcbnew.SHAPE_POLY_SET()
+        poly.NewOutline()
+        for x, y in pts:
+            poly.Append(mm(x), mm(y))
+        board_box = pcbnew.SHAPE_POLY_SET()
+        board_box.NewOutline()
+        for x, y in ((0, 0), (W, 0), (W, H), (0, H)):
+            board_box.Append(mm(x), mm(y))
+        poly.BooleanIntersection(board_box)
+        assert poly.OutlineCount() == 1, "%s keepout is %d pieces" % (ref, poly.OutlineCount())
+        z = pcbnew.ZONE(b.board)
+        z.SetIsRuleArea(True)
+        z.SetZoneName("hole_keepout_%s_%d" % (ref, i + 1))
+        layers = pcbnew.LSET()
+        layers.AddLayer(pcbnew.F_Cu)
+        layers.AddLayer(pcbnew.B_Cu)
+        z.SetLayerSet(layers)
+        z.SetDoNotAllowTracks(True)
+        z.SetDoNotAllowVias(True)
+        z.SetDoNotAllowCopperPour(True)
+        z.SetDoNotAllowPads(False)
+        z.SetDoNotAllowFootprints(False)
+        z.Outline().AddOutline(poly.COutline(0))
+        z.SetLocked(True)
+        b.board.Add(z)
 
 
 def zone_strip_area(b):

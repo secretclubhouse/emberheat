@@ -13,7 +13,7 @@ This board controls a heating system. It is a one-off built for one house, not a
 - `bom.csv`: one row per distinct part, with the exact KiCad symbol and footprint names.
 - `part-checks.md`: datasheet figures that justify each part, and the drive arithmetic.
 - `scripts/check_bom.py`: checks the bill of materials.
-- `lib/`: dev board symbols and footprints and the DIN clip holes, written by `scripts/gen_lib.py` (`make lib`). `sym-lib-table` and `fp-lib-table` name it `emberheat`.
+- `lib/`: dev board symbols and footprints, the DIN clip holes and the varistor footprint, written by `scripts/gen_lib.py` (`make lib`). `sym-lib-table` and `fp-lib-table` name it `emberheat`.
 - `scripts/expected.py`: the pin lists and dimensions the checks compare the library against, written by hand.
 - `scripts/check_lib.py`: checks the library, including that the sockets are not mirrored or reversed.
 - `carrier-board.kicad_sch`: the schematic, written by `scripts/gen_schematic.py` (`make sch`, which also writes `build/netlist.xml`). Do not edit it by hand.
@@ -41,8 +41,8 @@ Order from `bom.csv`, with these additions it does not list as rows (they are on
 | Optocoupler U1-U7 | Lite-On LTV-817 | 7 | Any rank letter. |
 | Transistor Q1-Q7 | onsemi 2N3904 | 7 | Must be the EBC pinout (onsemi). Some makers sell CBE parts, which would be wrong. |
 | Flyback diode D1-D7 | onsemi 1N4148 | 7 | |
-| Varistor RV1-RV7 | Littelfuse V56ZA2P | 7 | 35 V AC, 7 mm disc, 5 mm lead pitch. |
-| Zone light D11-D17 / power light D8 | Kingbright WP7113ID (red) / WP7113GD (green) | 7 / 1 | |
+| Varistor RV1-RV7 | Littelfuse V56ZA2P | 7 | 35 V AC, ZA "7mm" model: the coated disc is up to 9 mm across and 5 mm thick. Stands to the right of its relay. |
+| Zone light D11-D17 / power light D8 | Kingbright WP710A10ID (red) / WP710A10GD (green) | 7 / 1 | 3 mm (T-1). Not the WP7113 parts, which are 5 mm. Cathode (flat side, shorter lead) in the square pad. |
 | Resistors | Yageo CFR-25JB-52 series: 330 R x7, 1 k x15, 10 k x8, 5.1 k x2, 4.7 k x1 | 33 | Refs in `bom.csv`. |
 | USB-C socket J1 | GCT USB4125-GF-A | 1 | The only surface-mount part. Power only. |
 | 5 V screw terminal J2 | Phoenix 1729128 | 1 | |
@@ -51,12 +51,12 @@ Order from `bom.csv`, with these additions it does not list as rows (they are on
 | Dev board sockets A1, A2 | Samtec SSW-116-01-T-S (C6), SSW-115-01-T-S (H2) | **2 of each (4 strips)** | One strip per side of each dev board. `bom.csv` lists one row each. |
 | **JP1 shunt** | Samtec SNT-100-BK-T | **1** | Goes on the JP1 header (H2 3.3 V feed). Listed only in the note of the JP1 row. |
 | JP1, J3 headers | Samtec TSW-102-07-T-S, TSW-103-07-T-S | 1 each | |
-| DIN clips H5, H6 | Hammond 1427DINCLIP | **1 pack (2 clips + 4 screws)** | Digi-Key HM1489-ND. |
+| DIN clips H5, H6 | Hammond 1427DINCLIP | **1 pack (2 clips + 4 screws)** | Digi-Key HM1489-ND. The #6 screws pass through 4.0 mm clearance holes in the board. |
 | Dev boards | ESP32-C6-DevKitC-1, ESP32-H2-DevKitM-1 | 1 each | You already have these. |
 | DIN rail | 35 mm top-hat | | Not in `bom.csv`. |
 | 5 V supply | USB-C, 5 V, rated 3 A | 1 | See Power. |
 
-J4 (five spare pads for 3V3, GPIO20, TX, RX, GND) is **not fitted**: buy nothing for it. The four M3 corner holes take M3 screws if you want to fix the board by them; no screws are in `bom.csv`.
+J4 (five spare pads for 3V3, GPIO20, TX, RX, GND) is **not fitted**: buy nothing for it. The four M3 corner holes take M3 screws if you want to fix the board by them; no screws are in `bom.csv`. Use washers no larger than 7 mm across (ISO 7089 M3): the copper keepout round each hole is sized for that.
 
 ## Power
 
@@ -66,6 +66,10 @@ Use a 5 V USB-C supply rated 3 A. A supply that offers only 0.5-0.9 A may not ho
 - A resettable fuse F1 (2.0 A hold) follows the input.
 - The 5 V rail feeds the relay coils, the zone lights and the C6 board's 5V pin. The C6 board makes the 3.3 V, which also feeds the H2 and the optocoupler LEDs.
 - You can plug a computer into the C6 board's own USB port while the carrier is powered. Each USB port on the DevKitC-1 has a diode between it and the 5V pin (Espressif schematic V1.1; see `part-checks.md`), so the two 5 V sources do not feed each other.
+- **With the wall supply absent, a computer on the C6 board's USB port powers the whole carrier** through that diode: the 5 V rail, the relay coils, the zone lights, and also J1 and J2 (the fuse passes current both ways), which then carry about 4.6 V. A computer port gives 0.5-0.9 A, so with several relays on it browns out and the C6 resets (relays open). For flashing that is fine; for running the zones use the wall supply.
+- The 470 uF capacitor C1 charges at plug-in. A strict USB-C supply may see that as an overload and restart once (a single hiccup) before it settles; that is harmless.
+- J2 has no reverse-polarity protection. Swapping its two wires puts -5 V on the rail, which will damage C1 (polarised) and the C6 dev board. Check the polarity against the `+5V` / `GND` labels before powering.
+- The fuse (2.0 A hold, 3.8 A trip) is above what a 3 A USB-C supply will deliver, so with that supply it protects only against a fault fed from J2 by a larger supply; a short on the rail is limited by the USB-C supply itself.
 - **The C6 dev board's own 3V3 jumper (J5 on the DevKitC-1) must be fitted**, as it is when the board ships. The carrier's 3.3 V rail comes from the C6's 3V3 header pin, which sits behind that jumper. With J5 removed the optocouplers and the H2 get no power.
 - Nothing on the carrier uses, measures or shares the 24 V AC.
 
@@ -94,6 +98,8 @@ The zone terminals run along the top edge, Z1 on the left. Each channel: C6 GPIO
 
 **The zone light shows that the relay is being driven, not that the contact has closed.** A stuck or burnt contact still lights it. To know a zone is closed, measure across its terminals.
 
+The varistor across each contact passes about 10 uA of 24 V AC through an open contact (its capacitance; Littelfuse publishes no leakage figure; arithmetic in `part-checks.md`), far below what holds a valve or a control board's relay input on. A sensitive meter on AC volts may still show a voltage across an open, unloaded pair.
+
 Other connections:
 
 | C6 | H2 | Purpose |
@@ -119,7 +125,7 @@ The zone circuit current has not been measured. The relays are rated 6 A, 250 V 
 - Switch off the 24 V AC supply to the zone control board before touching zone wiring.
 - The relays are flux-proof, not washable. Do not wash the board and do not use ultrasonic cleaning. Use a minimum of flux and wipe it locally if you must.
 - The DIN clips fit one way only: **hook end up** (the back silkscreen marks the clip outline with `HOOK` at the hook end and `RAIL` where the rail runs). The other way round, a clip sits over solder joints.
-- The back of the board has about 150 solder joints over the rail. See "Distance to the rail" below before you mount it.
+- The back of the board has solder joints over both of the rail's flanges, among them every relay coil pin. See "Distance to the rail" below before you mount it.
 
 Order, lowest parts first, so the board lies flat for each step (the heights of the parts were not checked, so use your judgement where parts are close in height):
 
@@ -129,21 +135,21 @@ Order, lowest parts first, so the board lies flat for each step (the heights of 
 4. C1 (positive to +5 V), screw terminal J2, zone headers J11-J17.
 5. Relays K1-K7.
 6. The socket strips for the dev boards (A1: two 16-way, A2: two 15-way), seated using the dev board itself as a spacing jig so the strips line up.
-7. Trim every lead on the back flush. Then fit the DIN clips last, hook end up, from the front with the screws (#6 x 1/4 in, self-tapping into the clip).
+7. Trim every lead on the back flush. Then fit the DIN clips last, hook end up, from the front with the screws (#6 x 1/4 in, through the board's 4.0 mm clearance holes and self-tapping into the clip; the slot lets the second screw slide to the clip's hole).
 
 Leave J4 empty. Fit the JP1 shunt. Do not fit dev boards until the first test below is done.
 
 ### Distance to the rail
 
-This could not be established, and the README does not guess it. Hammond's drawing of the clip (1427DINCLIP, revision 2) gives its overall height as 14.00 +/- 0.50 mm but does not dimension where the rail seats in the clip or how far the rail reaches toward the board. So the gap between the back of the board and the nearest metal of the rail is unknown, and for safety **assume it is under 5 mm**. The derivation and what the drawing does and does not give are in `part-checks.md`.
+This could not be established, and the README does not guess it. A 35 mm rail (EN 60715, 35 x 7.5) is mounted with its 27 mm crown against the wall; its two flanges, about 4 mm wide each at the rail's outer edges, stand 7.5 mm off the wall and face the board, and the clip grips them. So the metal nearest the back of the board is those two flange strips; the channel between them is 7.5 mm further back. Hammond's drawing of the clip (1427DINCLIP, revision 2) gives its overall height as 14.00 +/- 0.50 mm but does not dimension where the flanges seat in the clip, so the gap between the back of the board and the flanges is unknown, and for safety **assume it is under 5 mm**. The derivation and what the drawings do and do not give are in `part-checks.md`.
 
 Before fitting the board:
 
 1. **Measure the gap** with a clip on a piece of 35 mm rail: from the clip's mounting face (where the board's back would sit) to the nearest metal of the rail.
 2. **Put an insulating sheet between the board and the rail** whatever the result: fish paper or 0.5 mm polycarbonate, cut to cover the band over the rail (board y 39.5 to 74.5 mm from the top edge, the full width), with room for the clip screws.
-3. Keep every lead end and solder joint on the back well below the measured gap, with the sheet as a second barrier rather than a substitute.
+3. Keep every lead end and solder joint on the back well below the measured gap, with the sheet as a second barrier rather than a substitute. Relay pins are stiff and are usually left untrimmed, so they stand furthest out, and every relay's coil pin A1 sits over the top flange.
 
-About 148 plated joints lie in that band. The 24 V AC joints (relay contacts, varistors, zone terminals) are all in the top 26 mm of the board, outside the band.
+Over the flanges (counted from the board, flange strips at board y 39.5-43.5 and 70.5-74.5 mm): 16 plated joints over the top flange (the seven relay coil pins A1, the zone lights, C1) and 6 over the bottom one (D8, R4, R5). Allowing 2 mm either way for where the rail really sits in the clip: 60 over the top flange (also every optocoupler pin and relay pin A2) and 16 over the bottom one. The 24 V AC joints (relay contacts 11, 12 and 14, varistors, zone terminals) all lie in the top 31.4 mm of the board (relay pad 12, at y 30.2 mm, carries zone voltage whenever the relay is off), 8 mm above the top flange.
 
 ## Checks
 
@@ -157,8 +163,10 @@ This runs every `scripts/check_*.py`. It needs KiCad 9 at `/Applications/KiCad/K
 - Board design rules check: no violations of any severity and no unconnected nets (`check_board.py`: `test_drc_clean` runs KiCad's design rule check with the parity check, and `test_fully_routed` separately confirms every net is connected, with the ground pours filled).
 - Schematic and board agree (KiCad's schematic parity check, in the same test).
 - The net on each C6 socket pin matches its role in `main.rs` and the table above (`check_netlist.py`, including the relay GPIOs and the inter-board nets, and the normally-open contact, diode, transistor, optocoupler and USB-C pull-down checks).
-- Every zone-side copper item is at least 3 mm from every logic-side copper item on both layers (`test_zone_separation`, with `test_no_pour_in_zone_strip`; `make check` prints the measured smallest distance; 5.845 mm on the routed board of commit 6159fae, recorded in `part-checks.md`).
+- Every zone-side copper item is at least 3 mm from every logic-side copper item on both layers (`test_zone_separation`, with `test_no_pour_in_zone_strip`; `make check` prints the measured smallest distance; 4.525 mm on the routed board, recorded in `part-checks.md`).
 - Every track is at least 0.5 mm from through-hole pads of other nets (`test_track_to_through_hole_pads`; a rule added after review, tighter than the 0.25 mm general minimum; `make check` prints the smallest measured value, 0.502 mm track and 0.519 mm pour on the same board, recorded in `part-checks.md`).
+- No track, via or pour within 4.5 mm of any mounting hole's centre line, along the whole of each DIN clip slot, on either layer, and no pad within 4.0 mm (`test_mounting_hole_keepout`; `make check` prints the smallest distance, 4.500 mm). Screw heads and washers sit there.
+- Each varistor's largest body (9 x 5 mm) is at least 0.5 mm from every terminal header and relay body (`test_varistor_fit`).
 - The dev board footprints are not mirrored or reversed (`check_lib.py`, `test_socket_orientation`).
 - `fab/` is complete, belongs to this board and its drill files hold the board's holes (`test_fab_outputs`).
 
@@ -177,6 +185,8 @@ Do these in order. Zone wires stay disconnected throughout.
 - With a meter before power: no short between +5V and GND, and no continuity between any zone terminal and GND or +5V.
 - With **no dev boards fitted**, power the carrier: no relay closes (no click), no zone light is lit. The power light lights.
 - With the C6 fitted (JP1 shunt and the C6's J5 jumper in place) and **held in reset**, and then during boot: no relay closes.
+- **Download mode and flashing**, carrier powered from its own supply: hold the C6's BOOT button, tap its RESET button, release BOOT, then flash the firmware once over the C6 board's USB port. Watch all seven zone lights throughout, **zone 7 (GPIO22) especially**: none may light, no relay may click. This is the state the datasheet does not cover (see Known gaps).
+- **Power-cycle the carrier ten times** (C6 fitted, firmware running), watching the zone lights at each switch-on and switch-off: none may flash and no relay may click.
 - Run the firmware and switch each zone from Apple Home: the right relay clicks and the right zone light comes on, **checked with a meter across each terminal** (not only by the light).
 - Optional: an AC current reading through one wire pair (see Wiring).
 
@@ -193,7 +203,7 @@ Only then connect the zone wires.
 | `carrier-board-F_Mask.gts`, `carrier-board-B_Mask.gbs` | Solder mask |
 | `carrier-board-F_Silkscreen.gto`, `carrier-board-B_Silkscreen.gbo` | Silkscreen |
 | `carrier-board-Edge_Cuts.gm1` | Outline |
-| `carrier-board-PTH.drl`, `carrier-board-NPTH.drl` | Excellon drill files, plated and unplated (mm). The DIN clip slots (3.5 x 5.0 mm) are in the unplated file as routed slots; check that the house reads them. |
+| `carrier-board-PTH.drl`, `carrier-board-NPTH.drl` | Excellon drill files, plated and unplated (mm). The DIN clip slots (4.0 x 5.5 mm) are in the unplated file as routed slots; check that the house reads them. |
 | `print-template.pdf` | The 1:1 paper template: outline, pad openings, drill holes, front silkscreen (with the dev boards' outlines) and a 100 mm ruler. A4 landscape; the board is centred so a printer's margins do not cut it. |
 | `schematic.pdf` | The schematic. |
 | `source.sha256`, `print-template.source.sha256` | Hash of the board file the fab files, and the print template, were made from. `make check` compares both. |
@@ -228,6 +238,8 @@ What route.py does around the router:
 - Board edges: 0.5 mm track and via keepouts, as Freerouting knows only the 0.25 mm net clearance. No vias under the relays.
 - Hand soldering: every track is at least 0.5 mm from every through-hole pad of another net, so a solder bridge at a joint does not short a supply. The router gets this by geometry: in its copy of the board every through-hole pad is 0.25 mm larger on every side (the 3 mm LEDs' two pads grow less on the side facing each other, where no track fits anyway), so its ordinary 0.25 mm clearance lands tracks 0.5 mm from the real pads. Tracks end on pad centres, so the real board's connections are the same. The ground pour keeps 0.5 mm too. The rule `tracks 0.5 mm from other-net through-hole pads` in `carrier-board.kicad_dru` makes KiCad's DRC check it, and `check_board.py` measures it independently.
 - USB-C VBUS (net VIN) is drawn by hand: its pads are too narrow for a 1.0 mm track, so it leaves each pad at 0.5 mm for 1.07 mm and then runs at 1.0 mm (A9 down the front to J2, B9 through one via down the back), and on to the fuse.
+- Mounting holes: `gen_board.py` puts a rule area round every mounting hole (`hole_keepout_*`, both layers: no track, via or pour within 4.5 mm of the hole's centre line, the whole slot for the DIN clips). KiCad's DRC enforces it and the router gets it as a keepout.
+- Corner supply leads: the corner hole keepouts close the strip below the dev boards' outer socket rows at the board corners, so two supply leads are drawn by hand (`corner_leads` in route.py) under the dev boards: +3V3 from the C6's 3V3 pin across to the inside of its other socket row and along it to beside the notch, and GND from the H2's corner GND pin along the inside of its row to the next GND pin. Where the +3V3 lead ends was found by trial: from other end points Freerouting 2.5.0 left one to eight connections unrouted.
 - Ground pours on both layers below the zone line, with thermal reliefs (0.5 mm gap and spokes) on through-hole pads for hand soldering. A thermal relief whose spokes reach only an island of fill that connects the pad to nothing is a design rule error; route.py removes such islands with small pour keepouts (`no_pour_*` rule areas), or turns a pad's spokes 45 degrees where fewer than two reach the pour.
 
 ## Not covered by this board
@@ -241,16 +253,21 @@ What route.py does around the router:
 From going through the design (`docs/plans/2026-11-15-carrier-board-design.md`) section by section against the board, the netlist and this README. Items marked "not confirmed" could not be checked from here.
 
 - **Nothing has been built.** The board has not been fabricated or assembled and no part has been test-fitted. Every footprint comes from KiCad's library or a datasheet drawing; the paper print is the first physical check. Distributor stock came from search snapshots, not live pages, and was not rechecked.
-- **Gap between the board's back and the DIN rail: not established** (Hammond's drawing does not give it). About 148 logic-side joints lie over the rail. The owner must measure it and add an insulating sheet; see Assembly.
+- **Gap between the board's back and the DIN rail: not established** (Hammond's drawing does not give where the rail's flanges seat). 16 logic-side joints lie over the top flange and 6 over the bottom one (60 and 16 allowing 2 mm for the rail's position), including every relay coil pin. The owner must measure it and add an insulating sheet; see Assembly.
 - **Zone circuit current: not measured.** The relay (6 A) and varistor (35 V AC continuous; clamps 110 V at a 2.5 A test current, higher at higher surge current) were chosen without it.
-- **Relays must stay open in every start-up state: only partly confirmed.** By design and arithmetic, the only path that closes a relay is current through an optocoupler LED from a C6 pin pulled LOW, so an unpowered, absent, floating or high pin leaves it open (checked in the netlist and in `part-checks.md`). The state of each of the seven C6 pins during reset and the boot ROM was not looked up, and nothing was tried on hardware. The after-assembly tests are the confirmation.
+- **Relays must stay open in every start-up state: established on paper, not on hardware.** Established: closing a relay needs current sunk through its optocoupler LED, that is a C6 pin driven or pulled LOW (netlist and drive arithmetic in `part-checks.md`); and in Espressif's ESP32-C6 schematic checklist (GPIO table, read 2026-11-15, recorded in `part-checks.md`) none of the seven relay pins (GPIO0, 1, 2, 3, 10, 11, 22) is pulled down or driven at or after reset: each is high impedance, an input, or (GPIO22 at reset) weakly pulled up, and none is a strapping or USB-JTAG pin. Not established: what the boot ROM does with the pins in download mode, GPIO22 especially (one of the SDIO pins); and how the pins behave while the supply rises, for which Espressif publishes no glitch data. Nothing was tried on hardware: the after-assembly checks (download mode with the zone lights watched, ten power cycles) are the confirmation.
 - **Dev board fit: not confirmed.** The ESP32-H2-DevKitM-1 is the board that matches what the design describes; the owner's board has not been compared. The Espressif schematics read were C6-DevKitC-1 V1.1 and H2-DevKitM-1 V1.3; later C6 revisions (to v1.4) were not fetched, though Espressif's guide says only resistor values change.
 - **Board size is 168 x 114 mm**, against the design's rough estimate of 160 x 100 mm (not a requirement). The dev boards were raised 8 mm from the bottom edge so the bottom corner holes clear their pins. The notch is 67.24 x 33.40 mm.
 - **Relay has a changeover contact**, where the design says a single normally-open contact. The normally closed pin (12) is left unconnected, so the behaviour is the same. The Finder datasheet figures (edition II-2026) are used; the coil takes 38.4 mA, not the 34 mA the plan quoted, and the drive arithmetic uses 38.4 mA.
 - **Power-decoupling distance:** C1 (470 uF) is 22.7 mm from the nearest relay coil pad; the design says "near the relays". Not confirmed to matter.
-- **Parts not fully checked against datasheets:** the Kingbright zone light forward voltage is assumed (about 2 V; its datasheet was not read); the GCT USB-C datasheet was not retrieved; the varistor body width (W3.4 mm) is not confirmed (the holes are); the J2 footprint is the MKDS outline while the part is MKDSN (pitch and drill match).
+- **Parts not fully checked against datasheets:** the J2 footprint is the MKDS outline while the part is MKDSN (pitch and drill match). The varistor drawing in Littelfuse's datasheet does not render, so its lead offset e1 (1-3 mm) is read from the table and taken to be across the disc's thickness (`part-checks.md`); the 1.0 mm holes and the flexible leads take up the spread. The GCT USB-C drawing's stake cross-section is not legible (its slots match GCT's recommended layout). Lead-to-hole fits checked: varistor, relay, fuse, LEDs, USB-C shell, J2.
 - **Heights and clearances above the board: not checked.** The design says the dev boards sit about 11 mm above the carrier and the assembly is about 25 mm high. Socket strip and relay heights were not checked, and nothing checks that the dev boards clear tall parts.
-- **Board house limits: not checked** (smallest hole 0.4 mm, track and gap 0.25 mm; routed slots for the DIN clips).
+- **Board house limits: not checked** (smallest hole 0.4 mm, track and gap 0.25 mm; routed slots for the DIN clips, 4.0 x 5.5 mm).
 - **The print template was viewed as an image only**; it was not test-printed, so the printed scale is confirmed by KiCad's plot and the page size, not by a ruler on a printout. Check the ruler yourself (see Checks).
 - **Firmware**: no firmware file was changed. The build still has one zone and the seven-zone table needs enabling, with the GPIO22 test corrected.
+- **J2 has no reverse-polarity protection.** Swapped wires put -5 V on the rail and will damage C1 and the C6 dev board (see Power).
+- **Both dev boards' USB cables at once** will be tight in the notch: the plugs face each other across it. One at a time is easy.
+- **The fuse protects only the J2 input.** Its 3.8 A trip is above what a 3 A USB-C supply delivers, so on USB-C the supply's own limit is the protection.
+- **The DIN clip's latch may be hard to reach once mounted**: it is at the bottom of the clip, under the board. A flat screwdriver from below should reach it; not tried.
+- **Corner holes and copper:** no track, via or pour is within 4.5 mm of any mounting hole (or along a DIN clip slot), on either layer (`check_board.py test_mounting_hole_keepout`). Two dev board socket pads are 4.44 mm from the centre of a bottom corner hole (they cannot move); they clear an M3 washer (7 mm) by 0.94 mm. Do not use larger washers there.
 - **Zone-side fuse: none.** The board has no fuse on the 24 V AC pairs (not required by the design).

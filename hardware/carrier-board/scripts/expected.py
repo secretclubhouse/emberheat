@@ -47,10 +47,20 @@ BOARDS = {
 }
 
 # DIN clip (Hammond 1427DINCLIP), see part-checks.md.
-DIN_HOLE_DIA = 3.5
-DIN_SLOT_W = 3.5
-DIN_SLOT_L = 5.0
+# Holes are clearance for #6 screws (thread at most 3.53 mm across).
+DIN_HOLE_DIA = 4.0
+DIN_SLOT_W = 4.0
+DIN_SLOT_L = 5.5
 DIN_SPACING = 29.75
+DIN_SCREW_MAJOR_MAX = 3.53     # #6 type AB/B thread, ASME B18.6.3 table (0.139 in)
+
+# Varistor (Littelfuse V56ZA2P, ZA series 7mm model size), see part-checks.md.
+VARISTOR_FOOTPRINT = "Varistor_Littelfuse_ZA_7mm"
+VARISTOR_LEAD_MAX = 0.685      # lead diameter, maximum
+VARISTOR_BODY_D_MAX = 9.0      # disc diameter, maximum
+VARISTOR_BODY_E_MAX = 5.0      # thickness, maximum
+VARISTOR_PITCH = (4.0, 6.0)    # lead spacing e, min and max
+VARISTOR_OFFSET = (1.0, 3.0)   # lead offset across the thickness e1, min and max
 
 
 # ---------------------------------------------------------------------------

@@ -7411,7 +7411,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm green LED, power light"
+		(property "Value" "3 mm (T-1) green LED, power light"
 			(at 139.7 85.09 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -7446,7 +7446,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113GD"
+		(property "MPN" "WP710A10GD"
 			(at 147.955 86.36 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -9496,7 +9496,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "DIN clip screw holes, one clip each"
+		(property "Value" "DIN clip clearance holes for #6 screws (4.0 mm hole, 4.0 x 5.5 mm slot), one clip each"
 			(at 71.12 368.3 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -9559,7 +9559,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "DIN clip screw holes, one clip each"
+		(property "Value" "DIN clip clearance holes for #6 screws (4.0 mm hole, 4.0 x 5.5 mm slot), one clip each"
 			(at 83.82 368.3 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -10282,7 +10282,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 26.67 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -10317,7 +10317,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 27.94 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -10463,14 +10463,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 33.02 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 33.02 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -11253,7 +11253,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 77.47 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -11288,7 +11288,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 78.74 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -11434,14 +11434,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 83.82 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 83.82 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -12224,7 +12224,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 128.27 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -12259,7 +12259,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 129.54 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -12405,14 +12405,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 134.62 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 134.62 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -13195,7 +13195,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 179.07 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -13230,7 +13230,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 180.34 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -13376,14 +13376,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 185.42 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 185.42 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -14166,7 +14166,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 229.87 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -14201,7 +14201,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 231.14 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -14347,14 +14347,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 236.22 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 236.22 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -15137,7 +15137,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 280.67 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -15172,7 +15172,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 281.94 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -15318,14 +15318,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 287.02 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 287.02 0)
 			(effects
 				(font (size 1.27 1.27))
@@ -16108,7 +16108,7 @@
 				(font (size 1.27 1.27))
 			)
 		)
-		(property "Value" "3 mm red LED, zone light"
+		(property "Value" "3 mm (T-1) red LED, zone light"
 			(at 406.4 331.47 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -16143,7 +16143,7 @@
 				(hide yes)
 			)
 		)
-		(property "MPN" "WP7113ID"
+		(property "MPN" "WP710A10ID"
 			(at 414.655 332.74 90)
 			(effects
 				(font (size 1.27 1.27))
@@ -16289,14 +16289,14 @@
 				(justify left)
 			)
 		)
-		(property "Value" "Varistor 35 V AC, 7 mm disc"
+		(property "Value" "Varistor 35 V AC, ZA 7mm model (body up to 9 mm x 5 mm)"
 			(at 454.66 337.82 0)
 			(effects
 				(font (size 1.27 1.27))
 				(hide yes)
 			)
 		)
-		(property "Footprint" "Varistor:RV_Disc_D7mm_W3.4mm_P5mm"
+		(property "Footprint" "emberheat:Varistor_Littelfuse_ZA_7mm"
 			(at 454.66 337.82 0)
 			(effects
 				(font (size 1.27 1.27))

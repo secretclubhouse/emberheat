@@ -15,7 +15,8 @@ anything else in the router's input changes, which route.py detects from
 the SHA-256 of the exported DSN recorded beside the session.
 
 1. Refuse a board that already has logic-side copper.
-2. Draw the pre-routed tracks (USB-C VBUS, see pre_route). Router's copy:
+2. Draw the pre-routed tracks (USB-C VBUS and the corner supply leads, see
+   pre_route and corner_leads). Router's copy:
    router-only keepouts (zone strip less a moat round the zone copper, the
    board edges, vias under relays) and through-hole pads grown by PAD_GROW
    a side, so the router's 0.25 mm clearance keeps every wire 0.5 mm from
@@ -89,6 +90,12 @@ VBUS_NECK = 0.5            # track width leaving pads A9/B9
 VBUS_NECK_LEN = 1.07       # from the pad centre to where the track widens (pad edge + 0.47)
 VBUS_RUN_X = 7.8           # A9's run down the front to J2 (0.6 mm clear of J1's shield pin)
 VBUS_VIA_X = 8.4           # B9's via to the back
+
+# Supply leads at the bottom corners, drawn by corner_leads(); see there.
+LEAD_Y = 1.93              # lead run this far inside the socket row's pad centres:
+                           # 0.85 pad radius + 0.5 hand-soldering gap + 0.5 half track, + 0.08
+LEAD_3V3_X = 46.5          # +3V3 lead turns up here, 6.5 mm past A1's last J3 pad (chosen by trial: Freerouting completes the board from here)
+LEAD_3V3_TOP = 79.0        # and ends here, above the socket row, where the router takes it on
 
 
 def need(ok, message):
@@ -302,7 +309,9 @@ def pre_route(board):
     VBUS_NECK_LEN and then runs at the Power width. A9 goes down the front to
     J2; B9 drops through one via and goes down the back to J2, so the two
     never close a loop round the CC pads, which leave to the right between
-    them. Then J2 pin 1 to the fuse F1 down the back, left of J2's GND pin."""
+    them. Then J2 pin 1 to the fuse F1 down the back, left of J2's GND pin.
+
+    Also the +3V3 and GND leads at the bottom corners (corner_leads)."""
     import pcbnew
     net = board.FindNet(netlist.Netlist().full_names["VIN"])
     a9 = pad_xy(board, "J1", "A9")
@@ -312,21 +321,23 @@ def pre_route(board):
     neck_x = a9[0] + VBUS_NECK_LEN
     via = (VBUS_VIA_X, b9[1])
     segs = [
-        (pcbnew.F_Cu, VBUS_NECK, [a9, (neck_x, a9[1])]),
-        (pcbnew.F_Cu, WIDTH["power"], [(neck_x, a9[1]), (VBUS_RUN_X, a9[1]), (VBUS_RUN_X, j2[1] - (VBUS_RUN_X - j2[0])), j2]),
-        (pcbnew.F_Cu, VBUS_NECK, [b9, (neck_x, b9[1])]),
-        (pcbnew.F_Cu, WIDTH["power"], [(neck_x, b9[1]), via]),
-        (pcbnew.B_Cu, WIDTH["power"], [via, (via[0], j2[1] - (via[0] - j2[0])), j2]),
-        (pcbnew.B_Cu, WIDTH["power"], [j2, (f1[0], j2[1] + (j2[0] - f1[0])), f1]),
+        (pcbnew.F_Cu, VBUS_NECK, [a9, (neck_x, a9[1])], "VIN"),
+        (pcbnew.F_Cu, WIDTH["power"], [(neck_x, a9[1]), (VBUS_RUN_X, a9[1]), (VBUS_RUN_X, j2[1] - (VBUS_RUN_X - j2[0])), j2], "VIN"),
+        (pcbnew.F_Cu, VBUS_NECK, [b9, (neck_x, b9[1])], "VIN"),
+        (pcbnew.F_Cu, WIDTH["power"], [(neck_x, b9[1]), via], "VIN"),
+        (pcbnew.B_Cu, WIDTH["power"], [via, (via[0], j2[1] - (via[0] - j2[0])), j2], "VIN"),
+        (pcbnew.B_Cu, WIDTH["power"], [j2, (f1[0], j2[1] + (j2[0] - f1[0])), f1], "VIN"),
     ]
-    for layer, width, pts in segs:
+    segs += corner_leads(board)
+    names = netlist.Netlist().full_names
+    for layer, width, pts, name in segs:
         for (x1, y1), (x2, y2) in zip(pts, pts[1:]):
             t = pcbnew.PCB_TRACK(board)
             t.SetStart(pcbnew.VECTOR2I(mm(x1), mm(y1)))
             t.SetEnd(pcbnew.VECTOR2I(mm(x2), mm(y2)))
             t.SetWidth(mm(width))
             t.SetLayer(layer)
-            t.SetNet(net)
+            t.SetNet(board.FindNet(names[name]))
             t.SetLocked(True)
             board.Add(t)
     v = pcbnew.PCB_VIA(board)
@@ -336,6 +347,41 @@ def pre_route(board):
     v.SetNet(net)
     v.SetLocked(True)
     board.Add(v)
+
+
+def corner_leads(board):
+    """Supply leads drawn by hand at the bottom corners, as (layer, width,
+    points, net) for pre_route. The copper keepouts round the corner holes H3 and
+    H4 (gen_board.py) close the strip below the dev boards' outer socket
+    rows at the board's corners, where Freerouting used to run +3V3 and GND;
+    left to itself it then fails to route the board. A socket row has no
+    gap a track fits through, so these leads run under the dev board,
+    LEAD_Y inside a socket row's pad centres:
+
+    - +3V3 from the C6 socket's 3V3 pin (A1 J1_1, at the H3 corner) across
+      to the other row (J3), along its inside on the back past that row's
+      last pad to LEAD_3V3_X, beside the notch, and up out from under the
+      dev board to LEAD_3V3_TOP, where the router takes it on. Along the
+      J3 row rather than its own
+      row, so the tracks coming in to the J1 row's pads keep both layers;
+    - GND from the H2 socket's GND pin A2 J3_1 (at the H4 corner) along the
+      inside of its row on the front to the next GND pin of that row, J3_10.
+
+    Each leaves its pad straight into the rows' inside (at 45 degrees it
+    would pass the next pad closer than 0.5 mm). LEAD_Y keeps the 1.0 mm
+    track 0.5 mm from the row's other pads (1.7 mm pads)."""
+    import pcbnew
+    out = []
+    a, (_, j3y), (endx, _) = pad_xy(board, "A1", "J1_1"), pad_xy(board, "A1", "J3_1"), pad_xy(board, "A1", "J3_16")
+    need(j3y < a[1], "A1's J3 row is not above its J1 row")
+    y = j3y + LEAD_Y
+    need(endx + 3 < LEAD_3V3_X, "+3V3 lead turns up too close to A1's last J3 pad")
+    out.append((pcbnew.B_Cu, WIDTH["power"], [a, (a[0], y), (LEAD_3V3_X, y), (LEAD_3V3_X, LEAD_3V3_TOP)], "+3V3"))
+    g1, g10 = pad_xy(board, "A2", "J3_1"), pad_xy(board, "A2", "J3_10")
+    need(abs(g1[1] - g10[1]) < 1e-6 and g10[0] < g1[0], "A2 J3_1 and J3_10 not in one row, J3_10 to the left")
+    y = g1[1] - LEAD_Y
+    out.append((pcbnew.F_Cu, WIDTH["power"], [g1, (g1[0], y), (g10[0], y), g10], "GND"))
+    return out
 
 
 def pad_xy(board, ref, number):
@@ -753,6 +799,8 @@ def fix_thermals(board):
     import pcbnew
     done = []
     turned = set()
+    names = {z.GetZoneName() for z in board.Zones() if z.GetIsRuleArea()}
+    islands = set()
     for _ in range(THERMAL_ROUNDS):
         starved = [v for v in drc(board).get("violations", []) if v["type"] == "starved_thermal"]
         if not starved:
@@ -772,9 +820,21 @@ def fix_thermals(board):
                     touch.BooleanIntersection(reach)
                     if not touch.OutlineCount():
                         continue
+                    # DRC can report the same starved pad more than once:
+                    # one keepout per island (same pad, layer and extent).
+                    bb = island.BBox()
+                    key = (name, lname, bb.GetLeft(), bb.GetTop(), bb.GetRight(), bb.GetBottom())
+                    if key in islands:
+                        continue
+                    islands.add(key)
+                    kname = "no_pour_island_%s_%s" % (name, lname.split(".")[0])
+                    k = 2
+                    while kname in names:
+                        kname = "no_pour_island_%s_%s_%d" % (name, lname.split(".")[0], k)
+                        k += 1
+                    names.add(kname)
                     island.Inflate(mm(0.1), pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, mm(0.005))
-                    pour_keepout(board, "no_pour_island_%s_%s" % (name, lname.split(".")[0]), layer,
-                                 pcbnew.SHAPE_LINE_CHAIN(island.COutline(0)))
+                    pour_keepout(board, kname, layer, pcbnew.SHAPE_LINE_CHAIN(island.COutline(0)))
                     done.append("removed the isolated fill island at %s on %s" % (name, lname))
             elif (name, lname) not in turned:
                 turned.add((name, lname))

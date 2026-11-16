@@ -33,6 +33,12 @@ NOTCH_MIN = 60.0          # mm
 CORNER_HOLE_INSET = 4.0   # mm
 CLIP_BODY_MARGIN = 0.75   # mm round the clip body: +/-0.25 width tolerance, 0.5 for solder fillets
 USB_EDGE_TOL = 1.0        # mm
+# Mounting hardware (part-checks.md, "Mounting hardware"): no track, via or
+# pour within HOLE_KEEPOUT of a hole's centre line; no pad within
+# HOLE_PAD_MIN (largest hardware radius, an M3 washer 7 mm across, + 0.5).
+HOLE_KEEPOUT = 4.5        # mm
+HOLE_PAD_MIN = 4.0        # mm
+VARISTOR_BODY_GAP = 0.5   # mm, varistor body to terminal header and relay bodies
 # Board silkscreen that must be present, verbatim.
 SILK_TEXT = ["ZONE WIRING 24 V AC", "rev 1", "5V ⎓ 3A USB-C", "+5V", "GND",
              "H2 3V3 — REMOVE BEFORE USING H2 USB", "1-WIRE", "3V3", "DQ",
@@ -626,6 +632,120 @@ def test_mounting_holes(board, nl):
     assert abs(rails[0] - (top + bottom) / 2) <= 1.0, "rail at y %.2f is not behind the board centre %.2f" % (rails[0], (top + bottom) / 2)
 
 
+def _hole_centre_lines(fp):
+    """Each non-plated hole of a mounting footprint as its centre line (mm):
+    a point for a round hole, the segment between the end-circle centres for
+    a slot (a screw head can sit anywhere along it)."""
+    import pcbnew
+    out = []
+    for p in fp.Pads():
+        if p.GetAttribute() != pcbnew.PAD_ATTRIB_NPTH:
+            continue
+        cx, cy = mm(p.GetPosition().x), mm(p.GetPosition().y)
+        dx, dy = mm(p.GetDrillSize().x), mm(p.GetDrillSize().y)
+        half = abs(dx - dy) / 2
+        # The slot's long axis, turned with the pad (pad frame x if dx > dy).
+        ux, uy = (1.0, 0.0) if dx >= dy else (0.0, 1.0)
+        rx, ry = rotate(ux, uy, p.GetOrientation().AsDegrees())
+        out.append(((cx - rx * half, cy - ry * half), (cx + rx * half, cy + ry * half)))
+    return out
+
+
+def _distance_to_line(ps, a, b):
+    """Smallest distance (mm) from a polygon set to the segment a-b (mm),
+    0 if the segment touches or is inside it. Sampled every 0.01 mm."""
+    import pcbnew
+    n = max(1, int(math.hypot(b[0] - a[0], b[1] - a[1]) / 0.01))
+    best = None
+    for i in range(n + 1):
+        x = a[0] + (b[0] - a[0]) * i / n
+        y = a[1] + (b[1] - a[1]) * i / n
+        v = pcbnew.VECTOR2I(nm(x), nm(y))
+        d = 0 if ps.Contains(v) else ps.SquaredDistance(v)
+        best = d if best is None or d < best else best
+    return mm(math.sqrt(best))
+
+
+def test_mounting_hole_keepout(board, nl):
+    """No track, via or pour within HOLE_KEEPOUT of any mounting hole's
+    centre line (the corner holes H1-H4 and both holes of each DIN clip,
+    along the whole slot), on either layer: screw heads and washers sit
+    there, and a cut in the solder mask under one must not bridge copper.
+    Pads (fixed by the parts) must be at least HOLE_PAD_MIN away: the
+    largest hardware radius plus 0.5 mm (part-checks.md)."""
+    import pcbnew
+    worst_copper = (float("inf"), None)
+    worst_pad = (float("inf"), None)
+    report = []
+    items = copper_items(board)
+    for ref in ("H1", "H2", "H3", "H4", "H5", "H6"):
+        fp = board.FindFootprintByReference(ref)
+        assert fp, "%s missing" % ref
+        lines = _hole_centre_lines(fp)
+        assert lines, "%s has no holes" % ref
+        here = (float("inf"), None)
+        for k, (a, b) in enumerate(lines):
+            box = (nm(min(a[0], b[0]) - HOLE_KEEPOUT - 1), nm(min(a[1], b[1]) - HOLE_KEEPOUT - 1),
+                   nm(max(a[0], b[0]) + HOLE_KEEPOUT + 1), nm(max(a[1], b[1]) + HOLE_KEEPOUT + 1))
+            for it in items:
+                if _box_gap(box, it.box) > 0:
+                    continue
+                d = _distance_to_line(it.poly, a, b)
+                what = "%s %s on %s" % (ref, "slot" if a != b else "hole", it.desc + " " +
+                                        pcbnew.BOARD.GetStandardLayerName(it.layer))
+                if it.pad is not None:
+                    if d < worst_pad[0]:
+                        worst_pad = (d, what)
+                else:
+                    if d < worst_copper[0]:
+                        worst_copper = (d, what)
+                    if d < here[0]:
+                        here = (d, it.desc)
+        report.append("%s %s" % (ref, "%.2f" % here[0] if here[1] else "clear"))
+    print("     mounting holes, nearest track/via/pour to a hole centre line (keepout %.1f mm): %s"
+          % (HOLE_KEEPOUT, "; ".join(report)))
+    print("     smallest copper-to-mounting-hole distance: %.3f mm (%s); nearest pad %.3f mm (%s, minimum %.1f)"
+          % (worst_copper[0], worst_copper[1], worst_pad[0], worst_pad[1], HOLE_PAD_MIN))
+    assert worst_copper[0] >= HOLE_KEEPOUT - 1e-6, "%s is %.3f mm from the hole centre line" % (worst_copper[1], worst_copper[0])
+    assert worst_pad[0] >= HOLE_PAD_MIN - 1e-6, "%s is %.3f mm from the hole centre line" % (worst_pad[1], worst_pad[0])
+
+
+def _fab_box(fp):
+    """Board box (mm) of a footprint's F.Fab drawing: the part's body."""
+    import pcbnew
+    box = None
+    for g in fp.GraphicalItems():
+        if g.GetLayer() == pcbnew.F_Fab and g.GetClass() == "PCB_SHAPE":
+            bb = g.GetBoundingBox()
+            if box is None:
+                box = pcbnew.BOX2I(bb.GetOrigin(), bb.GetSize())
+            else:
+                box.Merge(bb)
+    assert box is not None, "%s has no F.Fab outline" % fp.GetReference()
+    w = 0.05     # half the fab line width the box includes
+    return (mm(box.GetLeft()) + w, mm(box.GetTop()) + w, mm(box.GetRight()) - w, mm(box.GetBottom()) - w)
+
+
+def test_varistor_fit(board, nl):
+    """Each varistor's largest body (its F.Fab outline, the datasheet's
+    maximum E x D) is at least VARISTOR_BODY_GAP from the bodies of its
+    terminal header and of every relay, and inside the zone strip."""
+    worst = (float("inf"), None)
+    y_line = zone_line_y(board)
+    for n in ZONES:
+        rv = board.FindFootprintByReference("RV%d" % n)
+        assert str(rv.GetFPID().GetLibItemName()) == "Varistor_Littelfuse_ZA_7mm", "RV%d footprint" % n
+        vb = _fab_box(rv)
+        assert vb[3] < y_line, "RV%d body reaches below the zone line" % n
+        for ref in ["J1%d" % m for m in ZONES] + ["K%d" % m for m in ZONES]:
+            ob = _fab_box(board.FindFootprintByReference(ref))
+            d = _box_gap(vb, ob)
+            if d < worst[0]:
+                worst = (d, "RV%d and %s" % (n, ref))
+    print("     varistor bodies: closest terminal or relay body %.2f mm (%s)" % worst)
+    assert worst[0] >= VARISTOR_BODY_GAP - 1e-6, "%s bodies %.2f mm apart" % (worst[1], worst[0])
+
+
 def test_zone_tracks(board, nl):
     import pcbnew
     for n in ZONES:
@@ -942,8 +1062,17 @@ def test_ground_pour(board, nl):
                     "pad %s overrides the thermal relief" % _pad_name(pad)
                 assert fp.GetLocalZoneConnection() in (pcbnew.ZONE_CONNECTION_INHERITED, pcbnew.ZONE_CONNECTION_THERMAL), \
                     "footprint %s overrides the thermal relief" % fp.GetReference()
+    names = [z.GetZoneName() for z in board.Zones() if z.GetIsRuleArea()]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    assert not dup, "rule areas named more than once: %s" % dup
     for z in board.Zones():
         if not z.GetIsRuleArea() or z.GetZoneName() == ZONE_STRIP:
+            continue
+        if z.GetZoneName().startswith("hole_keepout_"):
+            # gen_board.py's keepouts round the mounting holes: no track,
+            # via or pour, on both layers (test_mounting_hole_keepout).
+            assert z.GetDoNotAllowTracks() and z.GetDoNotAllowVias() and z.GetDoNotAllowCopperPour() \
+                and z.IsOnLayer(pcbnew.F_Cu) and z.IsOnLayer(pcbnew.B_Cu), "%s does not keep copper out" % z.GetZoneName()
             continue
         # route.py's pour keepouts over fill islands that would connect a
         # pad to nothing (see fix_thermals there): pour only, one layer.
@@ -1158,7 +1287,7 @@ def test_fab_outputs(board, nl):
 
 TESTS = [test_all_parts_present, test_pad_nets_match_netlist, test_zone_separation, test_zone_line,
          test_no_pour_in_zone_strip, test_inside_outline, test_dev_board_placement, test_notch_width,
-         test_terminal_order, test_mounting_holes, test_zone_tracks, test_power_and_middle,
+         test_terminal_order, test_mounting_holes, test_mounting_hole_keepout, test_varistor_fit, test_zone_tracks, test_power_and_middle,
          test_silkscreen, test_zone_strip_rule, test_zone_tracks_unchanged, test_footprints_unmoved,
          test_fully_routed, test_track_widths, test_track_to_through_hole_pads, test_vias, test_ground_pour,
          test_drc_clean, test_fab_outputs]
