@@ -16,16 +16,27 @@ class Params:
     floor: float = 3.0
     cover_face: float = 2.0
     outside_edge_radius: float = 8.0   # outside vertical edges
+    edge_chamfer: float = 0.6          # every other outside edge
 
     # Locating lip on the base
     lip_height: float = 4.0
     lip_clear: float = 0.25
+    lip_t: float = 2.0                 # lip thickness, wall to board side
 
     # Standoffs and heat-set inserts
     standoff_height: float = 6.0       # floor to board back
     standoff_top_radius_max: float = 3.5   # on board-facing sides (copper-free zone is 4.0)
+    # Flare at the floor, 45 degrees up to the top radius. At most 4.75: the
+    # top holes are 5 mm from the inside wall and the cover needs lip_clear.
+    standoff_foot_r: float = 4.5
     insert_od: float = 5.0
     insert_len: float = 4.0
+    # Hole for the insert, from the top. 4.4 mm is the plan's ruling for an
+    # M3 5 x 4 insert (about 0.6 under the knurl); the README's test piece
+    # settles it. Deeper than the insert so an M3 x 8 screw through the 1.6 mm
+    # board does not bottom out (8 - 1.6 = 6.4 < 7).
+    insert_hole_d: float = 4.4
+    insert_hole_depth: float = 7.0
 
     # DIN clip screws
     clip_hole_round: float = 4.0
@@ -33,6 +44,13 @@ class Params:
     clip_slot_l: float = 5.5
     clip_hole_spacing: float = 29.75
     clip_floor_left: float = 1.6       # floor left under each screw head
+    clip_inset: float = 40.0           # outside edge to each clip's centre line
+    clip_head_clear_d: float = 7.6     # counterbore; #6 pan head is 6.86 at most
+
+    # Debossed HOOK / UP on the back
+    mark_h: float = 5.0                # capital height
+    mark_stroke: float = 0.8
+    mark_depth: float = 0.6
 
     # Cover
     clear_height: float = 25.0         # above the board's top face
@@ -54,6 +72,8 @@ class Params:
     # Magnets and fits
     magnet_d: float = 6.0
     magnet_t: float = 3.0
+    magnet_recess: float = 0.2         # pocket depth over the magnet's thickness
+    magnet_pad_wall: float = 0.7       # plastic round each pocket in the pad
     fit_clearance: float = 0.25
     screw_over: float = 0.4            # hole diameter over thread
 
