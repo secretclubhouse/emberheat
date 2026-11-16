@@ -15,13 +15,23 @@ standoffs; on the back, the two DIN clips' screw holes and the HOOK / UP
 markings. The cover's walls stand on the floor's rim (z_split); its magnet
 pads come down onto the base's pads (z_magnet). Nothing of the base rises
 above z_magnet except the standoffs, so the cover needs nothing under the
-board."""
+board.
+
+The cover is a five-sided shell (make_cover); the dial strip (make_dial_strip)
+sits flush in a recess in its face and carries the numerals and wordmark; a
+clear pane (make_pane) slides down between rails behind the window. build()
+returns every part in its assembled position."""
 import functools
+import os
 from dataclasses import dataclass
 
 import cadquery as cq
 
 from board_model import box
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+# Inter 4.1 SemiBold, from the Inter project's release (fonts/README.md).
+FONT = os.path.join(HERE, "fonts", "Inter-SemiBold.ttf")
 
 # Hammond 1427DINCLIP, in the clip's own frame: latch-end (round) hole at 0,
 # slot hole at +29.75 toward the hook end (part-checks.md, "DIN rail clip").
@@ -285,3 +295,201 @@ def make_base(geom, p):
         for word in m.values():
             base = base.cut(word)
     return base
+
+
+# --- Cover, dial strip, pane ------------------------------------------------
+
+def prism(pts, vec):
+    """The planar polygon pts (cq.Vectors) swept along vec."""
+    face = cq.Face.makeFromWires(cq.Wire.makePolygon(pts, close=True))
+    return cq.Workplane("XY").add(cq.Solid.extrudeLinear(face, cq.Vector(*vec)))
+
+
+def text_solid(s, size, x, y_base, z0, h):
+    """s in Inter SemiBold, font size `size`, standing h above z0, left end at
+    x, baseline at y_base.
+
+    Lettering is read from the front of the real part, which is this frame
+    mirrored in y (module docstring): text right must be +x and text up -y.
+    The text plane's x axis is +x and its normal -z, so its y axis (the
+    glyphs' up) is -y; the glyphs extrude from z0 + h back down to z0."""
+    pl = cq.Plane(origin=(x, y_base, z0 + h), xDir=(1, 0, 0), normal=(0, 0, -1))
+    return cq.Workplane(pl).text(s, size, h, fontPath=FONT, halign="left", valign="bottom")
+
+
+@functools.lru_cache(maxsize=None)
+def cap_ratio():
+    """Cap height per unit of font size, measured on the font's H."""
+    return text_solid("H", 10, 0, 0, 0, 1).val().BoundingBox().ylen / 10
+
+
+def label_size(p):
+    """Font size that gives the numerals a cap height of p.label_cap."""
+    return p.label_cap / cap_ratio()
+
+
+def dial(geom, p):
+    """Layout of the window, the dial strip and the pane, board frame.
+    Rectangles (x0, y0, x1, y1):
+    window: the cover's window, centred on the zone lights' lenses;
+    collar: the cover's rim round it, flush with the face;
+    strip_window: the strip's window, round the collar with fit clearance;
+    strip: the strip, strip_margin outside its window on the left, top and
+    right, and below the wordmark; recess: the strip plus fit clearance;
+    backing: the plate behind the recess; pane: the clear pane.
+    Also z_floor (recess floor = strip back), z_backing (inside of the plate
+    behind the strip, which the pane lies against), numerals (per light:
+    solid in place), wordmark (solid in place)."""
+    f = frame(geom, p)
+    lights = sorted(geom["zone_lights"], key=lambda d: d["x"])
+    cx = (lights[0]["x"] + lights[-1]["x"]) / 2
+    cy = sum(d["y"] for d in lights) / len(lights)
+    window = (cx - p.window_w / 2, cy - p.window_h / 2, cx + p.window_w / 2, cy + p.window_h / 2)
+    collar = grow(window, p.window_collar)
+    sw = grow(collar, p.fit_clearance)
+    z_floor = f.z_top - p.dial_t
+    size = label_size(p)
+
+    base_y = sw[3] + p.label_gap + p.label_cap
+    numerals = []
+    for i, d in enumerate(lights):
+        t = text_solid(str(i + 1), size, 0, base_y, f.z_top, p.letter_proud)
+        b = t.val().BoundingBox()
+        numerals.append(t.translate((d["x"] - b.center.x, 0, 0)))
+    # Wordmark: top word_gap below the numerals' baseline, right end on the
+    # strip window's right edge (so it shares the strip's right margin).
+    w = text_solid("emberheat", size, 0, 0, f.z_top, p.letter_proud)
+    b = w.val().BoundingBox()
+    word_top = base_y + p.word_gap
+    wordmark = w.translate((sw[2] - b.xmax, word_top - b.ymin, 0))
+    word_bottom = word_top + b.ylen
+
+    strip = (sw[0] - p.strip_margin, sw[1] - p.strip_margin, sw[2] + p.strip_margin, word_bottom + p.strip_margin)
+    recess = grow(strip, p.fit_clearance)
+    z_backing = min(f.z_face_inside, z_floor) - p.backing_t
+    pane = (cx - p.pane_w / 2, cy - p.pane_h / 2, cx + p.pane_w / 2, cy + p.pane_h / 2)
+    return {"window": window, "collar": collar, "strip_window": sw, "strip": strip, "recess": recess,
+            "backing": grow(recess, p.backing_lap), "pane": pane, "z_floor": z_floor, "z_backing": z_backing,
+            "numerals": numerals, "wordmark": wordmark}
+
+
+def cover_pad(f, r, z0, z1):
+    """A cover magnet pad over the base pad r: a block from z0 to z1 run out to
+    the wall beside it, and above it a 45 degree wedge back to that wall, so
+    the pad prints without support with the cover face down."""
+    x0, y0, x1, y1 = r
+    ix0, iy0, ix1, iy1 = f.inside
+    e = 0.5                                   # into the wall, so they fuse
+    if x1 <= f.board[0]:
+        blk = box(ix0 - e, y0, x1, y1, z0, z1)
+        rise = x1 - ix0 + e
+        pts = [(x1, y0, z1), (ix0 - e, y0, z1), (ix0 - e, y0, z1 + rise)]
+        vec = (0, y1 - y0, 0)
+    elif x0 >= f.board[2]:
+        blk = box(x0, y0, ix1 + e, y1, z0, z1)
+        rise = ix1 + e - x0
+        pts = [(x0, y0, z1), (ix1 + e, y0, z1), (ix1 + e, y0, z1 + rise)]
+        vec = (0, y1 - y0, 0)
+    else:
+        blk = box(x0, y0, x1, iy1 + e, z0, z1)
+        rise = iy1 + e - y0
+        pts = [(x0, y0, z1), (x0, iy1 + e, z1), (x0, iy1 + e, z1 + rise)]
+        vec = (x1 - x0, 0, 0)
+    return blk.union(prism([cq.Vector(*q) for q in pts], vec)), z1 + rise - e
+
+
+def make_cover(geom, p):
+    """Five-sided shell standing on the base's rim. Face: the dial strip's
+    recess with a plate behind it, the window with its rim, the power light
+    hole. Walls: notches for the plugs (top) and for J1 / J2 (left), open at
+    the bottom edge so the cover lifts off over them; vents in the bottom
+    wall. Inside: four magnet pads over the base's, the pane's rails and stops.
+    Nothing is under the board, so it lifts straight up."""
+    f = frame(geom, p)
+    d = dial(geom, p)
+
+    cover = (rounded(f.outside, f.outside_r, f.z_split, f.z_top)
+             .edges("not |Z").chamfer(p.edge_chamfer)
+             .cut(rounded(f.inside, f.inside_r, f.z_split - 1, f.z_face_inside)))
+
+    # Strip recess, the plate behind it, the window rim, the window.
+    cover = cover.union(box(*d["backing"], d["z_backing"], f.z_face_inside + 0.5))
+    cover = cover.cut(box(*d["recess"], d["z_floor"], f.z_top + 1))
+    cover = cover.union(box(*d["collar"], d["z_floor"] - 0.5, f.z_top))
+    cover = cover.cut(box(*d["window"], d["z_backing"] - 1, f.z_top + 1))
+    pl = geom["power_light"]
+    cover = cover.cut(cylinder(pl["x"], pl["y"], p.power_hole_d, f.z_face_inside - 1, f.z_top + 1))
+
+    # Notches, open at the cover's bottom edge: the lip breaks are the spans.
+    ox0, oy0, ox1, oy1 = f.outside
+    ix0, iy0, ix1, iy1 = f.inside
+    for side, a, b in f.lip_breaks:
+        if side == "top":
+            cover = cover.cut(box(a, oy0 - 1, b, iy0 + 0.5, f.z_split - 1, p.top_notch_h))
+        else:
+            cover = cover.cut(box(ox0 - 1, a, ix0 + 0.5, b, f.z_split - 1, p.left_notch_h))
+
+    # Magnet pads over the base's, pockets opening down.
+    pads, pad_top = [], f.z_split
+    z0 = f.z_magnet + p.fit_clearance
+    depth = p.magnet_t + p.magnet_recess
+    for r in magnet_pads(geom, p):
+        pad, top = cover_pad(f, r, z0, z0 + depth + p.pad_roof)
+        pads.append(pad)
+        if f.board[0] < r[0] < f.board[2]:
+            pad_top = max(pad_top, top)           # bottom-wall pads, under the vents
+
+    # Vents: an even row of slots, centred on the bottom wall, in the band
+    # between the bottom pads' wedges and the face.
+    zc = (pad_top + f.z_face_inside) / 2
+    xc = (ox0 + ox1) / 2
+    for i in range(p.vent_count):
+        x = xc + (i - (p.vent_count - 1) / 2) * p.vent_pitch
+        cover = cover.cut(box(x - p.vent_w / 2, iy1 - 0.5, x + p.vent_w / 2, oy1 + 1,
+                              zc - p.vent_h / 2, zc + p.vent_h / 2))
+
+    for pad in pads:
+        cover = cover.union(pad)
+    for x, y in magnet_positions(geom, p):
+        cover = cover.cut(cylinder(x, y, p.magnet_d + p.fit_clearance, z0 - 1, z0 + depth))
+
+    # Pane rails along y at the pane's two ends, on the plate behind the strip.
+    # Profile across a rail, u in from the rail's inner face, v down from the
+    # plate: the pane's end sits in the corner, under a lip whose underside
+    # rises at 45 degrees (printed face down) and holds it within fit clearance.
+    px0, py0, px1, py1 = d["pane"]
+    zb = d["z_backing"]
+    c, t, L = p.fit_clearance, p.pane_t, p.rail_lip
+    low = t + L + p.rail_foot
+    prof = [(-p.rail_w, -0.2), (0, -0.2), (0, t), (L, t + L), (L, low), (-p.rail_w, low)]
+    for s, xr in ((1, px0 - c), (-1, px1 + c)):
+        pts = [cq.Vector(xr + s * u, py0, zb - v) for u, v in prof]
+        cover = cover.union(prism(pts, (0, py1 + p.stop_t - py0, 0)))
+        xa, xb = sorted((xr - s * p.rail_w, xr + s * p.stop_reach))
+        cover = cover.union(box(xa, py1, xb, py1 + p.stop_t, zb - low, zb + 0.2))
+    return cover
+
+
+def make_dial_strip(geom, p):
+    """(plate, lettering): the strip in its recess, and the numerals and
+    wordmark standing letter_proud on its front. Two solids, so the lettering
+    can be coloured; it prints from the plate's front up, after a filament
+    change at dial_t above the bed."""
+    f = frame(geom, p)
+    d = dial(geom, p)
+    plate = box(*d["strip"], d["z_floor"], f.z_top).cut(box(*d["strip_window"], d["z_floor"] - 1, f.z_top + 1))
+    glyphs = [s for w in d["numerals"] + [d["wordmark"]] for s in w.val().Solids()]
+    return plate, cq.Workplane("XY").add(cq.Compound.makeCompound(glyphs))
+
+
+def make_pane(geom, p):
+    """The clear pane, against the plate behind the strip, on its stops."""
+    d = dial(geom, p)
+    return box(*d["pane"], d["z_backing"] - p.pane_t, d["z_backing"])
+
+
+def build(geom, p):
+    """Every printed part in its assembled position, board frame."""
+    plate, lettering = make_dial_strip(geom, p)
+    return {"base": make_base(geom, p), "cover": make_cover(geom, p), "dial_strip": plate,
+            "dial_lettering": lettering, "pane": make_pane(geom, p)}
