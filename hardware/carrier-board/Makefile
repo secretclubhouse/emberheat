@@ -15,12 +15,14 @@ lib:
 sch:
 	$(KICAD_PY) -I scripts/gen_schematic.py
 	mkdir -p build
-	$(KICAD_CLI) sch export netlist --format kicadxml -o build/netlist.xml carrier-board.kicad_sch 2>&1 | grep -v Fontconfig || true
+	rm -f build/netlist.xml
+	scripts/quiet.sh $(KICAD_CLI) sch export netlist --format kicadxml -o build/netlist.xml carrier-board.kicad_sch
 
 # Place every part on the circuit board, draw the outline and route the zone
 # side (24 V AC); the logic side is left for Task 5's router.
 board: build/netlist.xml
-	$(KICAD_PY) -I scripts/gen_board.py 2>&1 | grep -v -e wxApp || true
+	rm -f carrier-board.kicad_pcb
+	scripts/quiet.sh $(KICAD_PY) -I scripts/gen_board.py
 
 # Route the logic side and pour ground. scripts/route.py takes the board
 # `make board` wrote and writes the routed board OVER carrier-board.kicad_pcb.
@@ -64,17 +66,17 @@ render:
 render-board:
 	rm -rf build/svg-board
 	mkdir -p build/svg-board renders
-	$(KICAD_CLI) pcb render --side top --width 2400 --height 1700 --quality high --background opaque -o renders/board-top.png carrier-board.kicad_pcb 2>&1 | grep -v Fontconfig || true
-	$(KICAD_CLI) pcb render --side bottom --width 2400 --height 1700 --quality high --background opaque -o renders/board-bottom.png carrier-board.kicad_pcb 2>&1 | grep -v Fontconfig || true
-	$(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --layers F.Cu,F.Silkscreen,Edge.Cuts -o build/svg-board/front.svg carrier-board.kicad_pcb 2>&1 | grep -v Fontconfig || true
-	$(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --mirror --layers B.Cu,B.Silkscreen,Edge.Cuts -o build/svg-board/back.svg carrier-board.kicad_pcb 2>&1 | grep -v Fontconfig || true
+	scripts/quiet.sh $(KICAD_CLI) pcb render --side top --width 2400 --height 1700 --quality high --background opaque -o renders/board-top.png carrier-board.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb render --side bottom --width 2400 --height 1700 --quality high --background opaque -o renders/board-bottom.png carrier-board.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --layers F.Cu,F.Silkscreen,Edge.Cuts -o build/svg-board/front.svg carrier-board.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --mirror --layers B.Cu,B.Silkscreen,Edge.Cuts -o build/svg-board/back.svg carrier-board.kicad_pcb
 	$(KICAD_PY) -I scripts/svg_for_magick.py build/svg-board/front.svg build/svg-board/front-clean.svg
 	$(KICAD_PY) -I scripts/svg_for_magick.py build/svg-board/back.svg build/svg-board/back-clean.svg
 	$(MAGICK) -density 400 build/svg-board/front-clean.svg -background white -flatten -depth 8 renders/board-front-layers.png
 	$(MAGICK) -density 400 build/svg-board/back-clean.svg -background white -flatten -depth 8 renders/board-back-layers.png
-	$(KICAD_PY) -I scripts/without_pours.py carrier-board.kicad_pcb build/svg-board/no-pours.kicad_pcb 2>&1 | grep -v -e Fontconfig -e wxApp -e "image handler" || true
-	$(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --layers F.Cu,F.Silkscreen,Edge.Cuts -o build/svg-board/front-tracks.svg build/svg-board/no-pours.kicad_pcb 2>&1 | grep -v Fontconfig || true
-	$(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --mirror --layers B.Cu,B.Silkscreen,Edge.Cuts -o build/svg-board/back-tracks.svg build/svg-board/no-pours.kicad_pcb 2>&1 | grep -v Fontconfig || true
+	scripts/quiet.sh $(KICAD_PY) -I scripts/without_pours.py carrier-board.kicad_pcb build/svg-board/no-pours.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --layers F.Cu,F.Silkscreen,Edge.Cuts -o build/svg-board/front-tracks.svg build/svg-board/no-pours.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb export svg --mode-single --page-size-mode 2 --exclude-drawing-sheet --mirror --layers B.Cu,B.Silkscreen,Edge.Cuts -o build/svg-board/back-tracks.svg build/svg-board/no-pours.kicad_pcb
 	$(KICAD_PY) -I scripts/svg_for_magick.py build/svg-board/front-tracks.svg build/svg-board/front-tracks-clean.svg
 	$(KICAD_PY) -I scripts/svg_for_magick.py build/svg-board/back-tracks.svg build/svg-board/back-tracks-clean.svg
 	$(MAGICK) -density 400 build/svg-board/front-tracks-clean.svg -background white -flatten -depth 8 renders/board-front-tracks.png
@@ -85,7 +87,8 @@ render-board:
 # board house, the 1:1 print template and the schematic as PDF. fab/ is
 # committed so the board can be ordered without KiCad; run `make fab` after
 # any change to the board. fab/source.sha256 records which board it came
-# from; check_board.py compares it.
+# from; fab/print-template.source.sha256 records the board the template was
+# plotted from; check_board.py compares both.
 #
 # print-template.pdf is a copy of the board moved to the middle of an A4
 # landscape page (the board itself sits at the page's corner, where a printer
@@ -96,14 +99,16 @@ render-board:
 fab:
 	rm -rf fab
 	mkdir -p fab
-	$(KICAD_CLI) pcb export gerbers --layers F.Cu,B.Cu,F.Mask,B.Mask,F.Silkscreen,B.Silkscreen,Edge.Cuts -o fab carrier-board.kicad_pcb 2>&1 | grep -v Fontconfig || true
-	$(KICAD_CLI) pcb export drill --format excellon --excellon-separate-th --excellon-units mm -o fab/ carrier-board.kicad_pcb 2>&1 | grep -v Fontconfig || true
+	scripts/quiet.sh $(KICAD_CLI) pcb export gerbers --layers F.Cu,B.Cu,F.Mask,B.Mask,F.Silkscreen,B.Silkscreen,Edge.Cuts -o fab carrier-board.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb export drill --format excellon --excellon-separate-th --excellon-units mm -o fab/ carrier-board.kicad_pcb
 	rm -f fab/*.gbrjob
 	cd fab && zip -q -X carrier-board-gerbers.zip *.gtl *.gbl *.gts *.gbs *.gto *.gbo *.gm1 *.drl
 	mkdir -p build
-	$(KICAD_PY) -I scripts/print_template.py carrier-board.kicad_pcb build/print-template.kicad_pcb 2>&1 | grep -v -e Fontconfig -e wxApp -e "image handler" || true
-	$(KICAD_CLI) pcb export pdf --mode-single --layers F.Mask,F.Silkscreen,Edge.Cuts --black-and-white --drill-shape-opt 2 -o fab/print-template.pdf build/print-template.kicad_pcb 2>&1 | grep -v Fontconfig || true
-	$(KICAD_CLI) sch export pdf -o fab/schematic.pdf carrier-board.kicad_sch 2>&1 | grep -v Fontconfig || true
+	rm -f build/print-template.kicad_pcb
+	scripts/quiet.sh $(KICAD_PY) -I scripts/print_template.py carrier-board.kicad_pcb build/print-template.kicad_pcb
+	scripts/quiet.sh $(KICAD_CLI) pcb export pdf --mode-single --layers F.Mask,F.Silkscreen,Edge.Cuts --black-and-white --drill-shape-opt 2 -o fab/print-template.pdf build/print-template.kicad_pcb
+	shasum -a 256 carrier-board.kicad_pcb > fab/print-template.source.sha256
+	scripts/quiet.sh $(KICAD_CLI) sch export pdf -o fab/schematic.pdf carrier-board.kicad_sch
 	shasum -a 256 carrier-board.kicad_pcb > fab/source.sha256
 
 # Run every scripts/check_*.py that exists; fail if any fails.

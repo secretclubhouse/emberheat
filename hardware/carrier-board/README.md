@@ -60,7 +60,7 @@ J4 (five spare pads for 3V3, GPIO20, TX, RX, GND) is **not fitted**: buy nothing
 
 ## Power
 
-Use a 5 V USB-C supply rated 3 A. A supply that offers only 0.5-0.9 A will sag when several relays close and reset the C6, which opens the relays. That is safe but a nuisance. The worst case estimate is about 1 A at 5 V.
+Use a 5 V USB-C supply rated 3 A. A supply that offers only 0.5-0.9 A may not hold 5 V when several relays close. The worst case draw is an estimate of about 1 A at 5 V (not measured), so a weak supply could sag; if it does, the C6 can reset, which opens the relays. That would be safe but a nuisance.
 
 - The 5 V input is the USB-C socket (J1, power only: no data lines) or the 2-way screw terminal J2 (labelled +5V and GND). Use one at a time.
 - A resettable fuse F1 (2.0 A hold) follows the input.
@@ -80,7 +80,7 @@ JP1 is a 2-pin header with a shunt in the H2's 3.3 V feed. The board labels it `
 
 Each zone is a pair of wires closed by one relay contact (contacts 11 and 14, normally open; the normally closed contact 12 is not connected). The terminal plugs take 0.2-2.5 mm2 wire (18 AWG fits bare or in a 1.0 mm2 ferrule). The two wires of a pair are interchangeable. The relay is driven active-low: the C6 pin LOW closes the relay, as the firmware does.
 
-| Zone | Terminal | Relay | Optocoupler | Transistor | Zone light | C6 GPIO | C6 header pin |
+| Zone | Terminal | Relay | Optocoupler | Transistor | Zone light | C6 GPIO | C6 dev board header pin (its J1 or J3, not the carrier's J1) |
 |---|---|---|---|---|---|---|---|
 | 1 | J11 (Z1) | K1 | U1 | Q1 | D11 | GPIO0 | J1 pin 7 |
 | 2 | J12 (Z2) | K2 | U2 | Q2 | D12 | GPIO1 | J1 pin 8 |
@@ -154,11 +154,11 @@ Three lists. A failed item means do not go on.
 This runs every `scripts/check_*.py`. It needs KiCad 9 at `/Applications/KiCad/KiCad.app`. Everything must pass.
 
 - Schematic electrical rules check: no errors or warnings (`check_erc.py`).
-- Board design rules check: no violations of any severity and no unconnected nets (`check_board.py`, `test_drc_clean`, which also checks `test_fully_routed`).
+- Board design rules check: no violations of any severity and no unconnected nets (`check_board.py`: `test_drc_clean` runs KiCad's design rule check with the parity check, and `test_fully_routed` separately confirms every net is connected, with the ground pours filled).
 - Schematic and board agree (KiCad's schematic parity check, in the same test).
 - The net on each C6 socket pin matches its role in `main.rs` and the table above (`check_netlist.py`, including the relay GPIOs and the inter-board nets, and the normally-open contact, diode, transistor, optocoupler and USB-C pull-down checks).
-- Every zone-side copper item is at least 3 mm from every logic-side copper item on both layers (`test_zone_separation`, with `test_no_pour_in_zone_strip`; the measured figure is printed, currently 5.845 mm).
-- Every track is at least 0.5 mm from through-hole pads of other nets (`test_track_to_through_hole_pads`; a rule added after review, tighter than the 0.25 mm general minimum).
+- Every zone-side copper item is at least 3 mm from every logic-side copper item on both layers (`test_zone_separation`, with `test_no_pour_in_zone_strip`; `make check` prints the measured smallest distance; 5.845 mm on the routed board of commit 6159fae, recorded in `part-checks.md`).
+- Every track is at least 0.5 mm from through-hole pads of other nets (`test_track_to_through_hole_pads`; a rule added after review, tighter than the 0.25 mm general minimum; `make check` prints the smallest measured value, 0.502 mm track and 0.519 mm pour on the same board, recorded in `part-checks.md`).
 - The dev board footprints are not mirrored or reversed (`check_lib.py`, `test_socket_orientation`).
 - `fab/` is complete, belongs to this board and its drill files hold the board's holes (`test_fab_outputs`).
 
@@ -196,7 +196,7 @@ Only then connect the zone wires.
 | `carrier-board-PTH.drl`, `carrier-board-NPTH.drl` | Excellon drill files, plated and unplated (mm). The DIN clip slots (3.5 x 5.0 mm) are in the unplated file as routed slots; check that the house reads them. |
 | `print-template.pdf` | The 1:1 paper template: outline, pad openings, drill holes, front silkscreen (with the dev boards' outlines) and a 100 mm ruler. A4 landscape; the board is centred so a printer's margins do not cut it. |
 | `schematic.pdf` | The schematic. |
-| `source.sha256` | Hash of the board file these were made from. |
+| `source.sha256`, `print-template.source.sha256` | Hash of the board file the fab files, and the print template, were made from. `make check` compares both. |
 
 No solder paste layer is made (the board is hand-assembled), and no position file (it would not be used).
 

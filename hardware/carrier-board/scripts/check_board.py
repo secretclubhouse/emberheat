@@ -1105,6 +1105,7 @@ FAB_FILES = ["carrier-board-F_Cu.gtl", "carrier-board-B_Cu.gbl", "carrier-board-
              "carrier-board-B_Mask.gbs", "carrier-board-F_Silkscreen.gto", "carrier-board-B_Silkscreen.gbo",
              "carrier-board-Edge_Cuts.gm1", "carrier-board-PTH.drl", "carrier-board-NPTH.drl",
              "carrier-board-gerbers.zip", "print-template.pdf", "schematic.pdf"]
+FAB_ZIP_MEMBERS = [n for n in FAB_FILES if n.endswith((".gtl", ".gbl", ".gts", ".gbs", ".gto", ".gbo", ".gm1", ".drl"))]
 
 
 def _drill_hits(path):
@@ -1123,11 +1124,12 @@ def _drill_hits(path):
 
 def test_fab_outputs(board, nl):
     """fab/ (make fab) has every expected file, is from this board (the
-    board's SHA-256 is stored beside it, so a fresh clone cannot look stale),
-    and its drill files hold exactly the board's holes."""
+    board's SHA-256 is stored beside it, so a fresh clone cannot look stale;
+    likewise for the print template), the zip holds exactly the Gerber and
+    drill files and the same bytes as the loose files, and the drill files hold exactly the board's holes."""
     import hashlib
     assert os.path.isdir(FAB), "fab/ missing (run make fab)"
-    missing = [n for n in FAB_FILES + ["source.sha256"] if not os.path.isfile(os.path.join(FAB, n))]
+    missing = [n for n in FAB_FILES + ["source.sha256", "print-template.source.sha256"] if not os.path.isfile(os.path.join(FAB, n))]
     assert not missing, "fab/ lacks %s (run make fab)" % ", ".join(missing)
     empty = [n for n in FAB_FILES if os.path.getsize(os.path.join(FAB, n)) == 0]
     assert not empty, "empty: %s" % ", ".join(empty)
@@ -1136,6 +1138,16 @@ def test_fab_outputs(board, nl):
     with open(os.path.join(FAB, "source.sha256")) as f:
         stored = f.read().split()[0]
     assert stored == digest, "fab/ was made from a different carrier-board.kicad_pcb (run make fab)"
+    with open(os.path.join(FAB, "print-template.source.sha256")) as f:
+        stored = f.read().split()[0]
+    assert stored == digest, "print-template.pdf was plotted from a different carrier-board.kicad_pcb (run make fab)"
+    import zipfile
+    with zipfile.ZipFile(os.path.join(FAB, "carrier-board-gerbers.zip")) as z:
+        members = sorted(z.namelist())
+        assert members == sorted(FAB_ZIP_MEMBERS), "gerbers.zip holds %s, want %s" % (members, sorted(FAB_ZIP_MEMBERS))
+        for n in members:
+            with open(os.path.join(FAB, n), "rb") as f:
+                assert z.read(n) == f.read(), "gerbers.zip member %s differs from fab/%s" % (n, n)
     want = sum(1 for fp in board.GetFootprints() for p in fp.Pads() if p.GetDrillSizeX() > 0)
     want += sum(1 for t in board.GetTracks() if t.GetClass() == "PCB_VIA")
     have = _drill_hits(os.path.join(FAB, "carrier-board-PTH.drl")) + \

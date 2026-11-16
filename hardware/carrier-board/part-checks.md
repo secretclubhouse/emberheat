@@ -116,3 +116,10 @@ Result: every pin list, the row spacing, both board lengths and the orientation 
 - What the drawings add, used by the footprints: the 51.80 / 48.26 mm lengths are the PCB only. The module antenna overhangs the PCB by 6.35 mm (C6, 18.00 mm wide) or 5.40 mm (H2, 13.20 mm wide). Pin 1 is 1.575 mm from the PCB edge at the antenna end (C6: 51.80 - 12.125 - 15 x 2.54; H2: 48.26 - 11.125 - 14 x 2.54), so the rows are not centred in the PCB. The origin (centre of the rows) is 20.625 mm from the PCB edge toward the antenna and 31.175 mm toward the USB end for the C6 (19.355 and 28.905 mm for the H2). The plan did not say this; it only fixed the origin as the centre of the two rows.
 - Antenna rule area: from the antenna tip to 1.0 mm short of pin 1's centre, full 25.4 mm width, no tracks, vias, pads or pours on either copper layer. That is 6.925 mm deep on the C6 and 5.975 mm on the H2, where the plan said 7 mm for both. A full 7 mm measured from the antenna tip would cover the H2's pin 1 pad.
 - DIN clip keep-out: the DIN clip section says to keep 8 mm clear around each hole for the screw head. The footprint draws that as an 8 mm wide courtyard centred on the hole (a 9.5 x 8 mm box on the slot, covering the +/- 0.75 mm of slide).
+
+## Measured on the routed board
+
+Printed by `make check` (check_board.py) on the board file as committed in 6159fae (the board file has not changed since; Task 6 only added `fab/` and docs). They change if the board is re-routed.
+
+- Smallest zone-side to logic-side copper distance: 5.845 mm (pad K2.12 and track +5V on B.Cu); the rule is at least 3.0 mm.
+- Smallest track to other-net through-hole pad: 0.502 mm (rule: at least 0.5 mm); smallest ground pour to other-net through-hole pad: 0.519 mm.
