@@ -1285,12 +1285,25 @@ def test_fab_outputs(board, nl):
     print("     %d holes in the drill files, as on the board" % have)
 
 
+def test_geometry_matches_board(board, nl):
+    """enclosure/board-geometry.json is what scripts/export_board_geometry.py
+    reads from this board now, so the enclosure cannot be built from a stale
+    copy (run make enclosure-geometry)."""
+    import export_board_geometry
+    path = os.path.join(ROOT, "enclosure", "board-geometry.json")
+    assert os.path.isfile(path), "enclosure/board-geometry.json missing (run make enclosure-geometry)"
+    with open(path) as f:
+        committed = json.load(f)
+    fresh = json.loads(json.dumps(export_board_geometry.build_geometry(board)))
+    assert fresh == committed, "enclosure/board-geometry.json differs from the board (run make enclosure-geometry)"
+
+
 TESTS = [test_all_parts_present, test_pad_nets_match_netlist, test_zone_separation, test_zone_line,
          test_no_pour_in_zone_strip, test_inside_outline, test_dev_board_placement, test_notch_width,
          test_terminal_order, test_mounting_holes, test_mounting_hole_keepout, test_varistor_fit, test_zone_tracks, test_power_and_middle,
          test_silkscreen, test_zone_strip_rule, test_zone_tracks_unchanged, test_footprints_unmoved,
          test_fully_routed, test_track_widths, test_track_to_through_hole_pads, test_vias, test_ground_pour,
-         test_drc_clean, test_fab_outputs]
+         test_drc_clean, test_fab_outputs, test_geometry_matches_board]
 
 
 def main():

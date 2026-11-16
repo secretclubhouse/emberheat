@@ -2,7 +2,7 @@ KICAD_CLI ?= /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli
 KICAD_PY  ?= /Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/bin/python3
 MAGICK    ?= /opt/homebrew/bin/magick
 
-.PHONY: all lib sch board route autoroute erc render render-board fab check clean
+.PHONY: all lib sch board route autoroute erc render render-board fab check clean enclosure-venv enclosure-geometry enclosure-check
 
 # From scratch: library, schematic, placed board, routed board, fab outputs, checks.
 all: lib sch route fab check
@@ -120,6 +120,22 @@ check:
 	  $(KICAD_PY) -I $$s || status=1; \
 	done; \
 	exit $$status
+
+# Enclosure (enclosure/): CadQuery runs in its own Python 3.12 virtual
+# environment (tools/cad-venv, not committed); only the geometry export needs
+# KiCad's Python.
+CAD_PY ?= tools/cad-venv/bin/python
+
+enclosure-venv:
+	uv venv --python 3.12 tools/cad-venv
+	uv pip install --python $(CAD_PY) -r enclosure/requirements.txt
+
+# enclosure/board-geometry.json from the board; make check fails if it is stale.
+enclosure-geometry:
+	scripts/quiet.sh $(KICAD_PY) -I scripts/export_board_geometry.py
+
+enclosure-check:
+	$(CAD_PY) enclosure/check_enclosure.py
 
 clean:
 	rm -rf *-backups fp-info-cache build
