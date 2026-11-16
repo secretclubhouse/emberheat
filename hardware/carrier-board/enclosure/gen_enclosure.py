@@ -334,10 +334,12 @@ def dial(geom, p):
     window: the cover's window, centred on the zone lights' lenses;
     collar: the cover's rim round it, flush with the face;
     strip_window: the strip's window, round the collar with fit clearance;
-    strip: the strip, strip_margin outside its window on the left, top and
-    right, and below the wordmark; recess: the strip plus fit clearance;
+    layout: the window grown by strip_reach, from which the strip's outline
+    and the lettering are laid out;
+    strip: the strip, strip_margin outside the layout rectangle on the left,
+    top and right, and below the wordmark; recess: the strip plus fit clearance;
     backing: the plate behind the recess; pane: the clear pane.
-    Also z_floor (recess floor = strip back), z_backing (inside of the plate
+    Also z_floor (recess floor = strip back), z_front (strip front, strip_t above it), z_backing (inside of the plate
     behind the strip, which the pane lies against), numerals (per light:
     solid in place), wordmark (solid in place)."""
     f = frame(geom, p)
@@ -347,28 +349,32 @@ def dial(geom, p):
     window = (cx - p.window_w / 2, cy - p.window_h / 2, cx + p.window_w / 2, cy + p.window_h / 2)
     collar = grow(window, p.window_collar)
     sw = grow(collar, p.fit_clearance)
+    # The strip's outline and lettering are laid out from `lay`, not from the
+    # strip's window, so they do not move when the rim does.
+    lay = grow(window, p.strip_reach)
     z_floor = f.z_top - p.dial_t
+    z_front = z_floor + p.strip_t
     size = label_size(p)
 
-    base_y = sw[3] + p.label_gap + p.label_cap
+    base_y = lay[3] + p.label_gap + p.label_cap
     numerals = []
     for i, d in enumerate(lights):
-        t = text_solid(str(i + 1), size, 0, base_y, f.z_top, p.letter_proud)
+        t = text_solid(str(i + 1), size, 0, base_y, z_front, p.letter_proud)
         b = t.val().BoundingBox()
         numerals.append(t.translate((d["x"] - b.center.x, 0, 0)))
     # Wordmark: top word_gap below the numerals' baseline, right end on the
-    # strip window's right edge (so it shares the strip's right margin).
-    w = text_solid("emberheat", size, 0, 0, f.z_top, p.letter_proud)
+    # layout rectangle's right edge (so it shares the strip's right margin).
+    w = text_solid("emberheat", size, 0, 0, z_front, p.letter_proud)
     b = w.val().BoundingBox()
     word_top = base_y + p.word_gap
-    wordmark = w.translate((sw[2] - b.xmax, word_top - b.ymin, 0))
+    wordmark = w.translate((lay[2] - b.xmax, word_top - b.ymin, 0))
     word_bottom = word_top + b.ylen
 
-    strip = (sw[0] - p.strip_margin, sw[1] - p.strip_margin, sw[2] + p.strip_margin, word_bottom + p.strip_margin)
+    strip = (lay[0] - p.strip_margin, lay[1] - p.strip_margin, lay[2] + p.strip_margin, word_bottom + p.strip_margin)
     recess = grow(strip, p.fit_clearance)
     z_backing = min(f.z_face_inside, z_floor) - p.backing_t
     pane = (cx - p.pane_w / 2, cy - p.pane_h / 2, cx + p.pane_w / 2, cy + p.pane_h / 2)
-    return {"window": window, "collar": collar, "strip_window": sw, "strip": strip, "recess": recess,
+    return {"window": window, "collar": collar, "strip_window": sw, "layout": lay, "z_front": z_front, "strip": strip, "recess": recess,
             "backing": grow(recess, p.backing_lap), "pane": pane, "z_floor": z_floor, "z_backing": z_backing,
             "numerals": numerals, "wordmark": wordmark}
 
@@ -474,10 +480,10 @@ def make_dial_strip(geom, p):
     """(plate, lettering): the strip in its recess, and the numerals and
     wordmark standing letter_proud on its front. Two solids, so the lettering
     can be coloured; it prints from the plate's front up, after a filament
-    change at dial_t above the bed."""
+    change at strip_t above the bed."""
     f = frame(geom, p)
     d = dial(geom, p)
-    plate = box(*d["strip"], d["z_floor"], f.z_top).cut(box(*d["strip_window"], d["z_floor"] - 1, f.z_top + 1))
+    plate = box(*d["strip"], d["z_floor"], d["z_front"]).cut(box(*d["strip_window"], d["z_floor"] - 1, f.z_top + 1))
     glyphs = [s for w in d["numerals"] + [d["wordmark"]] for s in w.val().Solids()]
     return plate, cq.Workplane("XY").add(cq.Compound.makeCompound(glyphs))
 

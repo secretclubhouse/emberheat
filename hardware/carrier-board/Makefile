@@ -147,7 +147,11 @@ enclosure-render:
 	$(CAD_PY) enclosure/render_enclosure.py
 
 # Everything: geometry from the board, exports, images, then the checks.
-enclosure: enclosure-geometry enclosure-export enclosure-render enclosure-check
+enclosure:
+	$(MAKE) enclosure-geometry
+	$(MAKE) enclosure-export
+	$(MAKE) enclosure-render
+	$(MAKE) enclosure-check
 
 clean:
 	rm -rf *-backups fp-info-cache build

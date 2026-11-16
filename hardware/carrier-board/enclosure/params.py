@@ -66,14 +66,16 @@ class Params:
     pane_w: float = 126.0
     pane_h: float = 16.0
     pane_t: float = 1.5
-    dial_t: float = 2.0
+    dial_t: float = 2.0                # depth of the strip's recess in the cover's face
+    strip_t: float = 1.8               # the strip's thickness: 0.2 under the face, so a sagging bridge or a glue layer does not push it proud
     letter_proud: float = 0.4
     # The cover's window has a rim this wide, flush with the face, inside the
     # strip's window: printed face down, the plate behind the strip then
     # bridges between held edges instead of ending free at the window.
-    window_collar: float = 1.0
+    window_collar: float = 2.0
     backing_t: float = 1.6             # plate behind the strip's recess
     backing_lap: float = 2.0           # how far it runs past the recess
+    strip_reach: float = 1.25          # how far the strip's outline and lettering reach past the cover's window (fixed by the look; independent of the rim)
     strip_margin: float = 4.0          # strip edge to its window, and to the wordmark
     # Cap height of the numerals (the wordmark is set at the same size). The
     # design's ~3 mm gives strokes of 0.3 to 0.45 mm in Inter SemiBold; 5.5 is

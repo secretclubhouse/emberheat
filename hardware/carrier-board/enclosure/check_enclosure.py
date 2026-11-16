@@ -597,10 +597,13 @@ def test_dial_strip():
         far_ = plate.translate(cq.Vector(dx * 0.27, dy * 0.27, 0.01))
         assert vol(near_.intersect(cover)) < 1e-6, "strip has under 0.23 clearance toward (%d, %d)" % (dx, dy)
         assert vol(far_.intersect(cover)) > 1e-6, "strip has over 0.27 clearance toward (%d, %d)" % (dx, dy)
-    assert abs(pb.zmax - cb.zmax) <= 0.05, "strip front at z %.3f, cover face at %.3f" % (pb.zmax, cb.zmax)
-    assert abs(pb.zlen - P.dial_t) <= 1e-6, "strip is %.2f thick" % pb.zlen
+    # The plate is 1.8 thick in the 2.0 deep recess: its front 0.2 below the
+    # cover's face, the lettering (0.4 tall) standing 0.2 above it.
+    assert abs(cb.zmax - pb.zmax - 0.2) <= 0.01, "strip front at z %.3f, cover face at %.3f, want 0.2 below" % (pb.zmax, cb.zmax)
+    assert abs(pb.zlen - 1.8) <= 1e-6, "strip is %.2f thick, want 1.8" % pb.zlen
     assert abs(lb.zmin - pb.zmax) <= 1e-6 and abs(lb.zlen - 0.4) <= 1e-6, \
-        "lettering z %.3f..%.3f, strip front %.3f, want 0.4 proud" % (lb.zmin, lb.zmax, pb.zmax)
+        "lettering z %.3f..%.3f, strip front %.3f, want 0.4 tall" % (lb.zmin, lb.zmax, pb.zmax)
+    assert abs(lb.zmax - cb.zmax - 0.2) <= 0.01, "lettering is not 0.2 proud of the cover's face"
     # Windows: concentric; the cover's is the design size, the strip's is the
     # cover's rim plus the fit clearance.
     cx, cy = lights_centre(g)
@@ -619,9 +622,11 @@ def test_dial_strip():
     word = rows[1]
     wx1 = max(c.BoundingBox().xmax for c in word)
     wy1 = max(c.BoundingBox().ymax for c in word)
-    m = [sw.xmin - pb.xmin, pb.xmax - sw.xmax, sw.ymin - pb.ymin, pb.ymax - wy1]
+    lay = (cw.xmin - P.strip_reach, cw.ymin - P.strip_reach, cw.xmax + P.strip_reach)   # the layout rectangle
+    m = [lay[0] - pb.xmin, pb.xmax - lay[2], lay[1] - pb.ymin, pb.ymax - wy1]
     assert max(m) - min(m) <= 0.01, "strip margins %s are not equal" % ["%.2f" % v for v in m]
-    assert abs(wx1 - sw.xmax) <= 0.01, "wordmark ends at x %.2f, window margin at %.2f" % (wx1, sw.xmax)
+    assert abs(wx1 - lay[2]) <= 0.01, "wordmark ends at x %.2f, margin at %.2f" % (wx1, lay[2])
+    assert sw.xmin - pb.xmin > 2.0 and pb.xmax - sw.xmax > 2.0 and sw.ymin - pb.ymin > 2.0, "strip is thin round its window"
     # The wordmark reads `emberheat`: each glyph, in x order, is that letter.
     size = gen_enclosure.label_size(P)
     assert len(word) == 9, "wordmark has %d glyphs" % len(word)
@@ -802,7 +807,7 @@ def test_printable_cover():
 # --- Exports ------------------------------------------------------------------
 
 OUT = os.path.join(HERE, "out")
-EXPORT_NAMES = ("base", "cover", "dial-strip", "pane", "test-piece")
+EXPORT_NAMES = ("base", "cover", "dial-strip", "pane", "test-piece", "test-piece-cover")
 
 
 def sha256(path):
@@ -831,7 +836,8 @@ def test_exports_current():
     h = hashes_file()
     sources = {"board-geometry.json": "board-geometry.json", "params.py": "params.py",
                "gen_enclosure.py": "gen_enclosure.py", "font": os.path.join("fonts", "Inter-SemiBold.ttf"),
-               "export_enclosure.py": "export_enclosure.py", "render_enclosure.py": "render_enclosure.py"}
+               "export_enclosure.py": "export_enclosure.py", "render_enclosure.py": "render_enclosure.py",
+               "board_model.py": "board_model.py"}
     for key, rel in sources.items():
         assert key in h, "hashes.txt has no %s" % key
         assert h[key] == sha256(os.path.join(HERE, rel)), "%s changed since the export (run make enclosure)" % key
@@ -941,6 +947,14 @@ def test_exports_are_the_real_part():
         assert inside(cover, xm + 9, wall_top, zc), "cover wall is not solid between notches"
     assert not inside(cover, wall_left, -(left[1] + left[2]) / 2, zc), "cover has no power input notch at the mirrored place"
     assert inside(cover, wall_left, -20.0, zc), "cover left wall is not solid away from its notch"
+    # Cover test piece (same turn-back): window end with its rim, bottom-left
+    # corner wall, bottom pad pocket.
+    ct = load_step("test-piece-cover").rotate(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 180).translate(cq.Vector(0, 0, f.z_top))
+    assert len(ct.Solids()) == 3, "cover test piece should be three bodies"
+    wy = -lights_centre(g)[1]
+    assert not inside(ct, 40.0, wy, 26.0) and inside(ct, 27.0, wy, 26.0), "cover test piece: window end not at its mirrored place"
+    assert inside(ct, 0.0, -117.2, 5.0), "cover test piece: corner wall not at the mirrored place"
+    assert not inside(ct, mx, my, -2.0) and inside(ct, mx + 3.5, my, -2.0), "cover test piece: magnet pocket not at its mirrored place"
     # The face is on the bed in the print file.
     cp = load_step("cover")
     assert abs(cp.BoundingBox().zmin) < 1e-6 and inside(cp, 84, 100, 1.0), "cover face is not on the bed"
@@ -949,8 +963,8 @@ def test_exports_are_the_real_part():
     strip = load_step("dial-strip")
     start = gen_enclosure.dial(g, P)["z_floor"]
     t0 = float(hashes_file()["lettering_start_height_mm"])
-    assert near(t0, P.dial_t, 1e-3), "lettering start %.3f, strip is %.3f thick" % (t0, P.dial_t)
-    z_shift = -start          # assembled z -> bed z
+    assert near(t0, P.strip_t, 1e-3), "lettering start %.3f, strip is %.3f thick" % (t0, P.strip_t)
+    z_shift = -start          # assembled z (recess floor, the strip back) -> bed z
     ref = gen_enclosure.build(g, P)["dial_lettering"].val()
     mirrored = ref.mirror("XZ").translate(cq.Vector(0, 0, z_shift))
     plain = ref.translate(cq.Vector(0, 0, z_shift))

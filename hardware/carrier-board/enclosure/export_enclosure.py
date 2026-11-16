@@ -13,6 +13,9 @@ mirror. In the exported files:
   dial-strip  back on the bed, lettering up, one body (plate and lettering)
   pane        flat
   test-piece  two bits cut from the base for a first test print (see TEST_REGIONS)
+  test-piece-cover  the same two corners of the cover (they mate with the base
+              test piece) and one end of the window with its rim and recess,
+              face down
 
 Run with the CadQuery environment: make enclosure."""
 import hashlib
@@ -37,6 +40,11 @@ STL_ANGLE = 0.2
 TEST_REGIONS = [(-11.4, 94.0, 16.0, 118.4), (58.0, 100.0, 80.0, 118.4)]
 
 
+# One end of the cover's window with its rim, the strip's recess and a pane rail
+# (board frame, x0, y0, x1, y1), for the cover's test piece.
+WINDOW_REGION = (14.0, 22.0, 50.0, 72.0)
+
+
 def real_part(shape):
     """The real part from a board-frame shape: mirrored in y."""
     return shape.mirror("XZ")
@@ -49,7 +57,8 @@ def sources():
             ("gen_enclosure.py", os.path.join(HERE, "gen_enclosure.py")),
             ("font", os.path.join(HERE, "fonts", "Inter-SemiBold.ttf")),
             ("export_enclosure.py", os.path.join(HERE, "export_enclosure.py")),
-            ("render_enclosure.py", os.path.join(HERE, "render_enclosure.py"))]
+            ("render_enclosure.py", os.path.join(HERE, "render_enclosure.py")),
+            ("board_model.py", os.path.join(HERE, "board_model.py"))]
 
 
 def sha256(path):
@@ -70,16 +79,22 @@ def print_parts(geom, p):
     pieces = [base.intersect(cq.Solid.makeBox(x1 - x0, y1 - y0, bb.zlen + 2, cq.Vector(x0, y0, bb.zmin - 1)))
               for x0, y0, x1, y1 in TEST_REGIONS]
     shapes["test-piece"] = cq.Compound.makeCompound([sol for pc in pieces for sol in pc.Solids()])
+    cover = shapes["cover"]
+    cb = cover.BoundingBox()
+    regions = TEST_REGIONS + [WINDOW_REGION]
+    cpieces = [cover.intersect(cq.Solid.makeBox(x1 - x0, y1 - y0, cb.zlen + 2, cq.Vector(x0, y0, cb.zmin - 1)))
+               for x0, y0, x1, y1 in regions]
+    shapes["test-piece-cover"] = cq.Compound.makeCompound([sol for pc in cpieces for sol in pc.Solids()])
     out = {}
     for name, s in shapes.items():
         s = real_part(s)
-        if name == "cover":
+        if name in ("cover", "test-piece-cover"):
             s = s.rotate(cq.Vector(0, 0, 0), cq.Vector(1, 0, 0), 180)
         bb = s.BoundingBox()
         out[name] = s.translate(cq.Vector(0, 0, -bb.zmin))
-    # The strip's back is on the bed and its front dial_t above it, so the
-    # lettering starts dial_t above the bed.
-    return out, p.dial_t
+    # The strip's back is on the bed and its front strip_t above it, so the
+    # lettering starts strip_t above the bed.
+    return out, p.strip_t
 
 
 def write_step(shape, path):

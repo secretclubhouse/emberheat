@@ -52,7 +52,7 @@ Order from `bom.csv`, with these additions it does not list as rows (they are on
 | Dev board sockets A1, A2 | Samtec SSW-116-01-T-S (C6), SSW-115-01-T-S (H2) | **2 of each (4 strips)** | One strip per side of each dev board. `bom.csv` lists one row each. |
 | **JP1 shunt** | Samtec SNT-100-BK-T | **1** | Goes on the JP1 header (H2 3.3 V feed). Listed only in the note of the JP1 row. |
 | JP1, J3 headers | Samtec TSW-102-07-T-S, TSW-103-07-T-S | 1 each | |
-| DIN clips H5, H6 | Hammond 1427DINCLIP | **1 pack (2 clips + 4 screws)** | Digi-Key HM1489-ND. The #6 screws pass through 4.0 mm clearance holes in the board. |
+| DIN clips H5, H6 | Hammond 1427DINCLIP | **1 pack (2 clips + 4 screws)** | Digi-Key HM1489-ND. The #6 screws pass through 4.0 mm clearance holes in the board (bare board), or through the holes in the enclosure's base (see [Enclosure](#enclosure)). |
 | Dev boards | ESP32-C6-DevKitC-1, ESP32-H2-DevKitM-1 | 1 each | You already have these. |
 | DIN rail | 35 mm top-hat | | Not in `bom.csv`. |
 | 5 V supply | USB-C, 5 V, rated 3 A | 1 | See Power. |
@@ -152,7 +152,7 @@ Before fitting the board:
 
 1. **Measure the gap** with a clip on a piece of 35 mm rail: from the clip's mounting face (where the board's back would sit) to the nearest metal of the rail.
 2. **Put an insulating sheet between the board and the rail** whatever the result: fish paper or 0.5 mm polycarbonate, cut to cover the band over the rail (board y 39.5 to 74.5 mm from the top edge, the full width), with room for the clip screws.
-3. Keep every lead end and solder joint on the back well below the measured gap, with the sheet as a second barrier rather than a substitute. Relay pins are stiff and are usually left untrimmed, so they stand furthest out, and every relay's coil pin A1 sits over the top flange.
+3. Keep every lead end and solder joint on the back well below the measured gap, with the sheet as a second barrier rather than a substitute. Relay pins are stiff and are usually left untrimmed, so they stand furthest out, and every relay's coil pin A1 sits over the top flange. (In the enclosure there is 6 mm under the board and about 4.9 mm over the clip screw heads, so leads up to about 3 mm long are fine there; trimming flush matters for the bare board on clips.)
 
 Over the flanges (counted from the board, flange strips at board y 39.5-43.5 and 70.5-74.5 mm): 16 plated joints over the top flange (the seven relay coil pins A1, the zone lights, C1) and 6 over the bottom one (D8, R4, R5). Allowing 2 mm either way for where the rail really sits in the clip: 60 over the top flange (also every optocoupler pin and relay pin A2) and 16 over the bottom one. The 24 V AC joints (relay contacts 11, 12 and 14, varistors, zone terminals) all lie in the top 31.4 mm of the board (relay pad 12, at y 30.2 mm, carries zone voltage whenever the relay is off), 8 mm above the top flange.
 
@@ -174,12 +174,12 @@ Files in `enclosure/out/` (and the `test-piece` below), each already in its prin
 |---|---|---|---|
 | base | `base.stl` | floor on the bed | 190.8 x 121.8 x 9.0 mm |
 | cover | `cover.stl` | face on the bed | 190.8 x 121.8 x 34.6 mm; the face takes the bed's texture |
-| dial strip | `dial-strip.stl` | back on the bed, lettering up | one body, 132.5 x 42.1 x 2.4 mm |
+| dial strip | `dial-strip.stl` | back on the bed, lettering up | one body, 132.5 x 42.1 x 2.2 mm (plate 1.8 mm plus the lettering) |
 | pane | `pane.stl` | flat | 126 x 16 x 1.5 mm; print it in clear filament (PETG is the clearest) |
 
 Material: ASA, ABS or PETG all suit. The intended material is an off-white ("natural") glass-filled ASA for the base, cover and strip, with black ASA for the lettering. Glass-filled filament is more brittle round the heat-set inserts: do not over-press them and do not over-tighten the screws.
 
-**Filament change (dial strip): at 2.0 mm from the bed.** The plate is 2.0 mm thick and the lettering stands 0.4 mm proud, from 2.0 to 2.4 mm. Change to black at layer 2.0 mm and the numerals and wordmark come out black on an off-white strip. Slice the strip's lettering with a layer height that divides 2.0 mm (0.2 or 0.1).
+**Filament change (dial strip): first black layer from 1.8 mm above the bed.** The plate is 1.8 mm thick (it sits 0.2 mm below the cover's face in its 2.0 mm deep recess) and the lettering is 0.4 mm tall, from 1.8 to 2.2 mm, so it stands 0.2 mm proud of the face. At 0.2 mm layers the plate is layers 1 to 9 and the lettering is layers 10 and 11: set the colour change so the first black layer is layer 10, the one printed from Z 1.8 to 2.0 mm. With any other layer height, change colour at the first layer above 1.8 mm.
 
 The lettering is 5.5 mm tall. Inter's thin joins (where an arch meets a stem on the `m`, `h` and `b`) stay about 0.3 mm wide even at this size and print as a slightly filled corner.
 
@@ -193,21 +193,26 @@ The lettering is 5.5 mm tall. Inter's thin joins (where an arch meets a stem on 
 
 ### Test print first
 
-Before the whole box, print `enclosure/out/test-piece.stl` (print orientation, floor down, about 91 x 24 x 9 mm). It is cut from the real base and has two bodies: the bottom-left corner of the base (one standoff with its foot and insert hole, the lip's corner and the wall's rim) and the bottom magnet pad nearest the notch (its pocket walls are only 0.7 mm thick) with a stretch of lip. Check on it: a heat-set insert goes into the standoff and holds, and a magnet drops flush into the pad's pocket (it must be no taller than the pocket is deep, 3.0 mm). To check the 0.25 mm fit of the lip against a cover wall, print a corner of the cover too, cut in your slicer or CAD from `cover.step`. If anything is too tight or too loose, change `fit_clearance`, `insert_hole_d` or the pocket size in `enclosure/params.py` and run `make enclosure`.
+Before the whole box, print the two test pieces (print orientation, no supports). They are cut from the real base and cover, so they cannot drift from the parts.
+
+- `enclosure/out/test-piece.stl` (floor down, about 91 x 24 x 9 mm; two bodies): the bottom-left corner of the base (one standoff with its foot and insert hole, the lip's corner and the wall's rim) and the bottom magnet pad nearest the notch (its pocket walls are only 0.7 mm thick) with a stretch of lip.
+- `enclosure/out/test-piece-cover.stl` (face down; three bodies): the same two corners of the cover, which mate with the base pieces, and one end of the window with its 2 mm rim, the strip's recess and a pane rail. Print the dial strip too (it is small).
+
+Check: a heat-set insert goes into the standoff and holds; a magnet drops flush into the pad's pocket (no taller than the pocket is deep, 3.0 mm); each cover corner drops onto its base piece with the lip fitting the wall (0.25 mm) and the two magnet faces of the pad pair 0.25 mm apart; the strip drops into the window end's recess flush within 0.2 mm; the window's rim and bridge printed cleanly. If anything is too tight or too loose, change `fit_clearance`, `insert_hole_d` or the pocket size in `enclosure/params.py` and run `make enclosure`.
 
 ### Assembly
 
 1. Press the four heat-set inserts into the standoffs with a soldering iron, square and flush; let the plastic cool before turning anything.
-2. Magnets, in this order so the polarity cannot come out wrong:
-   1. Glue the four magnets into the four base pockets first (glue round the side, not under), pressed in flush. Their orientation is now fixed.
-   2. Take one cover magnet and let it snap onto its base magnet (they attract, so you will feel which way round it wants to go). With a pen, mark the face that points **away** from the base magnet.
-   3. Glue that magnet into the matching cover pocket with the **marked face going in first**, deep in the pocket, so the unmarked face, the one that was attracted to the base magnet, is at the pocket's open end. Check that the pair attracts (the cover magnet is pulled towards the base magnet when you hold the cover over the base) before the glue sets.
-   4. Repeat for the other three pairs. Seated, the two faces of a pair are 0.25 mm apart.
+2. Magnets, in this order so the polarity cannot come out wrong. Do the attraction check dry, never with a magnet in wet glue: held over the base, it would be pulled out of its pocket.
+   1. Glue the four magnets into the four base pockets (glue round the side, not under), pressed in flush, and let them set. Their orientation is now fixed.
+   2. For each cover pocket, find the orientation dry: let a cover magnet snap onto its base magnet, and with a pen mark the face that points **away** from the base magnet.
+   3. With the cover away from the base, glue that magnet into the cover pocket with the **marked face going in first**, deep in the pocket, so the unmarked face, the one that was attracted to the base magnet, is at the pocket's open end. Let the glue set before bringing the cover and base together.
+   4. Repeat for the other three pairs. Check afterwards that the pairs attract. Seated, the two faces of a pair are 0.25 mm apart.
 3. DIN clips on the base, from the front (the inside): **hook end up**. The base's back is marked `HOOK` and `UP`, above each clip's hook end; the slot is at the hook end, the round hole at the latch end. Screw heads sit in the counterbores, about 4 mm below the solder joints; they touch nothing but plastic. **Then clip the base onto the rail, now, before the board goes in**: it is light and the screws and the clip latches are easy to reach. (Fit the board into a base already on the rail; the checks assume the board's back is 6 mm off the floor either way.)
-4. Board: build it and trim every lead on the back flush first. The enclosure does not model back-side component leads, and the board sits 6 mm off the floor, so long leads would reach it. Lower the board onto the four standoffs and fix it with the four M3 screws. Connect the zone plugs, the USB-C cable and the J2 power wires (they leave through the notches).
-5. Dial strip: with the cover off the wall and face up, set the strip in the recess in its face, lettering up. It fits with 0.25 mm all round and is flush with the face; a few spots of glue at the back keep it there (the recess is open to the front, so nothing else holds it on a wall). The strip is a separate part so it can be reprinted alone to change the labels.
-6. Pane: let the glue under the dial strip cure first. Lay the cover face down on the bench with its open back up. Lower the pane in between the two end rails and slide it towards the cover's bottom edge (the side opposite the zone terminal notches) until it meets the stops. Carry the cover to the wall with the notches at the top, so the pane's stop end is down and gravity keeps it on the stops. Do not tip the cover notch-side down while carrying it: the rails hold the pane only at its two ends and it would slide out.
-7. Cover: with the base on the wall and the board fitted, lower the cover on straight (the lip locates it, the magnets pull it down the last 0.25 mm). To open, lift it straight off in +z; nothing is under it.
+4. Board: build it first and trim the leads on the back; leads up to about 3 mm long are fine in the box (6 mm under the board, about 4.9 mm over the clip screw heads), but the enclosure model does not include them, so trim flush where you can. Lower the board onto the four standoffs and fix it with the four M3 screws. Connect the zone plugs, the USB-C cable and the J2 power wires (they leave through the notches).
+5. Dial strip: with the cover off the wall and face up, set the strip in the recess in its face, lettering up. It fits with 0.25 mm all round and sits 0.2 mm below the face (the lettering stands 0.2 mm proud); a few spots of glue at the back keep it there (the recess is open to the front, so nothing else holds it on a wall). The strip is a separate part so it can be reprinted alone to change the labels.
+6. Pane: let the glue under the dial strip cure first. Lay the cover face down on a soft cloth (it rests on the 0.4 mm proud lettering, so use a cloth) with its open back up. Lay the pane flat on the inside of the face, on the zone-terminal-notch side of the rails (the pane cannot be lowered between the rails: their lips overhang its ends), and slide it under the lips towards the cover's bottom edge (the side opposite the notches) until it meets the stops. Carry the cover to the wall with the notches at the top, so the pane's stop end is down and gravity keeps it on the stops. Do not tip the cover notch-side down while carrying it: the rails hold the pane only at its two ends and it would slide out.
+7. Cover: with the base on the wall and the board fitted, lower the cover on straight (the lip locates it, the magnets pull it down the last 0.25 mm). To open, grip the cover by its sides, not by the pillars between the zone notches, and lift it straight off (nothing is under it).
 
 The cover's rim bears on about 1.8 mm of the 2.4 mm wall (the base rim's edge is chamfered).
 
@@ -215,7 +220,7 @@ The cover's rim bears on about 1.8 mm of the 2.4 mm wall (the base rim's edge is
 
 - Nothing has been printed. Insert holes, magnet pockets, the fit of the cover and the pane, the 0.4 mm lettering and the 0.5 mm strokes usually need one test print.
 - Part heights are from datasheets and estimates, not parts in hand: measure the tallest part on the assembled board against the 25 mm clearance before printing the cover.
-- Back-side component leads are not modelled. Trim them flush.
+- Back-side component leads are not modelled. Leads up to about 3 mm are fine in the box; trim flush where you can.
 - The lights sit about 20 mm behind the window, so they read best from straight on.
 - Brass inserts and steel screws near the antennas (see Hardware); the magnets are at least 20 mm from both antennas.
 - The power light shows through an open 3 mm hole.
@@ -318,7 +323,7 @@ What route.py does around the router:
 
 - **Firmware that is running but stuck with a relay pin held LOW.** The board has no hardware watchdog. The firmware's crash fail-safe (relays off and restart on a panic or hang) handles this; a board-level watchdog is left for a later revision.
 - **Enabling seven zones** is a firmware change (see Wiring).
-- Solid-state relays, a closed enclosure, an eighth relay, powering from the 24 V AC, on-board USB data and an on-board 3.3 V regulator are not in this revision.
+- Solid-state relays, an eighth relay, powering from the 24 V AC, on-board USB data and an on-board 3.3 V regulator are not in this revision.
 
 ## Known gaps
 
