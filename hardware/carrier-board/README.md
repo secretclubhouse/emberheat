@@ -4,7 +4,7 @@ A KiCad board, 168 x 114 mm, that holds an ESP32-C6-DevKitC-1 and an ESP32-H2-De
 
 ![Board, front](renders/board-top.png)
 
-**Status: designed and checked by software only; boards on order.** The owner ordered the board from OSH Park on 2026-11-16 and most of the parts from Digi-Key the same day; the relays and terminal plugs were still to be ordered (see [Ordering](#ordering)). No board has arrived and nothing has been assembled. The only parts test-fitted are the two dev boards, which the owner set on the printed template on 2026-11-16: both fit. No other part has been compared with its footprint. Distributor stock came from search snapshots, not live pages. The current in a zone circuit has not been measured. How far the back of the board sits from the metal rail is not established (see [Assembly](#assembly)). The [Known gaps](#known-gaps) section lists everything else. Read it before you order.
+**Status: designed and checked by software only; boards on order.** The owner ordered the board from OSH Park on 2026-11-16 and every part the same day, from Digi-Key and Newark (see [Ordering](#ordering)). No board has arrived and nothing has been assembled. The only parts test-fitted are the two dev boards, which the owner set on the printed template on 2026-11-16: both fit. No other part has been compared with its footprint. Distributor stock came from search snapshots, not live pages. The current in a zone circuit has not been measured. How far the back of the board sits from the metal rail is not established (see [Assembly](#assembly)). The [Known gaps](#known-gaps) section lists everything else. Read it before you order.
 
 This board controls a heating system. It is a one-off built for one house, not a certified product. A mistake can leave a zone's valve open (heat on) or shut (no heat).
 
@@ -33,7 +33,9 @@ This board controls a heating system. It is a one-off built for one house, not a
 
 Order from `bom.csv`, with these additions it does not list as rows (they are only in its notes). Check each against the manufacturer's part number on the distributor's page before paying.
 
-**Parts ordered 2026-11-16 from Digi-Key:** everything in `digikey-cart.csv`, which is the order as placed (23 lines, all in stock, with spares). Two parts are not in that order and were still to be bought from Newark when this was written: the relay (Digi-Key does not list 34.51.7.005.5010; it stocks the 34.51.7.005.0010, which has the same body, pins and coil but plain AgNi contacts without the gold layer) and the zone terminal plug 1757019 (out of stock at Digi-Key).
+**Parts ordered 2026-11-16 from Digi-Key:** everything in `digikey-cart.csv`, which is the order as placed (23 lines, all in stock, with spares). Two parts are not in that order: the relay (Digi-Key does not list 34.51.7.005.5010; it stocks the 34.51.7.005.0010, which has the same body, pins and coil but plain AgNi contacts without the gold layer) and the zone terminal plug 1757019 (out of stock at Digi-Key).
+
+**Ordered 2026-11-16 from Newark:** 8 x relay 34.51.7.005.5010 (Newark 26M7138, $14.40 each; 7 plus a spare) and 7 x terminal plug 1757019 (Newark 71C4152, $2.06 each). One shipment from Newark's UK warehouse, quoted at 4-6 business days.
 
 | What | Part | Qty | Note |
 |---|---|---|---|
