@@ -4,7 +4,7 @@ A KiCad board, 168 x 114 mm, that holds an ESP32-C6-DevKitC-1 and an ESP32-H2-De
 
 ![Board, front](renders/board-top.png)
 
-**Status: designed and checked by software only; boards on order.** The owner ordered the board from OSH Park on 2026-11-16 (see [Ordering](#ordering)). No board has arrived and nothing has been assembled. The only parts test-fitted are the two dev boards, which the owner set on the printed template on 2026-11-16: both fit. No other part has been compared with its footprint. Distributor stock came from search snapshots, not live pages. The current in a zone circuit has not been measured. How far the back of the board sits from the metal rail is not established (see [Assembly](#assembly)). The [Known gaps](#known-gaps) section lists everything else. Read it before you order.
+**Status: designed and checked by software only; boards on order.** The owner ordered the board from OSH Park on 2026-11-16 and most of the parts from Digi-Key the same day; the relays and terminal plugs were still to be ordered (see [Ordering](#ordering)). No board has arrived and nothing has been assembled. The only parts test-fitted are the two dev boards, which the owner set on the printed template on 2026-11-16: both fit. No other part has been compared with its footprint. Distributor stock came from search snapshots, not live pages. The current in a zone circuit has not been measured. How far the back of the board sits from the metal rail is not established (see [Assembly](#assembly)). The [Known gaps](#known-gaps) section lists everything else. Read it before you order.
 
 This board controls a heating system. It is a one-off built for one house, not a certified product. A mistake can leave a zone's valve open (heat on) or shut (no heat).
 
@@ -33,6 +33,8 @@ This board controls a heating system. It is a one-off built for one house, not a
 
 Order from `bom.csv`, with these additions it does not list as rows (they are only in its notes). Check each against the manufacturer's part number on the distributor's page before paying.
 
+**Parts ordered 2026-11-16 from Digi-Key:** everything in `digikey-cart.csv`, which is the order as placed (23 lines, all in stock, with spares). Two parts are not in that order and were still to be bought from Newark when this was written: the relay (Digi-Key does not list 34.51.7.005.5010; it stocks the 34.51.7.005.0010, which has the same body, pins and coil but plain AgNi contacts without the gold layer) and the zone terminal plug 1757019 (out of stock at Digi-Key).
+
 | What | Part | Qty | Note |
 |---|---|---|---|
 | Circuit board | `fab/carrier-board-gerbers.zip` | 1 board (or the house's minimum) | 2 layers, 1.6 mm, 168 x 114 mm. Smallest hole 0.4 mm (vias); smallest track and gap 0.25 mm. **Ordered 2026-11-16 from OSH Park** by uploading this zip; the owner looked at every layer in OSH Park's preview and all looked right. About $149, which matches their standard 2-layer service (three boards, 1.6 mm, 1 oz copper, ENIG finish, purple mask); the service name was not recorded. Chosen over JLCPCB (about $80 with shipping) to avoid import duties. The limits above were not checked against OSH Park's published rules beyond their accepting the files. Their boards arrive with small break-off nubs on the edges: file them flat before fitting the board in the enclosure. The parts had not been ordered or laid on the print template when the board was ordered. |
@@ -40,7 +42,7 @@ Order from `bom.csv`, with these additions it does not list as rows (they are on
 | Zone terminal header J11-J17 | Phoenix 1757242 (MSTBA 2,5/2-G-5,08) | 7 | Soldered to the board. |
 | **Zone terminal plug** | **Phoenix 1757019 (MSTB 2,5/2-ST-5,08)** | **7** | **Not a board part, so easy to forget. Without it nothing connects to the headers.** |
 | Optocoupler U1-U7 | Lite-On LTV-817 | 7 | Any rank letter. |
-| Transistor Q1-Q7 | onsemi 2N3904 | 7 | Must be the EBC pinout (onsemi). Some makers sell CBE parts, which would be wrong. |
+| Transistor Q1-Q7 | onsemi 2N3904TF | 7 | The 2N3904 on tape with formed leads; Digi-Key lists the plain 2N3904 number as discontinued and names this as its replacement. Must be the EBC pinout (onsemi). Some makers sell CBE parts, which would be wrong. |
 | Flyback diode D1-D7 | onsemi 1N4148 | 7 | |
 | Varistor RV1-RV7 | Littelfuse V56ZA2P | 7 | 35 V AC, ZA "7mm" model: the coated disc is up to 9 mm across and 5 mm thick. Stands to the right of its relay. |
 | Zone light D11-D17 / power light D8 | Kingbright WP710A10ID (red) / WP710A10GD (green) | 7 / 1 | 3 mm (T-1). Not the WP7113 parts, which are 5 mm. Cathode (flat side, shorter lead) in the square pad. |

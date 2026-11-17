@@ -27,6 +27,8 @@ Source: Lite-On LTV-817 Series datasheet (package page and electrical table).
 
 Source: onsemi 2N3903/2N3904 datasheet.
 
+Ordered as 2N3904TF (Digi-Key 2N3904TFCT-ND, 2026-11-16): the same onsemi part on tape with formed leads, which Digi-Key names as the replacement for its discontinued plain 2N3904 listing. The formed lead spacing was not read from a drawing; the footprint is `TO-92_Inline_Wide` (2.54 mm between holes) and the leads bend to suit either way.
+
 - hFE minimum at VCE = 1 V: 70 at 1 mA, 100 at 10 mA, 60 at 50 mA.
 - VCE(sat) maximum: 0.2 V (IC 10 mA, IB 1 mA); 0.3 V (IC 50 mA, IB 5 mA).
 - VBE(sat): 0.65-0.85 V (10 mA / 1 mA); up to 0.95 V (50 mA / 5 mA).
